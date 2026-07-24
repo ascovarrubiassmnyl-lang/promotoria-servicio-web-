@@ -1,0 +1,261 @@
+import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
+
+const prisma = new PrismaClient();
+
+async function main() {
+  console.log('Seed: creando usuarios...');
+  const superadmin = await prisma.usuario.upsert({
+    where: { email: 'superadmin@demo.com' },
+    update: {},
+    create: { nombre: 'Super', apellidoP: 'Admin', email: 'superadmin@demo.com', password: await bcrypt.hash('super123', 10), rol: 'SUPERADMIN', telefono: '5550000000' },
+  });
+  const admin = await prisma.usuario.upsert({
+    where: { email: 'admin@demo.com' },
+    update: {},
+    create: { nombre: 'Promotora', apellidoP: 'Admin', email: 'admin@demo.com', password: await bcrypt.hash('admin123', 10), rol: 'ADMIN', telefono: '5550000001' },
+  });
+  const asesor1 = await prisma.usuario.upsert({
+    where: { email: 'asesor1@demo.com' },
+    update: {},
+    create: { nombre: 'Juan', apellidoP: 'Pérez', email: 'asesor1@demo.com', password: await bcrypt.hash('asesor123', 10), rol: 'ASESOR', telefono: '5550000002' },
+  });
+  const asesor2 = await prisma.usuario.upsert({
+    where: { email: 'asesor2@demo.com' },
+    update: {},
+    create: { nombre: 'María', apellidoP: 'López', email: 'asesor2@demo.com', password: await bcrypt.hash('asesor123', 10), rol: 'ASESOR', telefono: '5550000003' },
+  });
+
+  console.log('Seed: catálogo de productos SMNYL (desde Brain 2)...');
+  const productosCatalogoSeed = [
+    // Orvi 99 — Vida vitalicio
+    { ramo: 'VIDA', nombre: 'Orvi 6 pagos',         comisionPct: 20, descripcion: 'Seguro de vida vitalicio con primas niveladas pagaderas en 6 años; protección de por vida con reserva garantizada.' },
+    { ramo: 'VIDA', nombre: 'Orvi 10 pagos',        comisionPct: 36, descripcion: 'Seguro de vida vitalicio con primas niveladas pagaderas en 10 años; disponible en USD (36%) y UDI (35%).' },
+    { ramo: 'VIDA', nombre: 'Orvi 15 pagos',        comisionPct: 35, descripcion: 'Seguro de vida vitalicio con primas niveladas pagaderas en 15 años; protección de por vida.' },
+    { ramo: 'VIDA', nombre: 'Orvi 20 pagos',        comisionPct: 44, descripcion: 'Seguro de vida vitalicio con primas niveladas pagaderas en 20 años; en UDI 44% (SA<1.5M) o 35% (SA>=1.5M).' },
+    { ramo: 'VIDA', nombre: 'Orvi Edad 60',         comisionPct: 44, descripcion: 'Seguro de vida vitalicio con pago de primas hasta edad alcanzada de 60 años; 44% si edad<=41 al contratar, 35% si edad>41.' },
+    { ramo: 'VIDA', nombre: 'Orvi Todos los pagos', comisionPct: 44, descripcion: 'Seguro de vida vitalicio con primas pagaderas durante toda la vida; en UDI 44% (SA<1.5M) o 35% (SA>=1.5M).' },
+
+    // Star Dotal — Ahorro a plazo
+    { ramo: 'ACUMULACION', nombre: 'Star Dotal 5 años',  comisionPct: 11, descripcion: 'Seguro dotal a 5 años en USD que combina protección por fallecimiento y ahorro recibido en vida al vencimiento.' },
+    { ramo: 'ACUMULACION', nombre: 'Star Dotal 10 años',  comisionPct: 27, descripcion: 'Seguro dotal a 10 años (USD 27% / UDI 30%) que entrega la suma asegurada al sobrevivir el plazo o a beneficiarios por fallecimiento.' },
+    { ramo: 'ACUMULACION', nombre: 'Star Dotal 15 años',  comisionPct: 28, descripcion: 'Seguro dotal a 15 años en USD con protección por fallecimiento y ahorro recibido en vida al vencimiento.' },
+    { ramo: 'ACUMULACION', nombre: 'Star Dotal 20 años', comisionPct: 35, descripcion: 'Seguro dotal a 20 años (USD y UDI, 35% año 1) con protección y ahorro de largo plazo.' },
+
+    // SeguBeca — Ahorro educativo
+    { ramo: 'ACUMULACION', nombre: 'SeguBeca', comisionPct: null, descripcion: 'Seguro dotal para constituir el capital de educación universitaria del menor, con pago de suma asegurada a los 18 años y exención de primas por fallecimiento/invalidez del contratante.' },
+
+    // Vida Mujer — Vida + ahorro para mujeres
+    { ramo: 'VIDA', nombre: 'Vida Mujer', comisionPct: 40, descripcion: 'Seguro de vida y ahorro diseñado para mujeres que entrega anticipos (dotales) del 5% de la SA cada 2 años desde el año 5 y 80% al final, totalizando 115% de la SA.' },
+
+    // Imagina Ser — Retiro / PPR (deducción LISR Art. 151) — variantes por modalidad de pago
+    { ramo: 'RETIRO', nombre: 'Imagina Ser PPR — Prima Nivelada Plazo Largo', comisionPct: 35, descripcion: 'Plan Personal de Retiro Imagina Ser con prima nivelada, plazo largo (20+ años). Deducción fiscal LISR Art. 151 y 185. Renta vitalicia a los 60/65/70. Disponible en USD (2%TMG) y UDIs (1%TMG).' },
+    { ramo: 'RETIRO', nombre: 'Imagina Ser PPR — Prima Nivelada Plazo Medio', comisionPct: 30, descripcion: 'Plan Personal de Retiro Imagina Ser con prima nivelada, plazo medio (10-19 años). Deducción fiscal LISR Art. 151 y 185. Renta vitalicia a los 60/65/70. Disponible en USD (2%TMG) y UDIs (1%TMG).' },
+    { ramo: 'RETIRO', nombre: 'Imagina Ser PPR — Prima Única Plazo Largo', comisionPct: 8.5, descripcion: 'Plan Personal de Retiro Imagina Ser con prima única, plazo largo (20+ años). Deducción fiscal LISR Art. 151 y 185. Renta vitalicia a los 60/65/70.' },
+    { ramo: 'RETIRO', nombre: 'Imagina Ser PPR — Prima Única Plazo Medio', comisionPct: 8.5, descripcion: 'Plan Personal de Retiro Imagina Ser con prima única, plazo medio (10-19 años). Deducción fiscal LISR Art. 151 y 185. Renta vitalicia a los 60/65/70.' },
+    { ramo: 'RETIRO', nombre: 'Imagina Ser PPR — Pagos Limitados 10', comisionPct: 27, descripcion: 'Plan Personal de Retiro Imagina Ser con pagos limitados a 10 años. Deducción fiscal LISR Art. 151 y 185. Renta vitalicia a los 60/65/70.' },
+    { ramo: 'RETIRO', nombre: 'Imagina Ser PPR — Pagos Limitados 15', comisionPct: 30, descripcion: 'Plan Personal de Retiro Imagina Ser con pagos limitados a 15 años. Deducción fiscal LISR Art. 151 y 185. Renta vitalicia a los 60/65/70.' },
+
+    // Alfa Medical — Gastos Médicos Mayores
+    { ramo: 'GMM', nombre: 'Alfa Medical', comisionPct: null, descripcion: 'Seguro de Gastos Médicos Mayores que cubre gastos por accidente, enfermedad, parto o cesárea, con coberturas básicas (maternidad, trasplantes, dentales, etc.) y opcionales de extensión en el extranjero. Programa Médicos a tu lado®.' },
+  ];
+  const productoCatalogo = {};
+  for (const p of productosCatalogoSeed) {
+    const existente = await prisma.productoCatalogo.findUnique({ where: { ramo_nombre: { ramo: p.ramo, nombre: p.nombre } } });
+    if (existente) productoCatalogo[`${p.ramo}_${p.nombre}`] = existente;
+    else productoCatalogo[`${p.ramo}_${p.nombre}`] = await prisma.productoCatalogo.create({ data: p });
+  }
+
+  console.log('Seed: creando clientes (pipeline)...');
+  const clientesData = [
+    // asesor1: todos los estados del pipeline
+    { asesorId: asesor1.id, nombre: 'Carlos',    apellidoP: 'Ramírez', telefono: '5551111111', email: 'carlos@example.com',    estado: 'PROSPECTO', fuente: 'Referido', productoInteres: 'VIDA', detalleInteres: 'Busca protección para su familia, prima mensual estimada $1,500' },
+    { asesorId: asesor1.id, nombre: 'Ana',       apellidoP: 'Torres',  telefono: '5551111112', email: 'ana@example.com',        estado: 'PROPUESTA', fuente: 'Facebook', productoInteres: 'SALUD', detalleInteres: 'GMM individual, 35 años, sin antecedentes' },
+    { asesorId: asesor1.id, nombre: 'Roberto',   apellidoP: 'Cruz',    telefono: '5551111121', email: 'roberto@example.com',   estado: 'CITA',      fuente: 'LinkedIn' },
+  { asesorId: asesor2.id, nombre: 'Luis',      apellidoP: 'Martínez', telefono: '5551111113', email: 'luis@example.com',      estado: 'ENTREGA_POLIZA', fuente: 'Walk-in', productoComprado: 'ACUMULACION', productoNombre: 'NY Life Accumulator Plus', formaPago: 'ANUAL', primaMonto: 50000, fechaRenovacion: new Date(new Date().getFullYear() + 1, new Date().getMonth(), new Date().getDate()) },
+    { asesorId: asesor2.id, nombre: 'Patricia', apellidoP: 'Vega',    telefono: '5551111114', email: 'patricia@example.com',  estado: 'POST_VENTA_SEGUIMIENTO', fuente: 'LinkedIn', productoComprado: 'RETIRO', productoNombre: 'NY Life Retirement Builder', formaPago: 'MENSUAL', primaMonto: 18000 },
+    { asesorId: asesor2.id, nombre: 'Gabriela', apellidoP: 'Ruiz',    telefono: '5551111115', email: 'gabriela@example.com',  estado: 'NECESITA_SEGUIMIENTO', fuente: 'Instagram', productoInteres: 'PROTECCION', detalleInteres: 'Le cotizaron protection familiar pero no respondió' },
+  ];
+  const clientes = [];
+  for (const c of clientesData) {
+    const existente = await prisma.cliente.findFirst({ where: { email: c.email } });
+    if (existente) { clientes.push(existente); }
+    else { clientes.push(await prisma.cliente.create({ data: c })); }
+  }
+  const [c1, c2, c3, c4, c5, c6] = clientes;
+
+  // Primer referido: c1 refirió a c2 (ya convertido) y a c3 (pendiente)
+  await prisma.cliente.update({ where: { id: c2.id }, data: { referidoPorId: c1.id } });
+  await prisma.cliente.update({ where: { id: c3.id }, data: { referidoPorId: c1.id } });
+
+  console.log('Seed: ventas con pipeline financiero...');
+  const ventasExistentes = await prisma.venta.count();
+  if (ventasExistentes === 0) {
+    const now = new Date();
+    const pctV = 25, acumPct = 20, protPct = 35, salPct = 15, retPct = 12;
+    await prisma.venta.createMany({ data: [
+      {
+        asesorId: asesor2.id, clienteId: c4.id, ramo: 'ACUMULACION', producto: 'Star Dotal 20 años',
+        primaAnual: 50000, comisionPct: acumPct, comisionMonto: +(50000 * acumPct / 100).toFixed(2),
+        estado: 'PAGADA', productoCatalogoId: productoCatalogo['ACUMULACION_Star Dotal 20 años'].id,
+        fechaFirma: new Date(now.getFullYear(), now.getMonth() - 3, 15),
+        fechaPago: new Date(now.getFullYear(), now.getMonth() - 2, 5),
+        fechaEntregaPoliza: new Date(now.getFullYear(), now.getMonth() - 2, 20),
+        formaPago: 'ANUAL',
+        fechaInicioVigencia: new Date(now.getFullYear(), now.getMonth() - 3, 15),
+        fechaFinVigencia: new Date(now.getFullYear() + 20, now.getMonth() - 3, 15),
+        fechaProximoPago: new Date(now.getFullYear() + 1, now.getMonth() - 2, 5),
+        diaPago: 5, montoPago: 50000,
+      },
+      {
+        asesorId: asesor2.id, clienteId: c5.id, ramo: 'RETIRO', producto: 'Imagina Ser PPR — Prima Nivelada Plazo Largo',
+        primaAnual: 18000, comisionPct: retPct, comisionMonto: +(18000 * retPct / 100).toFixed(2),
+        estado: 'FIRMADA', productoCatalogoId: productoCatalogo['RETIRO_Imagina Ser PPR — Prima Nivelada Plazo Largo'].id,
+        fechaFirma: new Date(now.getFullYear(), now.getMonth() - 1, 10),
+        formaPago: 'MENSUAL',
+        fechaInicioVigencia: new Date(now.getFullYear(), now.getMonth() - 1, 10),
+        fechaFinVigencia: new Date(now.getFullYear() + 30, now.getMonth() - 1, 10),
+        fechaProximoPago: new Date(now.getFullYear(), now.getMonth(), 10),
+        diaPago: 10, montoPago: 1500,
+      },
+      {
+        asesorId: asesor1.id, clienteId: c2.id, ramo: 'GMM', producto: 'Alfa Medical',
+        primaAnual: 28000, comisionPct: salPct, comisionMonto: +(28000 * salPct / 100).toFixed(2),
+        estado: 'PENDIENTE_PAGAR', productoCatalogoId: productoCatalogo['GMM_Alfa Medical'].id,
+        fechaFirma: new Date(now.getFullYear(), now.getMonth(), 2),
+        formaPago: 'SEMESTRAL',
+        fechaInicioVigencia: new Date(now.getFullYear(), now.getMonth(), 2),
+        fechaFinVigencia: new Date(now.getFullYear() + 1, now.getMonth(), 2),
+        fechaProximoPago: new Date(now.getFullYear(), now.getMonth() + 6, 2),
+        diaPago: 2, montoPago: 14000,
+      },
+      {
+        asesorId: asesor1.id, clienteId: c3.id, ramo: 'VIDA', producto: 'Orvi 10 pagos',
+        primaAnual: 12000, comisionPct: pctV, comisionMonto: +(12000 * pctV / 100).toFixed(2),
+        estado: 'APROBADA', productoCatalogoId: productoCatalogo['VIDA_Orvi 10 pagos'].id,
+        fechaFirma: new Date(now.getFullYear(), now.getMonth() - 1, 28),
+        fechaPago: new Date(now.getFullYear(), now.getMonth(), 5),
+        formaPago: 'ANUAL',
+        fechaInicioVigencia: new Date(now.getFullYear(), now.getMonth() - 1, 28),
+        fechaFinVigencia: new Date(now.getFullYear() + 10, now.getMonth() - 1, 28),
+        fechaProximoPago: new Date(now.getFullYear() + 1, now.getMonth() - 1, 28),
+        diaPago: 28, montoPago: 12000,
+      },
+    ] });
+    // Generar recordatorio de pago automático para las ventas que tienen fechaProximoPago
+    const ventasRecienCreadas = await prisma.venta.findMany({ where: { fechaProximoPago: { not: null } }, include: { cliente: { select: { nombre: true, apellidoP: true } } } });
+    for (const v of ventasRecienCreadas) {
+      if (v.formaPago === 'UNICO') continue;
+      const existente = await prisma.nota.findFirst({ where: { ventaId: v.id, tipo: 'RECORDATORIO_PAGO' } });
+      if (!existente) {
+        await prisma.nota.create({
+          data: {
+            clienteId: v.clienteId, asesorId: v.asesorId, ventaId: v.id,
+            tipo: 'RECORDATORIO_PAGO', texto: `Pago de póliza: ${v.producto} (${v.formaPago.toLowerCase()}) · ${v.cliente.nombre} ${v.cliente.apellidoP}`,
+            fechaAviso: v.fechaProximoPago,
+          },
+        });
+      }
+    }
+  }
+
+  console.log('Seed: citas...');
+  const citasExistentes = await prisma.cita.count();
+  if (citasExistentes === 0) {
+    const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(10, 0, 0, 0);
+    const dayAfter = new Date(); dayAfter.setDate(dayAfter.getDate() + 2); dayAfter.setHours(12, 0, 0, 0);
+    const nextWeek = new Date(); nextWeek.setDate(nextWeek.getDate() + 7); nextWeek.setHours(15, 0, 0, 0);
+    const lastWeek = new Date(); lastWeek.setDate(lastWeek.getDate() - 7); lastWeek.setHours(11, 0, 0, 0);
+    await prisma.cita.createMany({ data: [
+      { asesorId: asesor1.id, clienteId: c1.id, titulo: 'Primera llamada',  tipo: 'TELEFONICA', fechaHoraInicio: tomorrow, fechaHoraFin: new Date(tomorrow.getTime() + 30 * 60 * 1000) },
+      { asesorId: asesor1.id, clienteId: c2.id, titulo: 'Cotización GMM',    tipo: 'VIDEO',      fechaHoraInicio: dayAfter,  fechaHoraFin: new Date(dayAfter.getTime() + 60 * 60 * 1000) },
+      { asesorId: asesor2.id, clienteId: c3.id, titulo: 'Renovación auto',    tipo: 'PRESENCIAL', fechaHoraInicio: nextWeek,  fechaHoraFin: new Date(nextWeek.getTime() + 90 * 60 * 1000), ubicacion: 'Oficina Centro' },
+      { asesorId: asesor1.id, clienteId: c1.id, titulo: 'Llamada de seguimiento', tipo: 'TELEFONICA', fechaHoraInicio: lastWeek, fechaHoraFin: new Date(lastWeek.getTime() + 20 * 60 * 1000), estado: 'COMPLETADA' },
+    ] });
+  }
+
+  console.log('Seed: notas...');
+  const notasExistentes = await prisma.nota.count();
+  if (notasExistentes === 0) {
+    await prisma.nota.createMany({ data: [
+      { clienteId: c1.id, asesorId: asesor1.id, tipo: 'NOTA',       texto: 'Le interesa protección de vida. esposa y 2 hijos. Ingreso aprox 35k/mes' },
+      { clienteId: c1.id, asesorId: asesor1.id, tipo: 'RECORDATORIO', texto: 'Llamar para recordar la cita de cotización', fechaAviso: new Date(new Date().getTime() + 24 * 60 * 60 * 1000) },
+      { clienteId: c3.id, asesorId: asesor2.id, tipo: 'RECORDATORIO', texto: 'Renovación de póliza acumulación — confirmar prima', fechaAviso: new Date(new Date().getTime() + 30 * 24 * 60 * 60 * 1000) },
+    ] });
+  }
+
+  console.log('Seed: bonos demo...');
+  const bonosExistentes = await prisma.bono.count();
+  if (bonosExistentes === 0) {
+    const now = new Date();
+    await prisma.bono.createMany({ data: [
+      { asesorId: asesor1.id, mes: now.getMonth() + 1, anio: now.getFullYear(), concepto: 'Bono de producción',     monto: 8000,  estado: 'PENDIENTE' },
+      { asesorId: asesor1.id, mes: now.getMonth() + 1, anio: now.getFullYear(), concepto: 'Bono de persistencia',   monto: 3500,  estado: 'PENDIENTE' },
+      { asesorId: asesor2.id, mes: now.getMonth() + 1, anio: now.getFullYear(), concepto: 'Bono de producción',     monto: 12000, estado: 'COBRADO', fechaCobro: new Date(now.getFullYear(), now.getMonth(), 5) },
+      { asesorId: asesor1.id, mes: now.getMonth(),     anio: now.getFullYear(), concepto: 'Bono de nuevo asesor',   monto: 5000,  estado: 'COBRADO', fechaCobro: new Date(now.getFullYear(), now.getMonth() - 1, 20) },
+    ] });
+  }
+
+  console.log('Seed: referidos...');
+  const referidosExistentes = await prisma.referido.count();
+  if (referidosExistentes === 0) {
+    await prisma.referido.create({ data: { asesorId: asesor1.id, clienteOrigenId: c1.id, clienteReferidoId: c2.id, estado: 'CONVERTIDO' } });
+    await prisma.referido.create({ data: { asesorId: asesor1.id, clienteOrigenId: c1.id, clienteReferidoId: c3.id, estado: 'CONTACTADO' } });
+    await prisma.referido.create({ data: { asesorId: asesor2.id, clienteOrigenId: c4.id, nombreReferido: 'Sofía Méndez', telefonoReferido: '5551111122', estado: 'PENDIENTE' } });
+    await prisma.referido.create({ data: { asesorId: asesor1.id, clienteOrigenId: c2.id, nombreReferido: 'Fernando Reyes', telefonoReferido: '5551111123', estado: 'PENDIENTE' } });
+  }
+
+  console.log('Seed: llamadas registradas...');
+  const llamadasExistentes = await prisma.actividad.count({ where: { tipo: 'LLAMADA' } });
+  if (llamadasExistentes === 0) {
+    const now = new Date();
+    for (let i = 1; i <= 8; i++) {
+      await prisma.actividad.create({ data: {
+        asesorId: asesor1.id, tipo: 'LLAMADA',
+        descripcion: `Llamada a prospecto ${i}`,
+        creadoEn: new Date(now.getFullYear(), now.getMonth(), now.getDate() - i, 10 + (i % 6), 30),
+        metadata: { clienteId: c1.id },
+      } });
+    }
+  }
+
+  console.log('Seed: actividad (otros)...');
+  const tipos = ['CLIENTE_CREADO', 'CITA_CREADA', 'VENTA_CREADA', 'NOTA_CREADA', 'RECORDATORIO_CREADO'];
+  const descripciones = {
+    CLIENTE_CREADO: ['Creó el cliente Carlos Ramírez', 'Creó el cliente Ana Torres', 'Cliente agregado vía referido'],
+    CITA_CREADA: ['Agendó primera llamada con Carlos', 'Cotización GMM programada', 'Cita de seguimiento con Patricia'],
+    VENTA_CREADA: ['Venta registrada: retiro (NY Life Retirement Builder)', 'Nueva solicitud GMM Familiar'],
+    NOTA_CREADA: ['Agregó nota en ficha de Carlos', 'Nota de seguimiento en cliente Luis'],
+    RECORDATORIO_CREADO: ['Recordatorio: llamar mañana a Carlos', 'Recordatorio: revisar renovación de Patricia'],
+  };
+  const now = new Date();
+  for (let diasAtras = 0; diasAtras < 14; diasAtras++) {
+    const eventosHoy = (diasAtras % 3 === 0 ? 3 : (diasAtras % 2 === 0 ? 2 : 1));
+    for (let i = 0; i < eventosHoy; i++) {
+      const tipo = tipos[Math.floor(Math.random() * tipos.length)];
+      const ds = descripciones[tipo];
+      const asesor = Math.random() > 0.5 ? asesor1 : asesor2;
+      await savedActividad(prisma, {
+        asesorId: asesor.id,
+        tipo,
+        descripcion: ds[Math.floor(Math.random() * ds.length)],
+        creadoEn: new Date(now.getFullYear(), now.getMonth(), now.getDate() - diasAtras, 9 + Math.floor(Math.random() * 9), Math.floor(Math.random() * 60)),
+      });
+    }
+  }
+
+  console.log('Seed OK');
+  console.log('Usuarios creados:');
+  console.log(' SUPERADMIN: superadmin@demo.com / super123');
+  console.log('     ADMIN: admin@demo.com / admin123');
+  console.log('    ASESOR: asesor1@demo.com / asesor123');
+  console.log('    ASESOR: asesor2@demo.com / asesor123');
+}
+
+async function savedActividad(prisma, data) {
+  const existente = await prisma.actividad.findFirst({ where: { asesorId: data.asesorId, descripcion: data.descripcion, creadoEn: data.creadoEn } });
+  if (existente) return existente;
+  return prisma.actividad.create({ data });
+}
+
+main().catch((e) => { console.error(e); process.exit(1); }).finally(async () => { await prisma.$disconnect(); });

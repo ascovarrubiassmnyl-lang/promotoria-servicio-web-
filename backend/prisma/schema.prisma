@@ -1,0 +1,364 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RolUsuario {
+  SUPERADMIN
+  ADMIN
+  ASESOR
+}
+
+// Pipeline de ventas de la promotora (8 etapas)
+// Sustituye al enum anterior POTENCIAL/NEGOCIACION/ACTIVO/INACTIVO/CERRADO.
+// Migración mapea: POTENCIAL->PROSPECTO, NEGOCIACION->PROPUESTA, ACTIVO->ENTREGA_POLIZA, CERRADO->CIERRE_FIRMA, INACTIVO->NECESITA_SEGUIMIENTO
+enum EstadoCliente {
+  PROSPECTO
+  CITA
+  PROPUESTA
+  CIERRE_FIRMA
+  ENTREGA_POLIZA
+  REFERIDOS
+  POST_VENTA_SEGUIMIENTO
+  NECESITA_SEGUIMIENTO
+}
+
+enum EstadoCita {
+  PROGRAMADA
+  CONFIRMADA
+  COMPLETADA
+  CANCELADA
+  NO_ASISTIO
+}
+
+enum TipoCita {
+  TELEFONICA
+  VIDEO
+  PRESENCIAL
+}
+
+// Modalidad de la cita:
+//  ACOMPANAMIENTO = cita compartida asesor+promotor (el promotor acompaña al asesor).
+//  CITA_UNICA     = cita normal del asesor, sin promotor presente.
+enum ModalidadCita {
+  CITA_UNICA
+  ACOMPANAMIENTO
+}
+
+// Estado del ciclo de una venta en el pipeline financiero
+enum EstadoVenta {
+  PENDIENTE_PAGAR
+  FIRMADA
+  PAGADA
+  CANCELADA
+  APROBADA // alias legacy para ventas ya validadas del periodo anterior
+  RECHAZADA
+}
+
+// Promotoría NY Life — seguros para personas únicamente
+enum RamoSeguro {
+  VIDA
+  ACUMULACION
+  PROTECCION
+  SALUD
+  RETIRO
+  GMM
+}
+
+enum TipoNota {
+  NOTA
+  RECORDATORIO
+  RECORDATORIO_PAGO
+}
+
+// Forma de pago de la prima
+enum FormaPago {
+  MENSUAL
+  TRIMESTRAL
+  SEMESTRAL
+  ANUAL
+  UNICO
+}
+
+model Usuario {
+  id            String     @id @default(cuid())
+  nombre        String
+  apellidoP     String
+  apellidoM     String?
+  email         String     @unique
+  password      String
+  telefono      String?
+  rol           RolUsuario @default(ASESOR)
+  activo        Boolean    @default(true)
+  fotoUrl       String?
+  // Permisos por sección (override del rol). null/ausente = usar default del rol.
+  // Ej: { "clientes": false, "ventas": false } oculta esas secciones a un ASESOR concreto.
+  permisos      Json?
+  creadoEn      DateTime   @default(now())
+  actualizadoEn DateTime   @updatedAt
+
+  clientes        Cliente[]
+  citas           Cita[]
+  citasPromotor   Cita[]             @relation("citasPromotor")
+  ventasAsesor    Venta[]            @relation("ventasAsesor")
+  ventasValidador Venta[]            @relation("ventasValidador")
+  actividad       Actividad[]
+  targets         Target[]
+  notas           Nota[]
+  pushSubs        PushSubscription[]
+  referidos       Referido[]
+  bonos           Bono[]
+}
+
+// Suscripción Web Push de un usuario (un usuario puede tener varias: móvil, escritorio).
+model PushSubscription {
+  id             String   @id @default(cuid())
+  usuarioId      String
+  usuario        Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  endpoint       String
+  // Claves p256dh y auth en base64url, como las envía el navegador en subscription.toJSON()
+  p256dh         String
+  auth           String
+  // Expiration endpoint opcional (some browsers)
+  expirationTime Int?
+  creadoEn       DateTime @default(now())
+
+  @@unique([endpoint])
+  @@index([usuarioId])
+}
+
+model Cliente {
+  id              String        @id @default(cuid())
+  asesorId        String
+  asesor          Usuario       @relation(fields: [asesorId], references: [id], onDelete: Cascade)
+  nombre          String
+  apellidoP       String
+  apellidoM       String?
+  email           String?
+  telefono        String?
+  fechaNacimiento DateTime?
+  rfc             String?
+  direccion       String?
+  estado          EstadoCliente @default(PROSPECTO)
+  notas           String?
+  fuente          String?
+  creadoEn        DateTime      @default(now())
+  actualizadoEn   DateTime      @updatedAt
+
+  // Producto de interés (cuando el cliente está en prospección)
+  productoInteres      RamoSeguro?
+  detalleInteres       String?
+  // Si ya compró
+  productoComprado     RamoSeguro?
+  productoNombre       String? // nombre específico del producto NY Life
+  formaPago            FormaPago?
+  primaMonto           Float?
+  fechaInicioCobertura DateTime?
+  fechaRenovacion      DateTime?
+
+  // Gestión de cartera: última llamada y última cita registradas
+  fechaUltimaLlamada DateTime?
+  fechaUltimaCita    DateTime?
+
+  // Referidos: quién refirió a este cliente (opcional, auto-referencia)
+  referidoPorId String?
+  referidoPor   Cliente?  @relation("Referidos", fields: [referidoPorId], references: [id])
+  referidos     Cliente[] @relation("Referidos")
+
+  citas                 Cita[]
+  ventas                Venta[]
+  notasItems            Nota[]
+  referidosOrigen       Referido[] @relation("ReferidosOrigen")
+  referidosComoReferido Referido[] @relation("ReferidosCliente")
+
+  @@index([asesorId, estado])
+  @@index([referidoPorId])
+}
+
+model Cita {
+  id                  String        @id @default(cuid())
+  asesorId            String
+  asesor              Usuario       @relation(fields: [asesorId], references: [id], onDelete: Cascade)
+  clienteId           String
+  cliente             Cliente       @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  titulo              String
+  descripcion         String?
+  tipo                TipoCita      @default(TELEFONICA)
+  modalidad           ModalidadCita @default(CITA_UNICA)
+  // Para ACOMPANAMIENTO: promotor (admin) que acompaña al asesor (opcional)
+  promotorId          String?
+  promotor            Usuario?      @relation("citasPromotor", fields: [promotorId], references: [id], onDelete: SetNull)
+  estado              EstadoCita    @default(PROGRAMADA)
+  fechaHoraInicio     DateTime
+  fechaHoraFin        DateTime
+  ubicacion           String?
+  recordatorioMinutos Int           @default(60)
+  creadoEn            DateTime      @default(now())
+  actualizadoEn       DateTime      @updatedAt
+
+  @@index([asesorId, fechaHoraInicio])
+  @@index([clienteId])
+  @@index([promotorId])
+}
+
+model Venta {
+  id                  String            @id @default(cuid())
+  asesorId            String
+  asesor              Usuario           @relation("ventasAsesor", fields: [asesorId], references: [id])
+  clienteId           String
+  cliente             Cliente           @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  ramo                RamoSeguro
+  producto            String
+  // Producto del catálogo NYL (opcional pero recomendado)
+  productoCatalogoId  String?
+  productoCatalogo    ProductoCatalogo? @relation(fields: [productoCatalogoId], references: [id])
+  primaAnual          Float
+  comisionPct         Float             @default(10)
+  comisionMonto       Float?
+  estado              EstadoVenta       @default(PENDIENTE_PAGAR)
+  validadoPor         String?
+  validador           Usuario?          @relation("ventasValidador", fields: [validadoPor], references: [id])
+  fechaValidacion     DateTime?
+  // Pipeline financiero: fechas y flags
+  fechaFirma          DateTime?
+  fechaPago           DateTime?
+  fechaEntregaPoliza  DateTime?
+  fechaCancelacion    DateTime?
+  montoCancelado      Float?
+  motivoCancelacion   String?
+  // Vigencia y pagos subsecuentes (recordatorios automáticos)
+  formaPago           FormaPago         @default(ANUAL)
+  fechaInicioVigencia DateTime?
+  fechaFinVigencia    DateTime?
+  fechaProximoPago    DateTime?
+  diaPago             Int? // día del mes para cobros recurrentes (1-28)
+  montoPago           Float? // monto de cada pago recurrente (proporcional de primaAnual)
+  notas               String?
+  creadoEn            DateTime          @default(now())
+  actualizadoEn       DateTime          @updatedAt
+
+  recordatoriosPago Nota[]
+
+  @@index([asesorId])
+  @@index([clienteId])
+  @@index([estado])
+}
+
+model Actividad {
+  id          String   @id @default(cuid())
+  asesorId    String
+  asesor      Usuario  @relation(fields: [asesorId], references: [id], onDelete: Cascade)
+  tipo        String
+  descripcion String
+  metadata    Json?
+  creadoEn    DateTime @default(now())
+
+  @@index([asesorId, creadoEn])
+}
+
+model Target {
+  id             String   @id @default(cuid())
+  asesorId       String
+  asesor         Usuario  @relation(fields: [asesorId], references: [id], onDelete: Cascade)
+  mes            Int
+  anio           Int
+  metaVentasNum  Int?
+  metaPrimaMonto Float?
+  creadoEn       DateTime @default(now())
+
+  @@unique([asesorId, mes, anio])
+}
+
+// Notas + Recordatorios unificados. Los recordatorios tienen fechaAviso
+// y disparan una notificación push al asesor cuando alcanzan su fecha.
+// tipo=RECORDATORIO_PAGO se asocia a una Venta (póliza) para pagos subsecuentes.
+model Nota {
+  id                  String    @id @default(cuid())
+  clienteId           String
+  cliente             Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  asesorId            String
+  asesor              Usuario   @relation(fields: [asesorId], references: [id], onDelete: Cascade)
+  tipo                TipoNota  @default(NOTA)
+  texto               String
+  // Solo para RECORDATORIO / RECORDATORIO_PAGO: cuándo debe avisarse
+  fechaAviso          DateTime?
+  completada          Boolean   @default(false)
+  // Si la notificación push ya fue enviada
+  notificacionEnviada Boolean   @default(false)
+  // Solo RECORDATORIO_PAGO:_venta asociada a la póliza
+  ventaId             String?
+  venta               Venta?    @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  creadoEn            DateTime  @default(now())
+  actualizadoEn       DateTime  @updatedAt
+
+  @@index([asesorId, fechaAviso])
+  @@index([clienteId])
+  @@index([ventaId])
+}
+
+// Catálogo de productos de Seguros Monterrey New York Life.
+// Poblado por la promotora desde los PDFs/documentos oficiales.
+model ProductoCatalogo {
+  id              String     @id @default(cuid())
+  ramo            RamoSeguro
+  nombre          String
+  codigo          String? // código interno de la aseguradora (opcional pero recomendable)
+  descripcion     String?
+  comisionPct     Float? // comisión sugerida para asesores (% de la prima anual)
+  comisionBonoPct Float? // % de comisión adicional porcentaje de bono si aplica
+  activo          Boolean    @default(true)
+  creadoEn        DateTime   @default(now())
+  actualizadoEn   DateTime   @updatedAt
+
+  ventas Venta[]
+
+  @@unique([ramo, nombre])
+}
+
+// Relación explícita de referidos: cliente A refiere a cliente B.
+//cobra cada referido puede tener un estado (pendiente, contactado, convertido)
+model Referido {
+  id                String   @id @default(cuid())
+  asesorId          String
+  asesor            Usuario  @relation(fields: [asesorId], references: [id], onDelete: Cascade)
+  clienteOrigenId   String
+  clienteOrigen     Cliente  @relation("ReferidosOrigen", fields: [clienteOrigenId], references: [id], onDelete: Cascade)
+  clienteReferidoId String?
+  clienteReferido   Cliente? @relation("ReferidosCliente", fields: [clienteReferidoId], references: [id], onDelete: SetNull)
+  // Para referidos que aún no son cliente (solo se tiene nombre/teléfono)
+  nombreReferido    String?
+  telefonoReferido  String?
+  emailReferido     String?
+  estado            String   @default("PENDIENTE") // PENDIENTE, CONTACTADO, CONVERTIDO, DESCARTADO
+  fecha             DateTime @default(now())
+  notas             String?
+  creadoEn          DateTime @default(now())
+  actualizadoEn     DateTime @updatedAt
+
+  @@index([asesorId, estado])
+  @@index([clienteOrigenId])
+}
+
+// Bono de producción del asesor, separado por período (mes/año).
+// Estado: PENDIENTE (por ganar) o COBRADO.
+model Bono {
+  id            String    @id @default(cuid())
+  asesorId      String
+  asesor        Usuario   @relation(fields: [asesorId], references: [id], onDelete: Cascade)
+  mes           Int
+  anio          Int
+  concepto      String // ej: "Bono de producción", "Bono de persistencia", "Bono nuevo asesor"
+  monto         Float     @default(0)
+  estado        String    @default("PENDIENTE") // PENDIENTE (por ganar) o COBRADO
+  fechaCobro    DateTime?
+  notas         String?
+  creadoEn      DateTime  @default(now())
+  actualizadoEn DateTime  @updatedAt
+
+  @@unique([asesorId, mes, anio, concepto])
+  @@index([asesorId, estado])
+}

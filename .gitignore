@@ -1,0 +1,44 @@
+# Dependencias
+node_modules/
+**/node_modules/
+
+# Builds
+dist/
+**/dist/
+build/
+**/build/
+
+# Variables de entorno y secretos
+.env
+.env.*
+!.env.example
+*.local
+
+# Logs
+*.log
+backend.log
+frontend.log
+logs/
+
+# Base de datos local
+*.db
+*.db-journal
+prisma/migrations/dev.db
+prisma/migrations/*.db
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Vite / Node cache
+.vite/
+.cache/
+coverage/
+*.pid
+
+# Claude Code local
+.claude/
