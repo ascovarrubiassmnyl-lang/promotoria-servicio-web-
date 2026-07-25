@@ -1,11 +1,14 @@
 import { ESTADOS_CLIENTE_LABEL, ESTADOS_VENTA_LABEL } from '../lib/format.js';
 
-export function Card({ children, className = '', title, actions }) {
+export function Card({ children, className = '', title, subtitle, actions }) {
   return (
     <div className={`card ${className}`}>
       {(title || actions) && (
         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 px-5 py-3">
-          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
+          <div>
+            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
+            {subtitle && <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{subtitle}</p>}
+          </div>
           {actions}
         </div>
       )}
@@ -69,18 +72,18 @@ export function CitaBadge({ estado }) {
   return <Badge color={estadoCitaColor[estado] || 'slate'}>{estado}</Badge>;
 }
 export function VentaBadge({ estado }) {
-  return <Badge color={estadoVentaColor[estado] || 'slate'}>{ESTADOS_VENTA_LABEL[estado] || estado}</Badge>;
+  return <Badge color={estadoVentaColor[estado] || 'slate'} className="badge-dot">{ESTADOS_VENTA_LABEL[estado] || estado}</Badge>;
 }
 
 export function EmptyState({ message = 'Sin datos' }) {
   return <div className="text-center py-12 text-sm text-slate-400 dark:text-slate-500">{message}</div>;
 }
 
-export function Modal({ open, onClose, title, children }) {
+export function Modal({ open, onClose, title, children, wide = false }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-black/70 p-4">
-      <div className="card w-full max-w-lg max-h-[90vh] overflow-auto">
+      <div className={`card w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} max-h-[90vh] overflow-auto`}>
         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 px-5 py-3">
           <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" aria-label="cerrar">✕</button>

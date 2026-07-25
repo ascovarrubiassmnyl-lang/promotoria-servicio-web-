@@ -93,3 +93,25 @@ export const ESTADOS_VENTA_LABEL = {
 };
 
 export const FORMAS_PAGO_LIST = ['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL', 'UNICO'];
+
+// Convención de negocio (ver CLAUDE.md):
+//  - "Ganado" = comisión de pólizas APROBADA/PAGADA (se pinta verde).
+//  - "En pipeline" = comisión de PENDIENTE_PAGAR/FIRMADA (tono neutro).
+//  - Nunca se suman ambas en una sola cifra.
+export const VENTA_GANADA = ['PAGADA', 'APROBADA'];
+export const VENTA_PIPELINE = ['PENDIENTE_PAGAR', 'FIRMADA'];
+export const esVentaGanada = (v) => VENTA_GANADA.includes(v?.estado);
+export const esVentaPipeline = (v) => VENTA_PIPELINE.includes(v?.estado);
+
+export const PAGOS_POR_ANIO = { MENSUAL: 12, TRIMESTRAL: 4, SEMESTRAL: 2, ANUAL: 1, UNICO: 1 };
+
+// Edad en años a partir de una fecha de nacimiento (null si no hay dato)
+export function edad(fechaNacimiento) {
+  if (!fechaNacimiento) return null;
+  const nac = new Date(fechaNacimiento);
+  const hoy = new Date();
+  let e = hoy.getFullYear() - nac.getFullYear();
+  const m = hoy.getMonth() - nac.getMonth();
+  if (m < 0 || (m === 0 && hoy.getDate() < nac.getDate())) e--;
+  return e >= 0 ? e : null;
+}

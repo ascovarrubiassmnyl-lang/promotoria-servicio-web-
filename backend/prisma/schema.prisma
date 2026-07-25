@@ -112,6 +112,7 @@ model Usuario {
   pushSubs        PushSubscription[]
   referidos       Referido[]
   bonos           Bono[]
+  documentos      DocumentoCliente[]
 }
 
 // Suscripción Web Push de un usuario (un usuario puede tener varias: móvil, escritorio).
@@ -174,6 +175,7 @@ model Cliente {
   notasItems            Nota[]
   referidosOrigen       Referido[] @relation("ReferidosOrigen")
   referidosComoReferido Referido[] @relation("ReferidosCliente")
+  documentos            DocumentoCliente[]
 
   @@index([asesorId, estado])
   @@index([referidoPorId])
@@ -237,6 +239,15 @@ model Venta {
   fechaProximoPago    DateTime?
   diaPago             Int? // día del mes para cobros recurrentes (1-28)
   montoPago           Float? // monto de cada pago recurrente (proporcional de primaAnual)
+  // Detalle técnico de la póliza (ficha)
+  sumaAsegurada       Float?
+  plazo               String? // ej. "20 pagos", "Anual renovable"
+  deducible           Float? // GMM / Salud
+  coaseguro           String? // GMM / Salud, ej. "10%"
+  // [{ nombre, detalle?, monto? }] — monto es texto libre ("$800,000", "Incluida", "10%")
+  coberturas          Json?
+  // [{ nombre, porcentaje? }]
+  beneficiarios       Json?
   notas               String?
   creadoEn            DateTime          @default(now())
   actualizadoEn       DateTime          @updatedAt
@@ -317,6 +328,23 @@ model ProductoCatalogo {
   ventas Venta[]
 
   @@unique([ramo, nombre])
+}
+
+// Archivo adjunto a la ficha de un cliente (identificación, solicitud, póliza escaneada, etc.).
+// El archivo físico vive en backend/uploads; aquí solo se guarda la referencia.
+model DocumentoCliente {
+  id        String   @id @default(cuid())
+  clienteId String
+  cliente   Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  asesorId  String
+  asesor    Usuario  @relation(fields: [asesorId], references: [id], onDelete: Cascade)
+  nombre    String // nombre original del archivo
+  archivo   String // nombre físico dentro de /uploads
+  mime      String?
+  tamano    Int      @default(0) // bytes
+  creadoEn  DateTime @default(now())
+
+  @@index([clienteId])
 }
 
 // Relación explícita de referidos: cliente A refiere a cliente B.

@@ -38,6 +38,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
       notasItems: { orderBy: { creadoEn: 'desc' } },
       referidoPor: { select: { id: true, nombre: true, apellidoP: true } },
       referidos: { select: { id: true, nombre: true, apellidoP: true, estado: true } },
+      documentos: { orderBy: { creadoEn: 'desc' }, include: { asesor: { select: { id: true, nombre: true, apellidoP: true } } } },
     },
   });
   if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });

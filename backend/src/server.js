@@ -15,6 +15,7 @@ import pushRoutes from './routes/push.js';
 import productosCatalogoRoutes from './routes/productosCatalogo.js';
 import referidosRoutes from './routes/referidos.js';
 import bonosRoutes from './routes/bonos.js';
+import documentosRoutes from './routes/documentos.js';
 import { startReminderJob } from './jobs/reminderJob.js';
 import { errorHandler, notFound } from './middleware/error.js';
 
@@ -42,6 +43,7 @@ app.use('/api/push', pushRoutes);
 app.use('/api/productos-catalogo', productosCatalogoRoutes);
 app.use('/api/referidos', referidosRoutes);
 app.use('/api/bonos', bonosRoutes);
+app.use('/api/documentos', documentosRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

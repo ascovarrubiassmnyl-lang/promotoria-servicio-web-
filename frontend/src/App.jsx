@@ -7,6 +7,7 @@ import Clientes from './pages/Clientes.jsx';
 import ClienteDetalle from './pages/ClienteDetalle.jsx';
 import Citas from './pages/Citas.jsx';
 import Ventas from './pages/Ventas.jsx';
+import Equipo, { EquipoAsesor } from './pages/Equipo.jsx';
 import Actividad from './pages/Actividad.jsx';
 import Asesores from './pages/Asesores.jsx';
 import Configuracion from './pages/Configuracion.jsx';
@@ -22,6 +23,10 @@ export default function App() {
         <Route path="/clientes/:id" element={<SeccionRoute seccion="clientes"><ClienteDetalle /></SeccionRoute>} />
         <Route path="/citas" element={<SeccionRoute seccion="citas"><Citas /></SeccionRoute>} />
         <Route path="/ventas" element={<SeccionRoute seccion="ventas"><Ventas /></SeccionRoute>} />
+        {/* Vista de promotor: roster de asesores y consulta de carteras ajenas.
+            Solo ADMIN/SUPERADMIN; un ASESOR que navegue manualmente es redirigido. */}
+        <Route path="/equipo" element={<AdminRoute><Equipo /></AdminRoute>} />
+        <Route path="/equipo/:asesorId" element={<AdminRoute><EquipoAsesor /></AdminRoute>} />
         <Route path="/actividad" element={<SeccionRoute seccion="actividad"><Actividad /></SeccionRoute>} />
         <Route path="/asesores" element={<AdminRoute><Asesores /></AdminRoute>} />
         <Route path="/configuracion" element={<AdminRoute><Configuracion /></AdminRoute>} />

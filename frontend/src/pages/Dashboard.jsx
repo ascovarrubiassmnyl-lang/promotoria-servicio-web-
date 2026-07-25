@@ -3,7 +3,8 @@ import { useState } from 'react';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { Card, Stat, EmptyState, Badge } from '../components/ui.jsx';
-import { mxn, num, nombreMes, ESTADOS_CLIENTE_LABEL } from '../lib/format.js';
+import { mxn, num, nombreMes } from '../lib/format.js';
+import PipelineFunnel from '../components/PipelineFunnel.jsx';
 
 export default function Dashboard() {
   const { user, esAdmin } = useAuth();
@@ -35,8 +36,13 @@ export default function Dashboard() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Hola, {user?.nombre}</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">{esAdmin() ? 'Vista promotora / admin' : 'Vista asesor'} · Período: {nombreMes(mes)} {anio}</p>
+          <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Hola, {user?.nombre} 👋</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+            <span className="inline-flex items-center rounded-full bg-brand-50 dark:bg-slate-700 px-2 py-0.5 text-xs font-medium text-brand-600 dark:text-brand-500 mr-2">
+              {esAdmin() ? 'Promotora / Admin' : 'Asesor'}
+            </span>
+            Período: {nombreMes(mes)} {anio}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <select className="input w-auto" value={mes} onChange={(e) => setMes(+e.target.value)}>
@@ -163,47 +169,7 @@ export default function Dashboard() {
   );
 }
 
-function PipelineFunnel({ datos }) {
-  const max = Math.max(...datos.map((d) => d.count), 1);
-  const funnelColors = {
-    PROSPECTO: 'bg-slate-300',
-    CITA: 'bg-blue-400',
-    PROPUESTA: 'bg-purple-400',
-    CIERRE_FIRMA: 'bg-amber-400',
-    ENTREGA_POLIZA: 'bg-emerald-400',
-    REFERIDOS: 'bg-cyan-400',
-    POST_VENTA_SEGUIMIENTO: 'bg-green-500',
-    NECESITA_SEGUIMIENTO: 'bg-red-400',
-  };
-  const total = datos.reduce((a, d) => a + d.count, 0);
-  const etapasActivas = ['PROSPECTO', 'CITA', 'PROPUESTA', 'CIERRE_FIRMA', 'ENTREGA_POLIZA'];
-  let previousCount = null;
-  return (
-    <div className="space-y-3">
-      {datos.map((d, idx) => {
-        const esActivo = etapasActivas.includes(d.etapa);
-        const pct = total > 0 ? Math.round((d.count / total) * 100) : 0;
-        const width = max > 0 ? Math.max((d.count / max) * 100, 4) : 4;
-        const conversion = esActivo && previousCount > 0 && d.count > 0 ? ((d.count / previousCount) * 100).toFixed(0) : null;
-        if (esActivo) previousCount = d.count;
-        return (
-          <div key={d.etapa}>
-            <div className="flex items-center justify-between text-sm">
-              <span className="font-medium text-slate-700 dark:text-slate-300">{ESTADOS_CLIENTE_LABEL[d.etapa]}</span>
-              <span className="text-slate-500 dark:text-slate-400">
-                {num(d.count)} {pct > 0 && `(${pct}%)`}
-                {conversion && <span className="ml-2 text-xs text-amber-600">↓ {conversion}%</span>}
-              </span>
-            </div>
-            <div className="mt-1 h-3 rounded-full bg-slate-100 dark:bg-slate-700/60 overflow-hidden">
-              <div className={`h-full ${funnelColors[d.etapa]}`} style={{ width: `${width}%` }} />
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+const RAMO_PALETA = ['#2563eb', '#059669', '#7c3aed', '#d97706', '#e11d48', '#0891b2', '#64748b'];
 
 function VentasPorRamo() {
   const { data, isLoading } = useQuery({
@@ -215,24 +181,76 @@ function VentasPorRamo() {
   });
   if (isLoading) return null;
   if (!data || data.length === 0) return null;
+
   const totalPrima = data.reduce((acc, d) => acc + (d._sum.primaAnual || 0), 0);
+  const totalPolizas = data.reduce((acc, d) => acc + d._count._all, 0);
+  const ramos = data.map((d, i) => ({
+    ramo: d.ramo,
+    polizas: d._count._all,
+    prima: d._sum.primaAnual || 0,
+    pct: totalPrima ? (d._sum.primaAnual / totalPrima) * 100 : 0,
+    color: RAMO_PALETA[i % RAMO_PALETA.length],
+  }));
+
+  // Dona: cada ramo es un arco proporcional a su prima anual
+  const R = 70;
+  const circ = 2 * Math.PI * R;
+  let offsetAcum = 0;
+
   return (
-    <Card title="Ventas por ramo">
-      <div className="space-y-3">
-        {data.map((d) => {
-          const pct = totalPrima ? Math.round((d._sum.primaAnual / totalPrima) * 100) : 0;
-          return (
-            <div key={d.ramo}>
-              <div className="flex items-center justify-between text-sm">
-                <span className="font-medium text-slate-700 dark:text-slate-300">{d.ramo}</span>
-                <span className="text-slate-500 dark:text-slate-400">{d._count._all} pólizas · {mxn(d._sum.primaAnual)} ({pct}%)</span>
+    <Card title="Ventas por ramo" subtitle="Distribución de la prima anual por tipo de seguro">
+      <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] gap-8 items-center">
+        <div className="relative mx-auto h-48 w-48">
+          <svg viewBox="0 0 200 200" className="h-full w-full -rotate-90">
+            <circle cx="100" cy="100" r={R} fill="none" strokeWidth="26" className="stroke-slate-100 dark:stroke-slate-700/60" />
+            {ramos.map((r) => {
+              const largo = (r.pct / 100) * circ;
+              const seg = (
+                <circle
+                  key={r.ramo}
+                  cx="100"
+                  cy="100"
+                  r={R}
+                  fill="none"
+                  stroke={r.color}
+                  strokeWidth="26"
+                  strokeDasharray={`${Math.max(largo - 2, 0)} ${circ - Math.max(largo - 2, 0)}`}
+                  strokeDashoffset={-offsetAcum}
+                  strokeLinecap="butt"
+                >
+                  <title>{`${r.ramo}: ${mxn(r.prima)} (${Math.round(r.pct)}%)`}</title>
+                </circle>
+              );
+              offsetAcum += largo;
+              return seg;
+            })}
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <p className="text-lg font-bold text-slate-800 dark:text-slate-100">{mxn(totalPrima)}</p>
+            <p className="text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">Prima total</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{num(totalPolizas)} pólizas</p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          {ramos.map((r) => (
+            <div key={r.ramo} className="flex items-center gap-3">
+              <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: r.color }} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <span className="font-medium text-slate-700 dark:text-slate-300 truncate">{r.ramo}</span>
+                  <span className="text-slate-500 dark:text-slate-400 shrink-0">
+                    {num(r.polizas)} pólizas · <span className="font-semibold text-slate-700 dark:text-slate-200">{mxn(r.prima)}</span>
+                  </span>
+                </div>
+                <div className="mt-1 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700/60 overflow-hidden">
+                  <div className="h-full rounded-full" style={{ width: `${Math.max(r.pct, 2)}%`, backgroundColor: r.color }} />
+                </div>
               </div>
-              <div className="mt-1 h-2 rounded-full bg-slate-100 dark:bg-slate-700/60 overflow-hidden">
-                <div className="h-full bg-brand-50 dark:bg-brand-900/300" style={{ width: `${pct}%` }} />
-              </div>
+              <span className="w-10 text-right text-sm font-semibold text-slate-600 dark:text-slate-300 shrink-0">{Math.round(r.pct)}%</span>
             </div>
-          );
-        })}
+          ))}
+        </div>
       </div>
     </Card>
   );

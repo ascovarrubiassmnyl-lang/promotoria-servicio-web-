@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Origen Asesores · Pólizas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b1017;
+    --surface:#111826;
+    --surface-2:#161f30;
+    --surface-3:#1c2740;
+    --border:#212b3d;
+    --border-strong:#2c3a52;
+    --text:#e8edf5;
+    --text-2:#9aa7bd;
+    --text-3:#657189;
+    --accent:#4f6ef7;
+    --accent-soft:#1e2a52;
+    --green:#3ecf8e;
+    --green-soft:#12301f;
+    --amber:#e0a13a;
+    --amber-soft:#33260c;
+    --red:#e2635c;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-font-smoothing:antialiased}
+  body{
+    font-family:'Inter',system-ui,sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    display:flex;
+    min-height:100vh;
+    font-size:14px;
+  }
+  .num{font-variant-numeric:tabular-nums}
+  button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+  a{color:inherit;text-decoration:none}
+
+  /* ---------- Sidebar ---------- */
+  .sidebar{
+    width:250px;flex-shrink:0;background:var(--bg);
+    border-right:1px solid var(--border);
+    display:flex;flex-direction:column;padding:22px 16px;
+  }
+  .brand{display:flex;align-items:center;gap:11px;padding:6px 8px 26px}
+  .brand-mark{width:30px;height:30px;border-radius:50%;border:1.5px solid var(--text);position:relative}
+  .brand-mark::after{content:"";position:absolute;inset:5px 5px 5px 12px;border-radius:50%;background:var(--bg);border:1.5px solid var(--text)}
+  .brand-name{font-weight:600;letter-spacing:.14em;font-size:13px}
+  .brand-sub{font-size:9px;letter-spacing:.28em;color:var(--text-3);margin-top:1px}
+  .nav{display:flex;flex-direction:column;gap:2px}
+  .nav a{display:flex;align-items:center;gap:13px;padding:11px 13px;border-radius:10px;color:var(--text-2);font-weight:500}
+  .nav a.active{background:var(--surface-2);color:var(--text)}
+  .nav a:hover:not(.active){background:var(--surface)}
+  .ico{width:18px;height:18px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.8}
+  .sidebar-foot{margin-top:auto;padding-top:20px;border-top:1px solid var(--border)}
+  .who{padding:6px 8px}
+  .who-name{font-weight:600}
+  .who-role{font-size:10px;letter-spacing:.22em;color:var(--text-3);margin-top:2px}
+
+  /* ---------- Main ---------- */
+  .main{flex:1;padding:26px 34px;overflow:auto;max-height:100vh}
+  .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;gap:16px;flex-wrap:wrap}
+  .crumbs{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--text-3)}
+  .crumbs .c-link{color:var(--text-2);cursor:pointer}
+  .crumbs .c-link:hover{color:var(--text)}
+  h1{font-size:26px;font-weight:600;letter-spacing:-.01em}
+  .sub{color:var(--text-2);margin-top:4px}
+
+  .role-toggle{display:flex;background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:4px;gap:2px}
+  .role-toggle button{padding:8px 15px;border-radius:8px;font-weight:500;font-size:13px;color:var(--text-2);display:flex;align-items:center;gap:7px}
+  .role-toggle button.on{background:var(--accent);color:#fff}
+  .btn-primary{background:var(--accent);color:#fff;padding:11px 18px;border-radius:11px;font-weight:600;display:inline-flex;align-items:center;gap:8px}
+  .btn-primary:hover{background:#5f7cff}
+  .btn-ghost{border:1px solid var(--border-strong);padding:10px 15px;border-radius:11px;font-weight:500;color:var(--text-2)}
+  .btn-ghost:hover{color:var(--text);border-color:var(--text-3)}
+
+  /* ---------- KPI cards ---------- */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-bottom:26px}
+  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;position:relative;overflow:hidden}
+  .kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--border-strong)}
+  .kpi.green::before{background:var(--green)}
+  .kpi.amber::before{background:var(--amber)}
+  .kpi.accent::before{background:var(--accent)}
+  .kpi-label{font-size:11px;letter-spacing:.09em;color:var(--text-3);text-transform:uppercase}
+  .kpi-val{font-size:27px;font-weight:600;margin-top:9px;letter-spacing:-.02em}
+  .kpi.green .kpi-val{color:var(--green)}
+  .kpi.amber .kpi-val{color:var(--amber)}
+  .kpi-note{font-size:12px;color:var(--text-3);margin-top:6px}
+  .funnel{display:flex;gap:3px;margin-top:11px}
+  .funnel span{height:6px;border-radius:3px}
+  .funnel .f-won{background:var(--green)}
+  .funnel .f-pend{background:var(--amber);opacity:.45}
+
+  /* ---------- Filter bar ---------- */
+  .filterbar{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
+  .field{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:9px 13px;color:var(--text);font-size:13px;display:flex;align-items:center;gap:9px}
+  .field input{background:none;border:none;color:var(--text);outline:none;font-family:inherit;width:180px}
+  .field input::placeholder{color:var(--text-3)}
+  select.field{cursor:pointer;appearance:none;padding-right:30px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%239aa7bd' stroke-width='2'%3E%3Cpath d='M2 4l4 4 4-4'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
+
+  /* ---------- Panel / tables ---------- */
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+  table{width:100%;border-collapse:collapse}
+  thead th{text-align:left;font-size:11px;letter-spacing:.06em;color:var(--text-3);font-weight:600;padding:15px 18px;text-transform:uppercase}
+  th.r,td.r{text-align:right}
+  th.c,td.c{text-align:center}
+  tbody tr{border-top:1px solid var(--border);cursor:pointer;transition:background .12s}
+  tbody tr:hover{background:var(--surface-2)}
+  td{padding:16px 18px;vertical-align:middle}
+  .t-strong{font-weight:600}
+  .t-sub{color:var(--text-3);font-size:12px;margin-top:3px}
+  .money{font-weight:600}
+  .money.earned{color:var(--green)}
+  .money.pending{color:var(--text-2)}
+  tfoot td{padding:15px 18px;border-top:1px solid var(--border-strong);background:var(--surface-2);font-weight:600}
+  tfoot .lbl{color:var(--text-2)}
+
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:5px 11px;border-radius:20px}
+  .pill.ok{background:var(--green-soft);color:var(--green)}
+  .pill.pend{background:var(--amber-soft);color:var(--amber)}
+  .pill.grey{background:var(--surface-3);color:var(--text-2)}
+  .pill.dot::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+
+  .tag{font-size:11px;font-weight:600;padding:4px 9px;border-radius:7px;background:var(--surface-3);color:var(--text-2)}
+
+  /* ---------- Advisor roster ---------- */
+  .adv-row td:first-child{width:34%}
+  .avatar{width:38px;height:38px;border-radius:50%;background:var(--accent-soft);color:#a9baff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;flex-shrink:0}
+  .adv-name{display:flex;align-items:center;gap:13px}
+  .mini-bar{height:6px;border-radius:3px;background:var(--surface-3);overflow:hidden;width:90px;margin-top:6px}
+  .mini-bar i{display:block;height:100%;background:var(--green);border-radius:3px}
+
+  /* ---------- Detail view ---------- */
+  .detail-grid{display:grid;grid-template-columns:1.6fr 1fr;gap:20px;align-items:start}
+  @media(max-width:1050px){.detail-grid{grid-template-columns:1fr}}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:22px 24px;margin-bottom:20px}
+  .card h3{font-size:12px;letter-spacing:.09em;color:var(--text-3);text-transform:uppercase;margin-bottom:18px;font-weight:600}
+  .hdr-detail{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;flex-wrap:wrap;margin-bottom:22px}
+  .hdr-detail .p-name{font-size:24px;font-weight:600;letter-spacing:-.01em}
+  .hdr-detail .p-ramo{color:var(--text-2);margin-top:5px;display:flex;gap:9px;align-items:center}
+  .kv{display:grid;grid-template-columns:1fr 1fr;gap:20px 26px}
+  .kv .k{font-size:12px;color:var(--text-3);margin-bottom:5px}
+  .kv .v{font-weight:600;font-size:15px}
+  .kv .v.big{font-size:19px}
+  .kv .v.green{color:var(--green)}
+  .full{grid-column:1/-1}
+
+  .cov{display:flex;justify-content:space-between;align-items:center;padding:13px 0;border-bottom:1px solid var(--border)}
+  .cov:last-child{border-bottom:none}
+  .cov-name{font-weight:500}
+  .cov-sub{font-size:12px;color:var(--text-3);margin-top:2px}
+  .cov-amt{font-weight:600;font-variant-numeric:tabular-nums}
+  .cov-amt.muted{color:var(--text-3);font-weight:500}
+
+  .pay-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border)}
+  .pay-row:last-child{border-bottom:none}
+  .pay-left{display:flex;align-items:center;gap:12px}
+  .pay-idx{width:26px;height:26px;border-radius:8px;background:var(--surface-3);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--text-2)}
+  .pay-idx.paid{background:var(--green-soft);color:var(--green)}
+  .pay-idx.next{background:var(--accent-soft);color:#a9baff}
+  .pay-date{font-weight:500}
+  .pay-status{font-size:12px;color:var(--text-3)}
+
+  .beneficiary{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--border)}
+  .beneficiary:last-child{border-bottom:none}
+
+  .hidden{display:none}
+  .back-link{display:inline-flex;align-items:center;gap:7px;color:var(--text-2);font-weight:500;margin-bottom:6px;font-size:13px}
+  .back-link:hover{color:var(--text)}
+  .empty-note{padding:40px;text-align:center;color:var(--text-3)}
+  .scope-banner{display:flex;align-items:center;gap:10px;background:var(--accent-soft);border:1px solid #2a3a6b;color:#b9c6ff;padding:11px 16px;border-radius:11px;font-size:13px;margin-bottom:18px}
+</style>
+</head>
+<body>
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div>
+        <div class="brand-name">ORIGEN</div>
+        <div class="brand-sub">ASESORES</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <a><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Dashboard</a>
+      <a id="nav-team" class="hidden"><svg class="ico" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M4 20c0-3 2-5 5-5s5 2 5 5"/><circle cx="17" cy="9" r="2.2"/><path d="M15 20c0-2.5 1.5-4 4-4"/></svg>Equipo</a>
+      <a><svg class="ico" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M4 20c0-3 2-5 5-5s5 2 5 5"/></svg>Clientes</a>
+      <a><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>Citas / Calendario</a>
+      <a class="active"><svg class="ico" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></svg>Pólizas</a>
+      <a><svg class="ico" viewBox="0 0 24 24"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>Actividad</a>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="who">
+        <div class="who-name" id="who-name">Juan Pérez</div>
+        <div class="who-role" id="who-role">ASESOR</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+
+    <!-- role switch (demo helper) -->
+    <div class="topbar">
+      <div>
+        <div class="crumbs" id="crumbs"></div>
+        <h1 id="page-title">Pólizas</h1>
+        <div class="sub" id="page-sub">Tus pólizas y las de tus clientes</div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center">
+        <div class="role-toggle">
+          <button id="r-asesor" class="on" onclick="setRole('asesor')">
+            <svg class="ico" style="width:15px;height:15px" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/></svg>Vista Asesor
+          </button>
+          <button id="r-promotor" onclick="setRole('promotor')">
+            <svg class="ico" style="width:15px;height:15px" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M4 20c0-3 2-5 5-5s5 2 5 5"/><circle cx="17" cy="9" r="2.2"/></svg>Vista Promotor
+          </button>
+        </div>
+        <button class="btn-primary" id="new-btn"><span style="font-size:16px;line-height:1">+</span> Nueva póliza</button>
+      </div>
+    </div>
+
+    <!-- ===== VIEW: ROSTER (promotor) ===== -->
+    <section id="view-roster" class="hidden">
+      <div class="kpis" id="roster-kpis"></div>
+      <div class="filterbar">
+        <div class="field"><svg class="ico" style="width:15px;height:15px" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input placeholder="Buscar asesor…"></div>
+        <select class="field"><option>Todos los asesores</option><option>Con pendientes</option><option>Meta cumplida</option></select>
+      </div>
+      <div class="panel">
+        <table>
+          <thead><tr>
+            <th>Asesor</th><th class="c">Pólizas</th><th class="r">Prima gestionada</th>
+            <th class="r">Comisión ganada</th><th class="r">En pipeline</th><th class="c">Cierre</th>
+          </tr></thead>
+          <tbody id="roster-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== VIEW: POLICY LIST (shared) ===== -->
+    <section id="view-list" class="hidden">
+      <div id="scope-banner-slot"></div>
+      <div class="kpis" id="list-kpis"></div>
+      <div class="filterbar">
+        <div class="field"><svg class="ico" style="width:15px;height:15px" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg><input placeholder="Buscar por cliente o producto…"></div>
+        <select class="field"><option>Todos los estados</option><option>Aprobada</option><option>Pendiente</option></select>
+        <select class="field"><option>Todos los ramos</option><option>Vida</option><option>Gastos Médicos</option><option>Acumulación</option></select>
+      </div>
+      <div class="panel">
+        <table>
+          <thead><tr>
+            <th>Producto (ramo)</th><th>Cliente</th><th class="r">Prima</th>
+            <th class="r">Comisión</th><th class="c">Forma pago</th><th>Próx. pago</th><th class="c">Estado</th>
+          </tr></thead>
+          <tbody id="list-body"></tbody>
+          <tfoot id="list-foot"></tfoot>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== VIEW: POLICY DETAIL (shared) ===== -->
+    <section id="view-detail" class="hidden"></section>
+
+  </main>
+
+<script>
+/* ---------------- DATA ---------------- */
+const advisors = [
+  {id:'juan', name:'Juan Pérez', initials:'JP'},
+  {id:'ana',  name:'Ana Gómez',  initials:'AG'},
+  {id:'carlos',name:'Carlos Ruiz',initials:'CR'},
+  {id:'maria',name:'María López', initials:'ML'},
+];
+
+const policies = [
+  {id:'p1', advisor:'juan', product:'SeguBeca', ramo:'Acumulación', client:'Roberto Cruz',
+   prima:25000, comision:2500, forma:'Mensual', prox:'—', estado:'pend', firma:'24 jul 2026',
+   aseguradora:'GNP Seguros', sumaAseg:800000, contratante:'Roberto Cruz Medina', edad:34,
+   vigencia:'24 jul 2026 – 24 jul 2044', plazo:'18 años', primaMensual:2083,
+   coverages:[
+     {n:'Fondo de acumulación (educativo)', s:'Meta a 18 años', a:'$800,000'},
+     {n:'Exención de pago por fallecimiento', s:'Del contratante', a:'Incluida'},
+     {n:'Exención por invalidez', s:'Total y permanente', a:'Incluida'},
+   ],
+   beneficiaries:[{n:'Sofía Cruz (hija)', p:'100%'}],
+   pays:[{d:'24 jul 2026', st:'Programado', k:'next'},{d:'24 ago 2026', st:'Programado'},{d:'24 sep 2026', st:'Programado'}]},
+
+  {id:'p2', advisor:'juan', product:'Orvi 20 pagos', ramo:'Vida', client:'Roberto Cruz',
+   prima:25000, comision:2500, forma:'Mensual', prox:'09 ago 2026', estado:'pend', firma:'23 jul 2026',
+   aseguradora:'GNP Seguros', sumaAseg:2000000, contratante:'Roberto Cruz Medina', edad:34,
+   vigencia:'23 jul 2026 – 23 jul 2046', plazo:'20 pagos', primaMensual:2083,
+   coverages:[
+     {n:'Fallecimiento (cobertura básica)', s:'Suma asegurada', a:'$2,000,000'},
+     {n:'BIT — Invalidez total y permanente', s:'Adelanto de suma', a:'$2,000,000'},
+     {n:'DI — Doble indemnización', s:'Muerte accidental', a:'$2,000,000'},
+     {n:'PAI — Pérdidas orgánicas', s:'Por accidente', a:'$500,000'},
+   ],
+   beneficiaries:[{n:'Laura Ríos (cónyuge)', p:'60%'},{n:'Sofía Cruz (hija)', p:'40%'}],
+   pays:[{d:'09 ago 2026', st:'Próximo recibo', k:'next'},{d:'09 sep 2026', st:'Programado'},{d:'09 oct 2026', st:'Programado'}]},
+
+  {id:'p3', advisor:'juan', product:'Alfa Medical', ramo:'Gastos Médicos Mayores', client:'Ana Torres',
+   prima:28000, comision:4200, forma:'Semestral', prox:'02 ene 2027', estado:'pend', firma:'23 jul 2026',
+   aseguradora:'GNP Seguros', sumaAseg:30000000, contratante:'Ana Torres Vela', edad:41,
+   vigencia:'23 jul 2026 – 23 jul 2027', plazo:'Anual renovable', primaMensual:null,
+   deducible:35000, coaseguro:'10%',
+   coverages:[
+     {n:'Suma asegurada', s:'Por padecimiento', a:'$30,000,000'},
+     {n:'Deducible', s:'Anual', a:'$35,000'},
+     {n:'Coaseguro', s:'Tope $50,000', a:'10%'},
+     {n:'Cobertura en el extranjero', s:'EE.UU. y Canadá', a:'Incluida'},
+     {n:'Maternidad', s:'Periodo de espera 10 meses', a:'$120,000'},
+   ],
+   beneficiaries:[{n:'Titular — Ana Torres Vela', p:'Asegurada'}],
+   pays:[{d:'02 ene 2027', st:'2° recibo semestral', k:'next'},{d:'02 jul 2027', st:'Renovación'}]},
+
+  {id:'p4', advisor:'juan', product:'Orvi 10 pagos', ramo:'Vida', client:'Roberto Cruz',
+   prima:12000, comision:3000, forma:'Anual', prox:'28 jun 2027', estado:'ok', firma:'23 jul 2026',
+   aseguradora:'GNP Seguros', sumaAseg:1000000, contratante:'Roberto Cruz Medina', edad:34,
+   vigencia:'23 jul 2026 – 23 jul 2036', plazo:'10 pagos', primaMensual:null,
+   coverages:[
+     {n:'Fallecimiento (cobertura básica)', s:'Suma asegurada', a:'$1,000,000'},
+     {n:'BIT — Invalidez total y permanente', s:'Adelanto de suma', a:'$1,000,000'},
+   ],
+   beneficiaries:[{n:'Laura Ríos (cónyuge)', p:'100%'}],
+   pays:[{d:'28 jun 2026', st:'Pagado', k:'paid'},{d:'28 jun 2027', st:'Próximo recibo', k:'next'},{d:'28 jun 2028', st:'Programado'}]},
+
+  /* other advisors — only used for roster aggregates */
+  {id:'a1', advisor:'ana', product:'Orvi 20 pagos', ramo:'Vida', client:'Mario Díaz', prima:30000, comision:3000, forma:'Mensual', prox:'15 ago 2026', estado:'ok', firma:'20 jul 2026', aseguradora:'GNP Seguros', sumaAseg:2500000, contratante:'Mario Díaz', edad:38, vigencia:'20 jul 2026 – 20 jul 2046', plazo:'20 pagos', coverages:[{n:'Fallecimiento',s:'básica',a:'$2,500,000'}], beneficiaries:[{n:'—',p:'100%'}], pays:[{d:'20 jul 2026',st:'Pagado',k:'paid'}]},
+  {id:'a2', advisor:'ana', product:'Alfa Medical', ramo:'Gastos Médicos Mayores', client:'Elena Ruiz', prima:22000, comision:3300, forma:'Anual', prox:'—', estado:'pend', firma:'21 jul 2026', aseguradora:'GNP Seguros', sumaAseg:20000000, contratante:'Elena Ruiz', edad:45, vigencia:'21 jul 2026 – 21 jul 2027', plazo:'Anual', coverages:[{n:'Suma asegurada',s:'',a:'$20,000,000'}], beneficiaries:[{n:'Titular',p:'—'}], pays:[{d:'21 jul 2026',st:'Programado',k:'next'}]},
+  {id:'a3', advisor:'ana', product:'SeguBeca', ramo:'Acumulación', client:'Pedro Lara', prima:18000, comision:1800, forma:'Mensual', prox:'—', estado:'pend', firma:'22 jul 2026', aseguradora:'GNP Seguros', sumaAseg:600000, contratante:'Pedro Lara', edad:30, vigencia:'22 jul 2026 – 22 jul 2044', plazo:'18 años', coverages:[{n:'Fondo',s:'',a:'$600,000'}], beneficiaries:[{n:'—',p:'100%'}], pays:[{d:'22 jul 2026',st:'Programado',k:'next'}]},
+
+  {id:'c1', advisor:'carlos', product:'Orvi 10 pagos', ramo:'Vida', client:'Rosa Vega', prima:15000, comision:3750, forma:'Anual', prox:'10 jul 2027', estado:'ok', firma:'10 jul 2026', aseguradora:'GNP Seguros', sumaAseg:1200000, contratante:'Rosa Vega', edad:36, vigencia:'10 jul 2026 – 10 jul 2036', plazo:'10 pagos', coverages:[{n:'Fallecimiento',s:'básica',a:'$1,200,000'}], beneficiaries:[{n:'—',p:'100%'}], pays:[{d:'10 jul 2026',st:'Pagado',k:'paid'}]},
+  {id:'c2', advisor:'carlos', product:'Orvi 20 pagos', ramo:'Vida', client:'Luis Mena', prima:26000, comision:2600, forma:'Mensual', prox:'12 ago 2026', estado:'ok', firma:'12 jul 2026', aseguradora:'GNP Seguros', sumaAseg:2100000, contratante:'Luis Mena', edad:40, vigencia:'12 jul 2026 – 12 jul 2046', plazo:'20 pagos', coverages:[{n:'Fallecimiento',s:'básica',a:'$2,100,000'}], beneficiaries:[{n:'—',p:'100%'}], pays:[{d:'12 jul 2026',st:'Pagado',k:'paid'}]},
+];
+
+/* ---------------- STATE ---------------- */
+let role = 'asesor';
+const SELF = 'juan';                 // logged-in advisor when in "asesor" role
+let scopeAdvisor = SELF;             // whose policies the list view shows
+
+const $ = s => document.querySelector(s);
+const fmt = n => '$' + n.toLocaleString('es-MX');
+const advName = id => advisors.find(a=>a.id===id).name;
+
+/* ---------------- ROLE SWITCH ---------------- */
+function setRole(r){
+  role = r;
+  $('#r-asesor').classList.toggle('on', r==='asesor');
+  $('#r-promotor').classList.toggle('on', r==='promotor');
+  $('#nav-team').classList.toggle('hidden', r!=='promotor');
+  $('#who-name').textContent = r==='asesor' ? 'Juan Pérez' : 'Laura Méndez';
+  $('#who-role').textContent = r==='asesor' ? 'ASESOR' : 'PROMOTOR';
+  if(r==='promotor'){ showRoster(); }
+  else { scopeAdvisor = SELF; showList(); }
+}
+
+/* ---------------- ROSTER (promotor) ---------------- */
+function advisorStats(id){
+  const ps = policies.filter(p=>p.advisor===id);
+  const prima = ps.reduce((s,p)=>s+p.prima,0);
+  const won = ps.filter(p=>p.estado==='ok');
+  const comWon = won.reduce((s,p)=>s+p.comision,0);
+  const comPipe = ps.filter(p=>p.estado==='pend').reduce((s,p)=>s+p.comision,0);
+  const close = ps.length ? Math.round(won.length/ps.length*100) : 0;
+  return {count:ps.length, prima, comWon, comPipe, close};
+}
+
+function showRoster(){
+  swap('roster');
+  $('#page-title').textContent = 'Equipo · Pólizas por asesor';
+  $('#page-sub').textContent = 'Selecciona un asesor para ver el detalle de su cartera';
+  $('#crumbs').innerHTML = '';
+  $('#new-btn').style.display='none';
+
+  const all = advisors.map(a=>({a, s:advisorStats(a.id)}));
+  const totPrima = all.reduce((s,x)=>s+x.s.prima,0);
+  const totWon = all.reduce((s,x)=>s+x.s.comWon,0);
+  const totPipe = all.reduce((s,x)=>s+x.s.comPipe,0);
+  const totPol = all.reduce((s,x)=>s+x.s.count,0);
+
+  $('#roster-kpis').innerHTML = `
+    ${kpi('Asesores activos', advisors.length, 'accent', totPol+' pólizas en total')}
+    ${kpi('Comisión del equipo (ganada)', fmt(totWon), 'green', 'cobrada / pagada')}
+    ${kpi('Comisión en pipeline', fmt(totPipe), 'amber', 'pendiente de cierre')}
+    ${kpi('Prima gestionada', fmt(totPrima), '', 'todo el equipo')}`;
+
+  $('#roster-body').innerHTML = all.map(({a,s})=>`
+    <tr class="adv-row" onclick="openAdvisor('${a.id}')">
+      <td><div class="adv-name"><div class="avatar">${a.initials}</div>
+        <div><div class="t-strong">${a.name}</div><div class="t-sub">Asesor</div></div></div></td>
+      <td class="c num">${s.count}</td>
+      <td class="r num">${fmt(s.prima)}</td>
+      <td class="r"><span class="money earned num">${fmt(s.comWon)}</span></td>
+      <td class="r"><span class="money pending num">${fmt(s.comPipe)}</span></td>
+      <td class="c">
+        <div class="t-strong num">${s.close}%</div>
+        <div class="mini-bar"><i style="width:${s.close}%"></i></div>
+      </td>
+    </tr>`).join('');
+}
+
+function openAdvisor(id){ scopeAdvisor = id; showList(); }
+
+/* ---------------- POLICY LIST (shared) ---------------- */
+function showList(){
+  swap('list');
+  const ps = policies.filter(p=>p.advisor===scopeAdvisor);
+  const isSelf = (role==='asesor');
+
+  if(isSelf){
+    $('#page-title').textContent = 'Pólizas';
+    $('#page-sub').textContent = 'Tus pólizas y las de tus clientes';
+    $('#crumbs').innerHTML = '';
+    $('#scope-banner-slot').innerHTML = '';
+  } else {
+    $('#page-title').textContent = 'Pólizas de '+advName(scopeAdvisor);
+    $('#page-sub').textContent = 'Vista de promotor · solo lectura';
+    $('#crumbs').innerHTML = `<span class="c-link" onclick="showRoster()">Equipo</span> / <span>${advName(scopeAdvisor)}</span>`;
+    $('#scope-banner-slot').innerHTML = `<div class="scope-banner">
+      <svg class="ico" style="width:16px;height:16px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+      Estás viendo la cartera de <strong style="color:#fff;margin:0 3px">${advName(scopeAdvisor)}</strong> como promotor. Modo consulta.</div>`;
+  }
+  $('#new-btn').style.display = isSelf ? 'inline-flex' : 'none';
+
+  const won = ps.filter(p=>p.estado==='ok');
+  const comWon = won.reduce((s,p)=>s+p.comision,0);
+  const comPipe = ps.filter(p=>p.estado==='pend').reduce((s,p)=>s+p.comision,0);
+  const primaWon = won.reduce((s,p)=>s+p.prima,0);
+  const primaPipe = ps.filter(p=>p.estado==='pend').reduce((s,p)=>s+p.prima,0);
+  const close = ps.length? Math.round(won.length/ps.length*100):0;
+
+  $('#list-kpis').innerHTML = `
+    ${kpi('Ganado · cobrado', fmt(comWon), 'green', `comisión · ${won.length} póliza(s) · ${fmt(primaWon)} prima`)}
+    ${kpi('En pipeline · pendiente', fmt(comPipe), 'amber', `comisión potencial · ${ps.length-won.length} póliza(s) · ${fmt(primaPipe)} prima`)}
+    ${kpiFunnel('Tasa de cierre', close+'%', won.length, ps.length-won.length)}`;
+
+  $('#list-body').innerHTML = ps.map(p=>`
+    <tr onclick="openDetail('${p.id}')">
+      <td><div class="t-strong">${p.product}</div><div class="t-sub">${p.ramo}</div></td>
+      <td>${p.client}</td>
+      <td class="r money num">${fmt(p.prima)}</td>
+      <td class="r"><span class="money num ${p.estado==='ok'?'earned':'pending'}">${fmt(p.comision)}</span></td>
+      <td class="c"><span class="tag">${p.forma}</span></td>
+      <td class="num">${p.prox}</td>
+      <td class="c">${p.estado==='ok'
+        ? '<span class="pill ok dot">Aprobada</span>'
+        : '<span class="pill pend dot">Pendiente</span>'}</td>
+    </tr>`).join('');
+
+  const totPrima = ps.reduce((s,p)=>s+p.prima,0);
+  const totCom = ps.reduce((s,p)=>s+p.comision,0);
+  $('#list-foot').innerHTML = `<tr>
+    <td class="lbl">Total · ${ps.length} pólizas</td><td></td>
+    <td class="r num">${fmt(totPrima)}</td>
+    <td class="r num">${fmt(totCom)}</td>
+    <td colspan="3" style="text-align:right;color:var(--text-3);font-weight:500">${fmt(comWon)} ganado</td>
+  </tr>`;
+}
+
+/* ---------------- POLICY DETAIL (shared) ---------------- */
+function openDetail(pid){
+  const p = policies.find(x=>x.id===pid);
+  swap('detail');
+  const isSelf = (role==='asesor');
+  $('#page-title').textContent = 'Detalle de póliza';
+  $('#page-sub').textContent = '';
+  $('#new-btn').style.display='none';
+  $('#crumbs').innerHTML = isSelf
+    ? `<span class="c-link" onclick="showList()">Pólizas</span> / <span>${p.product}</span>`
+    : `<span class="c-link" onclick="showRoster()">Equipo</span> / <span class="c-link" onclick="openAdvisor('${p.advisor}')">${advName(p.advisor)}</span> / <span>${p.product}</span>`;
+
+  const estadoPill = p.estado==='ok'
+    ? '<span class="pill ok dot">Aprobada</span>'
+    : '<span class="pill pend dot">Pendiente de pago</span>';
+
+  const gmm = p.ramo.includes('Médicos');
+
+  $('#view-detail').innerHTML = `
+    <a class="back-link" onclick="${isSelf?'showList()':`openAdvisor('${p.advisor}')`}">← Volver</a>
+    <div class="card" style="margin-top:8px">
+      <div class="hdr-detail">
+        <div>
+          <div class="p-name">${p.product}</div>
+          <div class="p-ramo"><span class="tag">${p.ramo}</span><span>${p.aseguradora}</span></div>
+        </div>
+        <div style="text-align:right">
+          ${estadoPill}
+          <div style="margin-top:12px">${isSelf
+            ? '<button class="btn-ghost">Editar</button> <button class="btn-primary" style="padding:9px 15px">Registrar pago</button>'
+            : '<span style="color:var(--text-3);font-size:12px">Consulta · promotor</span>'}</div>
+        </div>
+      </div>
+      <div class="kv">
+        <div><div class="k">Cliente / contratante</div><div class="v">${p.contratante} <span style="color:var(--text-3);font-weight:400">· ${p.edad} años</span></div></div>
+        <div><div class="k">Asesor</div><div class="v">${advName(p.advisor)}</div></div>
+        <div><div class="k">Suma asegurada</div><div class="v big">${fmt(p.sumaAseg)}</div></div>
+        <div><div class="k">Prima anual</div><div class="v big">${fmt(p.prima)} <span style="font-size:13px;color:var(--text-3);font-weight:400">/ ${p.forma.toLowerCase()}</span></div></div>
+        <div><div class="k">Fecha de firma</div><div class="v num">${p.firma}</div></div>
+        <div><div class="k">Vigencia</div><div class="v num">${p.vigencia}</div></div>
+        <div><div class="k">Próximo pago</div><div class="v num">${p.prox}</div></div>
+        <div><div class="k">Comisión ${p.estado==='ok'?'(ganada)':'(potencial)'}</div><div class="v ${p.estado==='ok'?'green':''} num">${fmt(p.comision)}</div></div>
+        ${gmm?`<div><div class="k">Deducible</div><div class="v num">${fmt(p.deducible)}</div></div>
+        <div><div class="k">Coaseguro</div><div class="v">${p.coaseguro}</div></div>`:''}
+      </div>
+    </div>
+
+    <div class="detail-grid">
+      <div>
+        <div class="card">
+          <h3>Coberturas</h3>
+          ${p.coverages.map(c=>`<div class="cov">
+            <div><div class="cov-name">${c.n}</div>${c.s?`<div class="cov-sub">${c.s}</div>`:''}</div>
+            <div class="cov-amt ${/incluida/i.test(c.a)?'muted':''}">${c.a}</div></div>`).join('')}
+        </div>
+        <div class="card">
+          <h3>Calendario de recibos</h3>
+          ${p.pays.map((pay,i)=>`<div class="pay-row">
+            <div class="pay-left">
+              <div class="pay-idx ${pay.k||''}">${pay.k==='paid'?'✓':i+1}</div>
+              <div><div class="pay-date num">${pay.d}</div><div class="pay-status">${pay.st}</div></div>
+            </div>
+            ${pay.k==='paid'?'<span class="pill ok" style="font-size:11px">Pagado</span>':pay.k==='next'?'<span class="pill pend" style="font-size:11px">Próximo</span>':''}
+          </div>`).join('')}
+        </div>
+      </div>
+      <div>
+        <div class="card">
+          <h3>Beneficiarios</h3>
+          ${p.beneficiaries.map(b=>`<div class="beneficiary"><span>${b.n}</span><span class="t-strong num">${b.p}</span></div>`).join('')}
+        </div>
+        <div class="card">
+          <h3>Datos administrativos</h3>
+          <div class="beneficiary"><span style="color:var(--text-2)">Aseguradora</span><span class="t-strong">${p.aseguradora}</span></div>
+          <div class="beneficiary"><span style="color:var(--text-2)">Ramo</span><span class="t-strong">${p.ramo}</span></div>
+          <div class="beneficiary"><span style="color:var(--text-2)">Plazo</span><span class="t-strong">${p.plazo}</span></div>
+          <div class="beneficiary"><span style="color:var(--text-2)">Forma de pago</span><span class="t-strong">${p.forma}</span></div>
+          ${p.primaMensual?`<div class="beneficiary"><span style="color:var(--text-2)">Prima mensual aprox.</span><span class="t-strong num">${fmt(p.primaMensual)}</span></div>`:''}
+        </div>
+      </div>
+    </div>`;
+}
+
+/* ---------------- helpers ---------------- */
+function kpi(label,val,cls,note){
+  return `<div class="kpi ${cls}"><div class="kpi-label">${label}</div>
+    <div class="kpi-val num">${val}</div><div class="kpi-note">${note}</div></div>`;
+}
+function kpiFunnel(label,val,won,pend){
+  return `<div class="kpi"><div class="kpi-label">${label}</div>
+    <div class="kpi-val num">${val}</div>
+    <div class="funnel"><span class="f-won" style="flex:${won||0.001}"></span><span class="f-pend" style="flex:${pend||0.001}"></span></div>
+    <div class="kpi-note">${won} aprobada(s) · ${pend} pendiente(s)</div></div>`;
+}
+function swap(view){
+  ['roster','list','detail'].forEach(v=>$('#view-'+v).classList.toggle('hidden', v!==view));
+}
+
+/* init */
+setRole('asesor');
+</script>
+</body>
+</html>

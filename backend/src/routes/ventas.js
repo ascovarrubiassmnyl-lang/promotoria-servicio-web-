@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../prisma.js';
-import { authenticate, esAdmin } from '../middleware/auth.js';
+import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 
 const router = Router();
@@ -34,6 +34,67 @@ async function sincronizarRecordatorioPago(venta) {
   });
 }
 
+// Normaliza el array de coberturas de la ficha técnica: [{ nombre, detalle?, monto? }]
+function limpiarCoberturas(v) {
+  if (!Array.isArray(v)) return null;
+  const limpio = v
+    .filter((c) => c && typeof c === 'object')
+    .map((c) => ({
+      nombre: String(c.nombre || '').trim().slice(0, 140),
+      detalle: String(c.detalle || '').trim().slice(0, 140) || null,
+      monto: String(c.monto || '').trim().slice(0, 60) || null,
+    }))
+    .filter((c) => c.nombre);
+  return limpio.length ? limpio : null;
+}
+
+// Normaliza beneficiarios: [{ nombre, porcentaje? }]
+function limpiarBeneficiarios(v) {
+  if (!Array.isArray(v)) return null;
+  const limpio = v
+    .filter((b) => b && typeof b === 'object')
+    .map((b) => ({
+      nombre: String(b.nombre || '').trim().slice(0, 140),
+      porcentaje: b.porcentaje === null || b.porcentaje === undefined || b.porcentaje === '' ? null : +b.porcentaje,
+    }))
+    .filter((b) => b.nombre);
+  return limpio.length ? limpio : null;
+}
+
+// Resumen de cartera por asesor para la vista de promotor (roster de Equipo).
+// SOLO promotores (ADMIN/SUPERADMIN): un asesor no puede ver agregados de otros.
+router.get('/equipo/resumen', asyncHandler(async (req, res) => {
+  const isAdmin = req.user.rol === 'ADMIN' || req.user.rol === 'SUPERADMIN';
+  if (!isAdmin) return res.status(403).json({ error: 'Solo promotores pueden consultar el equipo' });
+  const [asesores, ventas] = await Promise.all([
+    prisma.usuario.findMany({
+      where: { rol: 'ASESOR', activo: true },
+      select: { id: true, nombre: true, apellidoP: true, apellidoM: true, fotoUrl: true },
+      orderBy: { nombre: 'asc' },
+    }),
+    prisma.venta.findMany({ select: { asesorId: true, primaAnual: true, comisionMonto: true, estado: true } }),
+  ]);
+  const GANADAS = ['PAGADA', 'APROBADA'];
+  const PIPELINE = ['PENDIENTE_PAGAR', 'FIRMADA'];
+  const resumen = asesores.map((a) => {
+    const propias = ventas.filter((v) => v.asesorId === a.id);
+    const ganadas = propias.filter((v) => GANADAS.includes(v.estado));
+    const pendientes = propias.filter((v) => PIPELINE.includes(v.estado));
+    const activas = ganadas.length + pendientes.length;
+    return {
+      asesor: a,
+      polizas: propias.length,
+      primaGestionada: propias.reduce((s, v) => s + v.primaAnual, 0),
+      comisionGanada: ganadas.reduce((s, v) => s + (v.comisionMonto || 0), 0),
+      comisionPipeline: pendientes.reduce((s, v) => s + (v.comisionMonto || 0), 0),
+      ganadas: ganadas.length,
+      pendientes: pendientes.length,
+      cierrePct: activas ? Math.round((ganadas.length / activas) * 100) : 0,
+    };
+  });
+  res.json(resumen);
+}));
+
 router.get('/', asyncHandler(async (req, res) => {
   const { estado, asesorId, clienteId, desde, hasta } = req.query;
   const where = {};
@@ -49,7 +110,7 @@ router.get('/', asyncHandler(async (req, res) => {
   const ventas = await prisma.venta.findMany({
     where,
     include: {
-      cliente: { select: { id: true, nombre: true, apellidoP: true, apellidoM: true, telefono: true, email: true } },
+      cliente: { select: { id: true, nombre: true, apellidoP: true, apellidoM: true, telefono: true, email: true, fechaNacimiento: true } },
       asesor: { select: { id: true, nombre: true, apellidoP: true } },
       validador: { select: { id: true, nombre: true } },
       productoCatalogo: { select: { id: true, nombre: true, ramo: true, comisionPct: true, descripcion: true } },
@@ -65,7 +126,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
   const venta = await prisma.venta.findUnique({
     where: { id },
     include: {
-      cliente: { select: { id: true, nombre: true, apellidoP: true, apellidoM: true, telefono: true, email: true, rfc: true, direccion: true } },
+      cliente: { select: { id: true, nombre: true, apellidoP: true, apellidoM: true, telefono: true, email: true, rfc: true, direccion: true, fechaNacimiento: true } },
       asesor: { select: { id: true, nombre: true, apellidoP: true, email: true, telefono: true } },
       validador: { select: { id: true, nombre: true } },
       productoCatalogo: true,
@@ -84,6 +145,7 @@ router.post('/', asyncHandler(async (req, res) => {
     clienteId, ramo, producto, primaAnual, comisionPct, estado, notas,
     productoCatalogoId, fechaFirma, fechaPago, fechaEntregaPoliza,
     formaPago, fechaInicioVigencia, fechaFinVigencia, fechaProximoPago, diaPago, montoPago,
+    sumaAsegurada, plazo, deducible, coaseguro, coberturas, beneficiarios,
   } = req.body || {};
   if (!clienteId || !ramo || !producto || primaAnual == null) return res.status(400).json({ error: 'clienteId, ramo, producto y primaAnual son requeridos' });
   const cliente = await prisma.cliente.findUnique({ where: { id: clienteId } });
@@ -118,6 +180,12 @@ router.post('/', asyncHandler(async (req, res) => {
       fechaProximoPago: fechaProximoPago ? new Date(fechaProximoPago) : null,
       diaPago: diaPago ?? null,
       montoPago: montoPago ?? null,
+      sumaAsegurada: sumaAsegurada ?? null,
+      plazo: plazo || null,
+      deducible: deducible ?? null,
+      coaseguro: coaseguro || null,
+      coberturas: limpiarCoberturas(coberturas),
+      beneficiarios: limpiarBeneficiarios(beneficiarios),
     },
     include: { cliente: { select: { id: true, nombre: true, apellidoP: true } } },
   });
@@ -140,6 +208,7 @@ router.patch('/:id', asyncHandler(async (req, res) => {
     productoCatalogoId, fechaFirma, fechaPago, fechaEntregaPoliza,
     fechaCancelacion, montoCancelado, motivoCancelacion,
     formaPago, fechaInicioVigencia, fechaFinVigencia, fechaProximoPago, diaPago, montoPago,
+    sumaAsegurada, plazo, deducible, coaseguro, coberturas, beneficiarios,
   } = req.body || {};
   const data = {};
   if (ramo) data.ramo = ramo;
@@ -166,6 +235,12 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   if (fechaProximoPago !== undefined) data.fechaProximoPago = fechaProximoPago ? new Date(fechaProximoPago) : null;
   if (diaPago !== undefined) data.diaPago = diaPago ?? null;
   if (montoPago !== undefined) data.montoPago = montoPago ?? null;
+  if (sumaAsegurada !== undefined) data.sumaAsegurada = sumaAsegurada ?? null;
+  if (plazo !== undefined) data.plazo = plazo || null;
+  if (deducible !== undefined) data.deducible = deducible ?? null;
+  if (coaseguro !== undefined) data.coaseguro = coaseguro || null;
+  if (coberturas !== undefined) data.coberturas = limpiarCoberturas(coberturas);
+  if (beneficiarios !== undefined) data.beneficiarios = limpiarBeneficiarios(beneficiarios);
   if (estado) {
     data.estado = estado;
     if (estado === 'APROBADA' || estado === 'RECHAZADA') {
@@ -226,8 +301,14 @@ router.post('/:id/cobroconfirmado', asyncHandler(async (req, res) => {
   res.json({ ok: true, siguienteFecha: proxima });
 }));
 
-router.delete('/:id', esAdmin, asyncHandler(async (req, res) => {
+// El asesor dueño de la póliza también puede eliminarla (además de los admins)
+router.delete('/:id', asyncHandler(async (req, res) => {
   const { id } = req.params;
+  const venta = await prisma.venta.findUnique({ where: { id } });
+  if (!venta) return res.status(404).json({ error: 'Póliza no encontrada' });
+  const esDueno = venta.asesorId === req.user.id;
+  const isAdmin = req.user.rol === 'ADMIN' || req.user.rol === 'SUPERADMIN';
+  if (!esDueno && !isAdmin) return res.status(403).json({ error: 'Sin acceso a esta póliza' });
   await prisma.venta.delete({ where: { id } });
   res.json({ ok: true });
 }));

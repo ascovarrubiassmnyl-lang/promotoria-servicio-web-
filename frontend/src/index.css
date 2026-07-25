@@ -39,6 +39,82 @@
       dark:bg-slate-800 dark:border-slate-700;
   }
   .badge {
-    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+
+  /* ---- Rediseño Pólizas: componentes base compartidos ---- */
+
+  /* KPI con barra de acento a la izquierda. Variantes: kpi-green (ganado),
+     kpi-amber (pipeline/pendiente), kpi-accent (marca). Nunca sumar ganado+pipeline. */
+  .kpi {
+    @apply card relative overflow-hidden p-4 pl-5;
+  }
+  .kpi::before {
+    content: '';
+    @apply absolute left-0 top-0 bottom-0 w-1 bg-slate-300 dark:bg-slate-600;
+  }
+  .kpi-green::before {
+    @apply bg-emerald-500;
+  }
+  .kpi-amber::before {
+    @apply bg-amber-500;
+  }
+  .kpi-accent::before {
+    @apply bg-brand-500;
+  }
+  .kpi-label {
+    @apply text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400;
+  }
+  .kpi-val {
+    @apply mt-1.5 text-2xl font-bold text-slate-800 dark:text-slate-100 tabular-nums;
+  }
+  .kpi-green .kpi-val {
+    @apply text-emerald-600 dark:text-emerald-400;
+  }
+  .kpi-amber .kpi-val {
+    @apply text-amber-600 dark:text-amber-400;
+  }
+  .kpi-note {
+    @apply mt-1 text-xs text-slate-500 dark:text-slate-400;
+  }
+
+  /* Punto de estado dentro de un badge (pill con dot) */
+  .badge-dot::before {
+    content: '';
+    @apply w-1.5 h-1.5 rounded-full bg-current shrink-0;
+  }
+
+  /* Etiqueta rectangular neutra (forma de pago, ramo) */
+  .tag {
+    @apply inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold
+      bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300;
+  }
+
+  /* Montos de comisión: verde SOLO si la póliza está aprobada/pagada */
+  .money-earned {
+    @apply font-semibold tabular-nums text-emerald-600 dark:text-emerald-400;
+  }
+  .money-pending {
+    @apply font-semibold tabular-nums text-slate-500 dark:text-slate-400;
+  }
+
+  .avatar {
+    @apply w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-sm font-semibold
+      bg-brand-50 text-brand-700 dark:bg-brand-900/60 dark:text-brand-300;
+  }
+
+  /* Par clave/valor de la ficha de detalle */
+  .kv-k {
+    @apply text-xs text-slate-400 dark:text-slate-500 mb-0.5;
+  }
+  .kv-v {
+    @apply text-[15px] font-semibold text-slate-800 dark:text-slate-100;
+  }
+
+  /* Banner de alcance (promotor consultando cartera ajena) */
+  .scope-banner {
+    @apply flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm
+      border border-brand-200 bg-brand-50 text-brand-700
+      dark:border-brand-700/60 dark:bg-brand-900/30 dark:text-brand-300;
   }
 }

@@ -44,7 +44,12 @@ export default function Layout() {
     { to: '/', label: 'Dashboard', end: true, seccion: 'dashboard' },
     { to: '/clientes', label: 'Clientes', seccion: 'clientes' },
     { to: '/citas', label: 'Citas / Calendario', seccion: 'citas' },
-    { to: '/ventas', label: 'Pólizas', seccion: 'ventas' },
+    // Promotor (ADMIN/SUPERADMIN) entra a pólizas por el roster de Equipo;
+    // el asesor va directo a su propia cartera. El ítem de Equipo solo se
+    // renderiza para promotores (capa 1 del control de acceso).
+    esAdmin()
+      ? { to: '/equipo', label: 'Pólizas · Equipo', seccion: 'ventas' }
+      : { to: '/ventas', label: 'Pólizas', seccion: 'ventas' },
     { to: '/actividad', label: 'Actividad', seccion: 'actividad' },
   ];
   const adminLinks = [
