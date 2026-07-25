@@ -62,23 +62,21 @@ export default function Layout() {
     } group relative flex items-center gap-3 rounded-lg ${colapsado ? 'h-10 w-10 mx-auto' : 'py-2'} text-sm font-medium transition`;
 
   return (
-    <div className="min-h-screen flex bg-slate-50 dark:bg-slate-900">
+    <div className="h-screen flex overflow-hidden bg-slate-50 dark:bg-slate-900">
       <aside
-        className={`${wClase} bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col transition-all duration-200 shrink-0`}
+        className={`${wClase} bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col transition-all duration-200 shrink-0 h-screen`}
       >
         {/* Logo + toggle */}
-        <div className="border-b border-slate-100 dark:border-slate-700 flex items-center px-3 h-14">
-          <div className={`flex items-center justify-center flex-1 ${colapsado ? 'min-w-0' : ''}`}>
-            {colapsado ? (
-              <span className="text-xl font-bold text-brand-600 dark:text-brand-400">O</span>
-            ) : (
-              <img src={logoSrc} alt="Origen" className="h-7 w-auto object-contain" />
-            )}
-          </div>
+        <div className={`border-b border-slate-100 dark:border-slate-700 flex items-center h-16 ${colapsado ? 'justify-center px-2' : 'justify-between px-4'}`}>
+          {colapsado ? (
+            <span className="text-xl font-bold text-brand-600 dark:text-brand-400">O</span>
+          ) : (
+            <img src={logoSrc} alt="Origen" className="h-8 w-auto object-contain" />
+          )}
           {!colapsado && (
             <button
               onClick={() => setColapsado(true)}
-              className="ml-2 p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 dark:hover:text-slate-200 transition"
+              className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 dark:hover:text-slate-200 transition shrink-0"
               title="Colapsar"
               aria-label="Colapsar sidebar"
             >
@@ -177,7 +175,7 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto min-w-0">
+      <main className="flex-1 min-w-0 h-full overflow-y-auto overflow-x-hidden">
         <div className="max-w-7xl mx-auto p-6">
           <Outlet />
         </div>
