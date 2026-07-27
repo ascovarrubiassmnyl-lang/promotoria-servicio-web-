@@ -135,6 +135,40 @@ Las tres capas para cada fila: enlace condicionado en `Layout.jsx`, guard
 `SeccionRoute`/`AdminRoute` en `App.jsx`, y validación de rol + propiedad en la
 ruta de Express correspondiente (la única capa que garantiza la restricción).
 
+## Sección Dashboard (rediseño 2026-07)
+
+`pages/Dashboard.jsx` (`/`, compartida por ambos roles; el alcance lo fuerza el
+servidor). Jerarquía: hero con **anillo de meta de prima** (punto focal único),
+"Requiere tu atención", embudo diagnóstico, franja de estado de pólizas y
+paneles secundarios (ranking solo admin, referidos y bonos). Sin emojis (SVG);
+tipografía = la sans del sistema (no se importó serif del mock).
+
+- **Fuente única**: `GET /metricas/dashboard` (mes/año) devuelve KPIs, `meta`
+  (asesor → su `Target`; promotor → `TargetEquipo` — calculado en servidor,
+  el asesor jamás recibe la meta o datos de otros), `atencion` (pendientes de
+  pago con prima, citas de hoy, seguimiento, bonos por ganar), `polizasMes`
+  (groupBy estado, creadas en el mes), `referidosMes`, `bonosMes` (por
+  `mes`/`anio` del bono) y `ranking` con `metaPrima` (solo no-asesores).
+  `GET /metricas/funnel` alimenta el embudo. **`/metricas/pipeline` y
+  `/metricas/ventas-por-ramo` se eliminaron** (métricas duplicadas con
+  definiciones propias — no reintroducirlos). `Asesores.jsx` también consume
+  `/metricas/dashboard`: no romper los campos del ranking.
+- **Definiciones únicas** (mismas que Pólizas/Metas, no recalcular distinto):
+  venta ganada = `APROBADA`/`PAGADA` con `creadoEn` en el mes; "Comisión
+  ganada" (verde) vs "Comisión en pipeline" (neutra, solo en la tarjeta
+  Referidos y bonos) nunca se suman; la única "tasa de conversión" es la del
+  embudo entre etapas; la de referidos se llama **"tasa de referidos"** y vive
+  solo en su tarjeta.
+- **Ritmo y proyección**: reutiliza `components/metas/ritmo.js`
+  (`claveRitmo`, `proyeccion`, `ESTADOS_RITMO`); el anillo colorea por
+  semáforo de ritmo, lleva **punto de ritmo** en la fracción transcurrida del
+  mes y el copy dice la proyección de cierre en lenguaje llano. El embudo usa
+  el mapa único de `components/clientes/etapas.js` y resalta el mayor cuello
+  de botella entre las 5 etapas núcleo (conversión < 70% en ámbar).
+- Estados vacíos que guían (agregar cliente / agendar cita / invitar asesor) y
+  filas de atención/ranking enlazan a su sección. El anillo se anima al montar
+  salvo `prefers-reduced-motion` (`motion-reduce:transition-none`).
+
 ## Sección Pólizas (rediseño 2026-07)
 
 - `components/polizas/PolicyList.jsx` y `PolicyDetail.jsx` son **componentes
