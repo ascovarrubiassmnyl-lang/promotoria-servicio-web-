@@ -7,11 +7,21 @@
     @apply bg-slate-50 text-slate-900 transition-colors;
   }
   .dark body {
-    @apply bg-slate-900 text-slate-100;
+    @apply text-slate-100;
+    background-color: #070a24;
   }
 }
 
 @layer components {
+  /* Fondo del shell de la app (Layout): claro = neutro; oscuro = gradiente
+     navy del login, sobre el que se monta el fondo 3D decorativo (FondoApp). */
+  .app-shell {
+    @apply bg-slate-50;
+  }
+  .dark .app-shell {
+    background: radial-gradient(120% 120% at 70% 0%, #131a52, #070a24);
+  }
+
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition;
   }
@@ -34,9 +44,11 @@
   .label {
     @apply block text-sm font-medium text-slate-700 mb-1 dark:text-slate-300;
   }
+  /* En oscuro la tarjeta es glass (translúcida + blur) para dejar ver el
+     fondo 3D navy del shell sin sacrificar legibilidad. */
   .card {
     @apply bg-white rounded-xl border border-slate-200 shadow-sm
-      dark:bg-slate-800 dark:border-slate-700;
+      dark:bg-slate-800/75 dark:backdrop-blur-sm dark:border-slate-700/70;
   }
   .badge {
     @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium;

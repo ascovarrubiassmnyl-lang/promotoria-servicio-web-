@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Origen Asesores · Iniciar sesión</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Cormorant+Garamond:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#141a2e; --ink-2:#5b6577; --ink-3:#98a1b3;
+    --card:rgba(255,255,255,.92); --card-border:rgba(255,255,255,.6);
+    --field:#eef1fb; --field-border:#d7ddf2;
+    --accent:#3a46d4; --accent-2:#2b34c9;
+    --bg-a:#3540d0; --bg-b:#171d6b;
+  }
+  body.dark{
+    --ink:#eaf0ff; --ink-2:#a6b0ce; --ink-3:#6b769a;
+    --card:rgba(18,22,44,.72); --card-border:rgba(120,140,220,.22);
+    --field:rgba(255,255,255,.06); --field-border:rgba(140,160,230,.22);
+    --accent:#5f74ff; --accent-2:#4a5cf0;
+    --bg-a:#131a52; --bg-b:#070a24;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:'Inter',system-ui,sans-serif;color:var(--ink);overflow:hidden;
+    background:radial-gradient(120% 120% at 50% 20%, var(--bg-a), var(--bg-b));}
+  #bg{position:fixed;inset:0;z-index:0;display:block}
+  .wrap{position:relative;z-index:1;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+
+  .theme{position:fixed;top:22px;right:26px;z-index:3;width:46px;height:46px;border-radius:14px;
+    background:var(--card);border:1px solid var(--card-border);backdrop-filter:blur(14px);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--ink-2);box-shadow:0 8px 26px rgba(0,0,0,.18)}
+  .theme:hover{color:var(--ink)}
+
+  .card{width:440px;max-width:100%;background:var(--card);border:1px solid var(--card-border);
+    border-radius:26px;padding:44px 40px 34px;backdrop-filter:blur(22px) saturate(1.2);
+    box-shadow:0 30px 80px rgba(10,14,50,.45), inset 0 1px 0 rgba(255,255,255,.4);
+    animation:rise .7s cubic-bezier(.2,.7,.2,1) both}
+  @keyframes rise{from{opacity:0;transform:translateY(18px) scale(.98)}to{opacity:1;transform:none}}
+
+  .brand{display:flex;flex-direction:column;align-items:center;margin-bottom:26px}
+  .brand-row{display:flex;align-items:center;gap:16px}
+  .mark{width:52px;height:52px;position:relative}
+  .mark svg{width:100%;height:100%}
+  .brand-name{font-family:'Cormorant Garamond',serif;font-size:38px;font-weight:600;letter-spacing:.06em;line-height:.9;color:var(--ink)}
+  .brand-sub{font-size:11px;letter-spacing:.42em;color:var(--ink-2);margin-top:3px}
+  .tagline{margin-top:16px;color:var(--ink-2);font-size:14px}
+
+  form{margin-top:4px}
+  .fg{margin-bottom:18px}
+  label{display:block;font-size:13px;font-weight:600;margin-bottom:8px;color:var(--ink)}
+  .inp{width:100%;background:var(--field);border:1.5px solid var(--field-border);border-radius:13px;
+    padding:14px 15px;font-family:inherit;font-size:15px;color:var(--ink);outline:none;transition:.15s}
+  .inp::placeholder{color:var(--ink-3)}
+  .inp:focus{border-color:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 20%,transparent)}
+  .pw-wrap{position:relative}
+  .pw-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--ink-3);cursor:pointer;padding:4px}
+  .pw-toggle:hover{color:var(--ink-2)}
+
+  .btn{width:100%;margin-top:6px;background:linear-gradient(180deg,var(--accent),var(--accent-2));
+    color:#fff;border:none;border-radius:13px;padding:15px;font-family:inherit;font-size:16px;font-weight:600;
+    cursor:pointer;box-shadow:0 12px 30px color-mix(in srgb,var(--accent) 45%,transparent);transition:.15s;position:relative;overflow:hidden}
+  .btn:hover{transform:translateY(-1px);box-shadow:0 16px 40px color-mix(in srgb,var(--accent) 55%,transparent)}
+  .btn:active{transform:translateY(0)}
+
+  .demo{margin-top:24px;background:color-mix(in srgb,var(--ink) 5%,transparent);border:1px solid var(--field-border);
+    border-radius:13px;padding:14px 16px}
+  .demo-h{font-size:12px;font-weight:600;color:var(--ink-2);display:flex;align-items:center;gap:7px;margin-bottom:8px}
+  .demo-h .badge{font-size:9px;font-weight:700;letter-spacing:.05em;color:#b26a00;background:#ffedcf;padding:2px 7px;border-radius:5px}
+  body.dark .demo-h .badge{color:#ffce8a;background:#3a2a10}
+  .demo-row{font-size:12.5px;color:var(--ink-3);font-variant-numeric:tabular-nums;padding:3px 0;font-family:ui-monospace,SFMono-Regular,monospace}
+  .demo-row b{color:var(--ink-2);font-weight:600}
+
+  .fallback-note{position:fixed;bottom:14px;left:0;right:0;text-align:center;color:rgba(255,255,255,.35);font-size:11px;z-index:1}
+</style>
+</head>
+<body class="dark">
+  <canvas id="bg" aria-hidden="true"></canvas>
+
+  <div class="wrap">
+    <div class="card">
+      <div class="brand">
+        <div class="brand-row">
+          <div class="mark">
+            <svg viewBox="0 0 52 52" fill="none">
+              <circle cx="26" cy="26" r="23" stroke="currentColor" stroke-width="2.4" style="color:var(--ink)"/>
+              <circle cx="31" cy="26" r="17" fill="var(--card)"/>
+              <circle cx="31" cy="26" r="17" stroke="currentColor" stroke-width="2.4" style="color:var(--ink)"/>
+            </svg>
+          </div>
+          <div>
+            <div class="brand-name">ORIGEN</div>
+            <div class="brand-sub">ASESORES</div>
+          </div>
+        </div>
+        <div class="tagline">Inicia sesión para continuar</div>
+      </div>
+
+      <form onsubmit="return false">
+        <div class="fg">
+          <label for="email">Email</label>
+          <input class="inp" id="email" type="email" placeholder="tu@correo.com" value="lupiizmtz@hotmail.com" autocomplete="email">
+        </div>
+        <div class="fg">
+          <label for="pw">Contraseña</label>
+          <div class="pw-wrap">
+            <input class="inp" id="pw" type="password" placeholder="••••••••" value="password" autocomplete="current-password">
+            <span class="pw-toggle" id="pwToggle" aria-label="Mostrar contraseña">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="2.6"/></svg>
+            </span>
+          </div>
+        </div>
+        <button class="btn" type="submit">Entrar</button>
+      </form>
+
+      <div class="demo">
+        <div class="demo-h">Cuentas demo <span class="badge">SOLO DESARROLLO</span></div>
+        <div class="demo-row"><b>superadmin@demo.com</b> · super123</div>
+        <div class="demo-row"><b>admin@demo.com</b> · admin123</div>
+        <div class="demo-row"><b>asesor1@demo.com</b> · asesor123</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="fallback-note" id="fbNote"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    // login fijo en tema oscuro
+    var updateColors=function(){};
+
+    // --- password visibility ---
+    const pw=document.getElementById('pw');
+    document.getElementById('pwToggle').addEventListener('click',()=>{pw.type=pw.type==='password'?'text':'password';});
+
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const canvas=document.getElementById('bg');
+
+    if(!window.THREE){
+      // graceful fallback: CSS gradient already visible; nothing to do
+      document.getElementById('fbNote').textContent='';
+    } else {
+      const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+      renderer.setSize(innerWidth,innerHeight);
+
+      const scene=new THREE.Scene();
+      scene.fog=new THREE.FogExp2(0x0b1030,0.055);
+      const camera=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,0.1,100);
+      camera.position.set(0,0,9);
+
+      // brand "eclipse" rings — evokes the ORIGEN mark, not random shapes
+      const ringGroup=new THREE.Group();
+      const ringMat=new THREE.MeshStandardMaterial({color:0xbfd2ff,metalness:.7,roughness:.25,emissive:0x1a2a80,emissiveIntensity:.35});
+      const ring1=new THREE.Mesh(new THREE.TorusGeometry(3.1,0.09,32,180),ringMat);
+      const ring2=new THREE.Mesh(new THREE.TorusGeometry(2.2,0.055,28,160),ringMat.clone());
+      ring2.rotation.x=Math.PI/2.4; ring2.rotation.y=.4;
+      const core=new THREE.Mesh(new THREE.SphereGeometry(1.15,48,48),
+        new THREE.MeshStandardMaterial({color:0x2a3ad0,metalness:.4,roughness:.35,emissive:0x33409a,emissiveIntensity:.5}));
+      ringGroup.add(ring1,ring2,core);
+      ringGroup.rotation.set(.5,.2,0);
+      scene.add(ringGroup);
+
+      // starfield
+      const starN = innerWidth<640?120:260;
+      const sg=new THREE.BufferGeometry();
+      const pos=new Float32Array(starN*3);
+      for(let i=0;i<starN;i++){pos[i*3]=(Math.random()-.5)*40;pos[i*3+1]=(Math.random()-.5)*26;pos[i*3+2]=(Math.random()-.5)*30-6;}
+      sg.setAttribute('position',new THREE.BufferAttribute(pos,3));
+      const stars=new THREE.Points(sg,new THREE.PointsMaterial({color:0xffffff,size:0.05,transparent:true,opacity:.7}));
+      scene.add(stars);
+
+      // lights
+      scene.add(new THREE.AmbientLight(0x8090ff,0.5));
+      const key=new THREE.PointLight(0xffffff,1.1,60); key.position.set(6,6,10); scene.add(key);
+      const rim=new THREE.PointLight(0x6f8bff,1.2,60); rim.position.set(-8,-4,4); scene.add(rim);
+
+      // mouse parallax
+      let mx=0,my=0,tx=0,ty=0;
+      window.addEventListener('pointermove',e=>{mx=(e.clientX/innerWidth-.5);my=(e.clientY/innerHeight-.5);});
+
+      updateColors=function(){
+        const dark=document.body.classList.contains('dark');
+        scene.fog.color.setHex(dark?0x05061c:0x0b1030);
+        core.material.emissiveIntensity=dark?.35:.5;
+      };
+      updateColors();
+
+      function resize(){renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}
+      window.addEventListener('resize',resize);
+
+      let t=0;
+      function loop(){
+        t+=0.0025;
+        if(!reduce){
+          ringGroup.rotation.y=t*0.8+.2;
+          ringGroup.rotation.x=.5+Math.sin(t)*0.08;
+          ring2.rotation.z=t*1.4;
+          stars.rotation.y=t*0.12;
+          tx+=(mx-tx)*.05; ty+=(my-ty)*.05;
+          camera.position.x=tx*1.6; camera.position.y=-ty*1.1; camera.lookAt(0,0,0);
+        }
+        renderer.render(scene,camera);
+        if(!reduce) requestAnimationFrame(loop);
+      }
+      loop();
+      if(reduce) renderer.render(scene,camera); // one static frame
+    }
+  </script>
+</body>
+</html>

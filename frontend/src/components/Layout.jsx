@@ -1,7 +1,13 @@
 import { NavLink, useNavigate, Outlet } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { Suspense, lazy, useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
+import { soportaWebGL, Silencioso } from './decor/util3d.jsx';
+
+// Fondo 3D decorativo del panel (solo modo oscuro): mismo patrón que el login
+// — lazy + Suspense (three no entra al bundle inicial), solo con WebGL y con
+// ErrorBoundary silencioso; el fallback es el gradiente CSS de .app-shell.
+const FondoApp = lazy(() => import('./decor/FondoApp.jsx'));
 
 // Iconos SVG inline (sin dependencias externas)
 const IconDashboard = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>);
@@ -31,6 +37,7 @@ export default function Layout() {
 
   const logoSrc = tema === 'dark' ? '/origen-blanco.png' : '/origen-negro.png';
 
+  const [conWebGL] = useState(soportaWebGL);
   const [colapsado, setColapsado] = useState(false);
   useEffect(() => {
     const v = localStorage.getItem(STORAGE_KEY);
@@ -51,6 +58,9 @@ export default function Layout() {
       ? { to: '/equipo', label: 'Pólizas · Equipo', seccion: 'ventas' }
       : { to: '/ventas', label: 'Pólizas', seccion: 'ventas' },
     { to: '/actividad', label: 'Actividad', seccion: 'actividad' },
+    // El asesor ve su propia meta; el promotor gestiona Metas desde la
+    // sección de admin (mismo destino, alcance distinto resuelto por la API).
+    ...(esAdmin() ? [] : [{ to: '/targets', label: 'Mi meta', seccion: 'metas' }]),
   ];
   const adminLinks = [
     { to: '/asesores', label: 'Asesores', seccion: 'asesores' },
@@ -67,9 +77,19 @@ export default function Layout() {
     } group relative flex items-center gap-3 rounded-lg ${colapsado ? 'h-10 w-10 mx-auto' : 'py-2'} text-sm font-medium transition`;
 
   return (
-    <div className="h-screen flex overflow-hidden bg-slate-50 dark:bg-slate-900">
+    <div className="h-screen flex overflow-hidden relative app-shell">
+      {tema === 'dark' && conWebGL && (
+        <div className="absolute inset-0 z-0" aria-hidden="true">
+          <Silencioso>
+            <Suspense fallback={null}>
+              <FondoApp />
+            </Suspense>
+          </Silencioso>
+        </div>
+      )}
+
       <aside
-        className={`${wClase} bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col transition-all duration-200 shrink-0 h-screen`}
+        className={`${wClase} bg-white dark:bg-slate-900/70 dark:backdrop-blur-xl border-r border-slate-200 dark:border-slate-700/70 flex flex-col transition-all duration-200 shrink-0 h-screen relative z-10`}
       >
         {/* Logo + toggle */}
         <div className={`border-b border-slate-100 dark:border-slate-700 flex items-center h-16 ${colapsado ? 'justify-center px-2' : 'justify-between px-4'}`}>
@@ -180,7 +200,7 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className="flex-1 min-w-0 h-full overflow-y-auto overflow-x-hidden">
+      <main className="flex-1 min-w-0 h-full overflow-y-auto overflow-x-hidden relative z-10">
         <div className="max-w-7xl mx-auto p-6">
           <Outlet />
         </div>
