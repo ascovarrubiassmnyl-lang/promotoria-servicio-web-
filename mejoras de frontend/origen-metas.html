@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Origen Asesores · Metas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#f6f7f9; --surface:#ffffff; --surface-2:#f1f3f7; --surface-3:#e9edf3;
+    --border:#e6e8ee; --border-strong:#d6dae3;
+    --text:#161d2b; --text-2:#5b6577; --text-3:#98a1b3;
+    --accent:#4f6ef7; --accent-bg:#eef1ff;
+    --green:#17925f; --amber:#d98a1f; --red:#d64c46; --track:#e6e8ee;
+    --radius:14px;
+  }
+  body.dark{
+    --bg:#0b1017; --surface:#111826; --surface-2:#161f30; --surface-3:#1c2740;
+    --border:#212b3d; --border-strong:#2c3a52;
+    --text:#e8edf5; --text-2:#9aa7bd; --text-3:#657189;
+    --accent:#5f7cff; --accent-bg:#1c2748;
+    --green:#3ecf8e; --amber:#e0a13a; --red:#e2635c; --track:#212b3d;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-font-smoothing:antialiased}
+  body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;font-size:14px}
+  button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+  .num{font-variant-numeric:tabular-nums}
+  .ico{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+
+  .sidebar{width:250px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:22px 16px}
+  .brand{display:flex;align-items:center;gap:11px;padding:6px 8px 24px}
+  .brand-mark{width:30px;height:30px;border-radius:50%;border:1.5px solid var(--text);position:relative}
+  .brand-mark::after{content:"";position:absolute;inset:5px 5px 5px 12px;border-radius:50%;background:var(--surface);border:1.5px solid var(--text)}
+  .brand-name{font-weight:600;letter-spacing:.14em;font-size:13px}.brand-sub{font-size:9px;letter-spacing:.28em;color:var(--text-3);margin-top:1px}
+  .nav{display:flex;flex-direction:column;gap:2px}
+  .nav a{display:flex;align-items:center;gap:13px;padding:11px 13px;border-radius:10px;color:var(--text-2);font-weight:500;cursor:pointer}
+  .nav a.active{background:var(--accent-bg);color:var(--accent)}.nav a:hover:not(.active){background:var(--surface-2)}
+  .nav .ico{width:18px;height:18px}
+  .nav-sec{font-size:10px;letter-spacing:.18em;color:var(--text-3);padding:18px 13px 8px}
+  .sidebar-foot{margin-top:auto;padding-top:16px;border-top:1px solid var(--border)}
+  .theme-btn{display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:10px;color:var(--text-2);font-weight:500;width:100%}
+  .theme-btn:hover{background:var(--surface-2)}
+  .who{padding:12px 8px 2px}.who-name{font-weight:600}.who-role{font-size:10px;letter-spacing:.22em;color:var(--text-3);margin-top:2px}
+
+  .main{flex:1;padding:26px 34px;overflow:auto;max-height:100vh}
+  .topbar{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+  h1{font-size:26px;font-weight:600;letter-spacing:-.01em}
+  .top-right{display:flex;gap:10px;align-items:center}
+  select{appearance:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 32px 10px 14px;color:var(--text);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%2398a1b3' stroke-width='2'%3E%3Cpath d='M2 4l4 4 4-4'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
+  .role-toggle{display:flex;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px}
+  .role-toggle button{padding:8px 13px;border-radius:7px;font-weight:500;font-size:13px;color:var(--text-2)}
+  .role-toggle button.on{background:var(--accent);color:#fff}
+
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;margin-bottom:20px}
+  .card-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;gap:12px;flex-wrap:wrap}
+  .card-h h2{font-size:17px;font-weight:600}
+  .card-h .sub{font-size:12px;color:var(--text-3);margin-top:3px;font-weight:400}
+  .btn-ghost{border:1px solid var(--border-strong);padding:9px 14px;border-radius:10px;font-weight:600;color:var(--text-2);font-size:13px;display:inline-flex;gap:6px;align-items:center}
+  .btn-ghost:hover{color:var(--text)}
+
+  .elapsed{font-size:12px;color:var(--text-2);background:var(--surface-2);border-radius:8px;padding:6px 11px;font-weight:500}
+  .elapsed b{color:var(--text)}
+
+  /* promotoría goal blocks */
+  .goal2{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  @media(max-width:840px){.goal2{grid-template-columns:1fr}}
+  .goalblock{}
+  .gb-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+  .gb-label{font-size:12px;letter-spacing:.05em;color:var(--text-3);text-transform:uppercase;font-weight:600}
+  .gb-status{font-size:11px;font-weight:700;padding:3px 9px;border-radius:6px;text-transform:uppercase;letter-spacing:.02em}
+  .gb-val{display:flex;align-items:baseline;gap:8px;margin-bottom:10px}
+  .gb-actual{font-size:30px;font-weight:700;letter-spacing:-.02em}
+  .gb-meta{font-size:15px;color:var(--text-3);font-weight:500}
+  .gb-pct{margin-left:auto;font-size:20px;font-weight:700}
+
+  .bar{position:relative;height:12px;background:var(--track);border-radius:7px;overflow:visible;margin-bottom:8px}
+  .bar .fill{height:100%;border-radius:7px;transition:width .4s}
+  .bar .pace{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--text-2);border-radius:2px}
+  .bar .pace::after{content:"ritmo";position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:9px;color:var(--text-3);white-space:nowrap;font-weight:600}
+  .gb-proj{font-size:12px;color:var(--text-2);margin-top:8px}
+  .gb-proj b{color:var(--text)}
+
+  /* reconciliation */
+  .recon{display:flex;gap:20px;flex-wrap:wrap;align-items:center;background:var(--surface-2);border-radius:12px;padding:14px 18px;margin-top:20px;font-size:13px}
+  .recon .r-item{display:flex;flex-direction:column;gap:2px}
+  .recon .r-k{font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em}
+  .recon .r-v{font-weight:600;font-variant-numeric:tabular-nums}
+  .recon .r-gap{margin-left:auto;font-weight:600}
+  .recon .r-gap.warn{color:var(--amber)}
+
+  /* advisor table */
+  table{width:100%;border-collapse:collapse}
+  thead th{text-align:left;font-size:11px;letter-spacing:.05em;color:var(--text-3);font-weight:600;text-transform:uppercase;padding:0 14px 14px}
+  th.r,td.r{text-align:right}
+  tbody tr{border-top:1px solid var(--border)}
+  td{padding:16px 14px;vertical-align:middle}
+  .rank{width:26px;height:26px;border-radius:8px;background:var(--surface-3);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--text-2)}
+  .a-name{font-weight:600;display:flex;align-items:center;gap:11px}
+  .prog-cell{min-width:180px}
+  .mini-bar{position:relative;height:8px;background:var(--track);border-radius:5px;margin-bottom:5px}
+  .mini-bar .mf{height:100%;border-radius:5px}
+  .mini-bar .mp{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--text-3);border-radius:2px}
+  .prog-txt{font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums;display:flex;justify-content:space-between}
+  .prog-txt .pct{font-weight:700}
+  .stpill{font-size:11px;font-weight:700;padding:4px 9px;border-radius:6px;text-transform:uppercase;letter-spacing:.02em;white-space:nowrap}
+  .edit-link{color:var(--accent);font-weight:600;font-size:13px;cursor:pointer}
+  .edit-link:hover{text-decoration:underline}
+  .no-meta{color:var(--text-3);font-size:12px;font-style:italic}
+  .hidden{display:none}
+  .contrib{font-size:12px;color:var(--text-3);margin-top:2px}
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="brand"><div class="brand-mark"></div><div><div class="brand-name">ORIGEN</div><div class="brand-sub">ASESORES</div></div></div>
+  <nav class="nav">
+    <a><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Dashboard</a>
+    <a><svg class="ico" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M4 20c0-3 2-5 5-5s5 2 5 5"/></svg>Clientes</a>
+    <a><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>Citas / Calendario</a>
+    <a><svg class="ico" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/></svg>Pólizas · Equipo</a>
+    <a><svg class="ico" viewBox="0 0 24 24"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>Actividad</a>
+    <div id="admin-sec">
+      <div class="nav-sec">ADMIN</div>
+      <a><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/></svg>Asesores</a>
+      <a class="active"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>Metas</a>
+      <a><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>Configuración</a>
+    </div>
+  </nav>
+  <div class="sidebar-foot">
+    <button class="theme-btn" onclick="document.body.classList.toggle('dark');this.querySelector('span').textContent=document.body.classList.contains('dark')?'Modo claro':'Modo oscuro';render()">
+      <svg class="ico" style="width:18px;height:18px" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg><span>Modo oscuro</span>
+    </button>
+    <div class="who"><div class="who-name" id="who-name">Super Admin</div><div class="who-role" id="who-role">SUPERADMIN</div></div>
+  </div>
+</aside>
+
+<main class="main">
+  <div class="topbar">
+    <div><h1>Metas / Targets</h1></div>
+    <div class="top-right">
+      <div class="role-toggle">
+        <button id="r-adm" class="on" onclick="setRole('admin')">Admin</button>
+        <button id="r-ase" onclick="setRole('asesor')">Asesor</button>
+      </div>
+      <select><option>Julio</option><option>Agosto</option></select>
+      <select><option>2026</option></select>
+    </div>
+  </div>
+
+  <!-- PROMOTORÍA -->
+  <div class="card" id="team-card">
+    <div class="card-h">
+      <div><h2>Meta de la promotoría · Julio 2026</h2><div class="sub">Objetivo agregado de todo el equipo</div></div>
+      <div style="display:flex;gap:12px;align-items:center">
+        <span class="elapsed">Mes transcurrido: <b>81%</b> · día 25 de 31</span>
+        <button class="btn-ghost" id="edit-team"><svg class="ico" style="width:14px;height:14px" viewBox="0 0 24 24"><path d="M4 20h4L18 10l-4-4L4 16z"/></svg>Editar meta</button>
+      </div>
+    </div>
+    <div class="goal2" id="team-goals"></div>
+    <div class="recon" id="recon"></div>
+  </div>
+
+  <!-- INDIVIDUALES -->
+  <div class="card">
+    <div class="card-h" id="ind-head">
+      <div><h2 id="ind-title">Metas por asesor · Julio 2026</h2><div class="sub" id="ind-sub">Avance individual contra la meta asignada</div></div>
+    </div>
+    <table>
+      <thead><tr>
+        <th id="th-rank">#</th><th>Asesor</th>
+        <th class="prog-cell">Ventas (meta)</th>
+        <th class="prog-cell">Prima (meta)</th>
+        <th>Estado</th><th class="r" id="th-act"></th>
+      </tr></thead>
+      <tbody id="ind-body"></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+const ELAPSED=25/31; // 0.806
+const team={metaVentas:5, metaPrima:90000};
+// actuals reales de tus capturas; metas de ejemplo (hoy están "Sin meta")
+const advisors=[
+  {name:'María López', initials:'ML', metaVentas:2, ventas:1, metaPrima:45000, prima:50000},
+  {name:'Juan Pérez',  initials:'JP', metaVentas:2, ventas:1, metaPrima:40000, prima:12000},
+];
+const SELF='Juan Pérez';
+let role='admin';
+const $=s=>document.querySelector(s);
+const money=n=>'$'+n.toLocaleString('es-MX');
+const teamActualVentas=()=>advisors.reduce((s,a)=>s+a.ventas,0);
+const teamActualPrima=()=>advisors.reduce((s,a)=>s+a.prima,0);
+
+function statusOf(pct){ // pct 0..100+
+  if(pct>=100) return {t:'Cumplida', c:'var(--green)'};
+  const ratio=(pct/100)/ELAPSED;
+  if(ratio>=1) return {t:'En ritmo', c:'var(--green)'};
+  if(ratio>=0.8) return {t:'Ligero atraso', c:'var(--amber)'};
+  return {t:'Atrasado', c:'var(--red)'};
+}
+function goalBlock(label, actual, meta, isMoney){
+  const pct = meta>0 ? Math.round(actual/meta*100) : 0;
+  const st=statusOf(pct);
+  const proj = ELAPSED>0 ? Math.round(actual/ELAPSED) : 0;
+  const projPct = meta>0 ? Math.round(proj/meta*100) : 0;
+  const fmt=isMoney?money:(x=>x);
+  return `<div class="goalblock">
+    <div class="gb-top"><span class="gb-label">${label}</span>
+      <span class="gb-status" style="color:${st.c};background:color-mix(in srgb,${st.c} 14%,var(--surface))">${st.t}</span></div>
+    <div class="gb-val"><span class="gb-actual num">${fmt(actual)}</span><span class="gb-meta num">/ ${fmt(meta)} meta</span>
+      <span class="gb-pct num" style="color:${st.c}">${pct}%</span></div>
+    <div class="bar"><div class="fill" style="width:${Math.min(pct,100)}%;background:${st.c}"></div>
+      <div class="pace" style="left:${ELAPSED*100}%"></div></div>
+    <div class="gb-proj">Proyección fin de mes: <b class="num">${fmt(proj)}</b> (${projPct}% de la meta al ritmo actual)</div>
+  </div>`;
+}
+
+function render(){
+  const admin=role==='admin';
+  $('#r-adm').classList.toggle('on',admin);$('#r-ase').classList.toggle('on',!admin);
+  $('#admin-sec').style.display=admin?'block':'none';
+  $('#who-name').textContent=admin?'Super Admin':'Juan Pérez';
+  $('#who-role').textContent=admin?'SUPERADMIN':'ASESOR';
+  $('#edit-team').style.display=admin?'inline-flex':'none';
+  $('#team-card').style.display=admin?'block':'none'; // asesor no gestiona meta de promotoría
+  $('#th-rank').style.display=admin?'':'none';
+  $('#th-act').style.display=admin?'':'none';
+  $('#ind-title').textContent=admin?'Metas por asesor · Julio 2026':'Mi meta · Julio 2026';
+  $('#ind-sub').textContent=admin?'Avance individual contra la meta asignada':'Tu avance contra tu meta asignada';
+
+  if(admin){
+    $('#team-goals').innerHTML =
+      goalBlock('Ventas (pólizas)', teamActualVentas(), team.metaVentas, false)+
+      goalBlock('Prima anual (MXN)', teamActualPrima(), team.metaPrima, true);
+    // reconciliation
+    const sumV=advisors.reduce((s,a)=>s+a.metaVentas,0), sumP=advisors.reduce((s,a)=>s+a.metaPrima,0);
+    const gapV=team.metaVentas-sumV, gapP=team.metaPrima-sumP;
+    const gapTxt = (gapV>0||gapP>0)
+      ? `<span class="r-gap warn">Por asignar: ${gapV>0?gapV+' venta(s)':''}${gapV>0&&gapP>0?' · ':''}${gapP>0?money(gapP):''}</span>`
+      : `<span class="r-gap" style="color:var(--green)">Metas individuales cubren la meta de promotoría</span>`;
+    $('#recon').innerHTML=`
+      <div class="r-item"><span class="r-k">Suma de metas individuales</span><span class="r-v num">${sumV} ventas · ${money(sumP)}</span></div>
+      <div class="r-item"><span class="r-k">Meta de promotoría</span><span class="r-v num">${team.metaVentas} ventas · ${money(team.metaPrima)}</span></div>
+      ${gapTxt}`;
+  }
+
+  const rows = admin ? advisors.slice() : advisors.filter(a=>a.name===SELF);
+  // rank by prima % avance
+  rows.sort((a,b)=>(b.prima/b.metaPrima)-(a.prima/a.metaPrima));
+  $('#ind-body').innerHTML = rows.map((a,i)=>{
+    const noMeta = !a.metaVentas && !a.metaPrima;
+    const vPct = a.metaVentas>0?Math.round(a.ventas/a.metaVentas*100):0;
+    const pPct = a.metaPrima>0?Math.round(a.prima/a.metaPrima*100):0;
+    const worst = Math.min(vPct,pPct);
+    const st = noMeta?{t:'Sin meta',c:'var(--text-3)'}:statusOf(worst);
+    const contrib = admin? `<div class="contrib">${Math.round(a.prima/teamActualPrima()*100)}% de la prima del equipo</div>`:'';
+    return `<tr>
+      ${admin?`<td><div class="rank">${i+1}</div></td>`:''}
+      <td><div class="a-name">${a.name}</div>${contrib}</td>
+      <td class="prog-cell">${noMeta?'<span class="no-meta">Sin meta</span>':`
+        <div class="mini-bar"><div class="mf" style="width:${Math.min(vPct,100)}%;background:${statusOf(vPct).c}"></div><div class="mp" style="left:${ELAPSED*100}%"></div></div>
+        <div class="prog-txt"><span class="num">${a.ventas} / ${a.metaVentas}</span><span class="pct num" style="color:${statusOf(vPct).c}">${vPct}%</span></div>`}</td>
+      <td class="prog-cell">${noMeta?`<span class="num" style="color:var(--text-2)">${money(a.prima)}</span> <span class="no-meta">sin meta</span>`:`
+        <div class="mini-bar"><div class="mf" style="width:${Math.min(pPct,100)}%;background:${statusOf(pPct).c}"></div><div class="mp" style="left:${ELAPSED*100}%"></div></div>
+        <div class="prog-txt"><span class="num">${money(a.prima)} / ${money(a.metaPrima)}</span><span class="pct num" style="color:${statusOf(pPct).c}">${pPct}%</span></div>`}</td>
+      <td><span class="stpill" style="color:${st.c};background:color-mix(in srgb,${st.c} 14%,var(--surface))">${st.t}</span></td>
+      ${admin?`<td class="r"><span class="edit-link">${noMeta?'Asignar meta':'Editar meta'}</span></td>`:''}
+    </tr>`;
+  }).join('');
+}
+
+function setRole(r){role=r;render()}
+render();
+</script>
+</body>
+</html>
