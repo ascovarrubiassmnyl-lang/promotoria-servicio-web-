@@ -114,6 +114,24 @@ model Usuario {
   bonos           Bono[]
   documentos      DocumentoCliente[]
   permisoLogs     PermisoLog[]
+  invitacion      InvitacionUsuario?
+}
+
+// Invitación de un solo uso para activar una cuenta creada sin contraseña
+// (alta pensada para acceso exclusivo con Google). El registro público con
+// Google está cerrado (ver /api/auth/google): solo un promotor/superadmin
+// puede crear el perfil (Asesores → Equipo) y generar este link; se comparte
+// fuera del sistema (WhatsApp, correo) y se redime en /invitacion/:token,
+// donde el correo de la cuenta de Google debe coincidir con el del perfil.
+model InvitacionUsuario {
+  id          String    @id @default(cuid())
+  usuarioId   String    @unique
+  usuario     Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  token       String    @unique
+  expiraEn    DateTime
+  usadaEn     DateTime?
+  creadoPorId String?
+  creadoEn    DateTime  @default(now())
 }
 
 // Acceso base por rol a cada sección (RBAC). `accesos` es Json {seccion: boolean}.

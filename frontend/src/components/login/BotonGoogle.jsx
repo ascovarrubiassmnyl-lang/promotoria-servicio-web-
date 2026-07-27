@@ -25,7 +25,7 @@ function cargarGsi() {
   return gsiPromise;
 }
 
-export default function BotonGoogle({ onCredential }) {
+export default function BotonGoogle({ onCredential, caption = 'Debes tener una cuenta creada por tu promotor.' }) {
   const ref = useRef(null);
   const [fallo, setFallo] = useState(false);
 
@@ -65,9 +65,7 @@ export default function BotonGoogle({ onCredential }) {
         <span className="h-px flex-1 bg-indigo-300/15" />
       </div>
       <div ref={ref} className="mt-4 flex justify-center" />
-      <p className="mt-2 text-center text-[11px] text-slate-500">
-        Si no tienes cuenta, se creará y un promotor deberá activarla.
-      </p>
+      {caption && <p className="mt-2 text-center text-[11px] text-slate-500">{caption}</p>}
     </div>
   );
 }

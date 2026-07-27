@@ -159,6 +159,10 @@ function DetalleTabs({ asesor }) {
   );
 }
 
+// Link para compartir fuera del sistema (WhatsApp, correo): la app es de un
+// solo servicio, así que el origen actual sirve tanto la SPA como la API.
+const linkInvitacion = (token) => `${window.location.origin}/invitacion/${token}`;
+
 //.Tab "Equipo": CRUD de usuarios similar a la antigua Usuarios.jsx
 function EquipoTab() {
   const qc = useQueryClient();
@@ -168,6 +172,8 @@ function EquipoTab() {
   const [form, setForm] = useState({ nombre: '', apellidoP: '', apellidoM: '', email: '', password: '', telefono: '', rol: 'ASESOR' });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [invitacion, setInvitacion] = useState(null); // { nombre, email, token, expiraEn }
+  const [copiado, setCopiado] = useState(false);
 
   const { data: usuarios } = useQuery({
     queryKey: ['usuarios', rol],
@@ -185,7 +191,8 @@ function EquipoTab() {
       if (editing) {
         await api.patch(`/usuarios/${editing.id}`, payload);
       } else {
-        await api.post('/usuarios', payload);
+        const { data } = await api.post('/usuarios', payload);
+        if (data.invitacion) setInvitacion({ nombre: data.nombre, email: data.email, ...data.invitacion });
       }
       setOpen(false);
       qc.invalidateQueries(['usuarios']);
@@ -194,6 +201,19 @@ function EquipoTab() {
 
   const toggleActivo = async (u) => {
     try { await api.patch(`/usuarios/${u.id}`, { activo: !u.activo }); qc.invalidateQueries(['usuarios']); } catch (e) { alert(handleError(e)); }
+  };
+
+  // Genera (o reemplaza) el link de invitación de una cuenta pendiente —
+  // altas sin password que aún no se activaron con Google, o cuyo link venció.
+  const invitar = async (u) => {
+    try {
+      const { data } = await api.post(`/usuarios/${u.id}/invitacion`);
+      setInvitacion({ nombre: u.nombre, email: u.email, ...data });
+    } catch (e) { alert(handleError(e)); }
+  };
+
+  const copiarLink = async () => {
+    try { await navigator.clipboard.writeText(linkInvitacion(invitacion.token)); setCopiado(true); setTimeout(() => setCopiado(false), 2000); } catch { /* clipboard no disponible */ }
   };
 
   return (
@@ -220,6 +240,7 @@ function EquipoTab() {
                   <td className="py-2 pr-4 text-slate-500 dark:text-slate-400">{fechaCorta(u.creadoEn)}</td>
                   <td className="py-2 pr-4 whitespace-nowrap">
                     <button onClick={() => openEdit(u)} className="text-xs text-brand-600 dark:text-brand-400 hover:underline mr-2">Editar</button>
+                    {!u.activo && <button onClick={() => invitar(u)} className="text-xs text-brand-600 dark:text-brand-400 hover:underline mr-2">Invitar</button>}
                     <button onClick={() => toggleActivo(u)} className="text-xs text-slate-500 dark:text-slate-400 hover:underline">{u.activo ? 'Desactivar' : 'Activar'}</button>
                   </td>
                 </tr>
@@ -239,13 +260,33 @@ function EquipoTab() {
             <Field label="Email*"><input className="input" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} disabled={!!editing} /></Field>
             <Field label="Rol"><select className="input" value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })}>{ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select></Field>
           </div>
-          <Field label={editing ? 'Contraseña (dejar vacío para no cambiar)' : 'Contraseña*'}><input className="input" type="password" required={!editing} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></Field>
+          <Field label={editing ? 'Contraseña (dejar vacío para no cambiar)' : 'Contraseña (vacío = acceso solo con Google, por invitación)'}>
+            <input className="input" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+          </Field>
           {err && <p className="text-sm text-red-600">{err}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={() => setOpen(false)} className="btn-secondary">Cancelar</button>
             <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Guardando…' : 'Guardar'}</button>
           </div>
         </form>
+      </Modal>
+
+      <Modal open={!!invitacion} onClose={() => setInvitacion(null)} title="Link de invitación">
+        {invitacion && (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              Comparte este link con <b>{invitacion.nombre}</b> ({invitacion.email}) fuera del sistema (WhatsApp, correo).
+              Solo funciona con esa cuenta de Google y vence el {fechaCorta(invitacion.expiraEn)}.
+            </p>
+            <div className="flex gap-2">
+              <input className="input flex-1 font-mono text-xs" readOnly value={linkInvitacion(invitacion.token)} onFocus={(e) => e.target.select()} />
+              <button type="button" onClick={copiarLink} className="btn-secondary shrink-0">{copiado ? 'Copiado' : 'Copiar'}</button>
+            </div>
+            <div className="flex justify-end pt-2">
+              <button type="button" onClick={() => setInvitacion(null)} className="btn-primary">Listo</button>
+            </div>
+          </div>
+        )}
       </Modal>
     </Card>
   );

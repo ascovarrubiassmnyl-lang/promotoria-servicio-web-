@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { OAuth2Client } from 'google-auth-library';
 import { prisma } from '../prisma.js';
@@ -30,12 +29,14 @@ router.post('/login', asyncHandler(async (req, res) => {
   res.json({ token, usuario: { ...sinPassword, accesos: await accesosDe(usuario) } });
 }));
 
-// Acceso / registro con Google (Google Identity Services): el frontend manda
-// el ID token del botón y aquí se verifica contra GOOGLE_CLIENT_ID.
+// Acceso con Google (Google Identity Services): el frontend manda el ID
+// token del botón y aquí se verifica contra GOOGLE_CLIENT_ID.
 //  - Email ya registrado y activo → sesión normal (mismo shape que /login).
-//  - Email nuevo → se crea como ASESOR **inactivo** (decisión de producto:
-//    el CRM contiene datos de clientes; un promotor debe activar la cuenta
-//    en Asesores → Equipo antes de que pueda entrar). Nunca nace activo.
+//  - Email sin cuenta → 403, **no se crea nada**: este es un CRM privado de
+//    la promotoría (con datos de clientes), no un servicio público. Solo un
+//    promotor/superadmin decide quién entra: crea el perfil en Asesores →
+//    Equipo y comparte el link de invitación (`/invitacion/:token`, ver
+//    routes/invitaciones.js) para que la cuenta se active con Google.
 router.post('/google', asyncHandler(async (req, res) => {
   if (!process.env.GOOGLE_CLIENT_ID) {
     return res.status(503).json({ error: 'El acceso con Google no está configurado' });
@@ -58,23 +59,7 @@ router.post('/google', asyncHandler(async (req, res) => {
   const usuario = await prisma.usuario.findUnique({ where: { email } });
 
   if (!usuario) {
-    // La cuenta local no usa contraseña (entra con Google): se guarda un hash
-    // aleatorio irrecuperable para cumplir el campo requerido.
-    await prisma.usuario.create({
-      data: {
-        email,
-        nombre: payload.given_name || payload.name || 'Usuario',
-        apellidoP: payload.family_name || '',
-        password: await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10),
-        rol: 'ASESOR',
-        activo: false,
-        fotoUrl: payload.picture || null,
-      },
-    });
-    return res.status(403).json({
-      pendiente: true,
-      error: 'Tu cuenta se creó correctamente. Un promotor debe activarla antes de que puedas entrar.',
-    });
+    return res.status(403).json({ error: 'No existe una cuenta con este correo. Pide a tu promotor que te invite.' });
   }
 
   if (!usuario.activo) {

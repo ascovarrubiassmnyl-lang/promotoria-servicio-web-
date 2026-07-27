@@ -6,6 +6,7 @@ import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import authRoutes from './routes/auth.js';
+import invitacionRoutes from './routes/invitaciones.js';
 import usuarioRoutes from './routes/usuarios.js';
 import clienteRoutes from './routes/clientes.js';
 import citaRoutes from './routes/citas.js';
@@ -35,6 +36,7 @@ app.use(morgan('dev'));
 app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
 app.use('/api/auth', authRoutes);
+app.use('/api/invitaciones', invitacionRoutes);
 app.use('/api/usuarios', usuarioRoutes);
 app.use('/api/clientes', clienteRoutes);
 app.use('/api/citas', citaRoutes);

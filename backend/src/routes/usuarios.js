@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../prisma.js';
 import { authenticate, esAdmin, esSuperadmin } from '../middleware/auth.js';
@@ -7,6 +8,12 @@ import { permiteSeccion, logPermiso } from '../middleware/permisos.js';
 
 const router = Router();
 router.use(authenticate);
+
+const HORAS_INVITACION = 72;
+const nuevaInvitacion = () => ({
+  token: crypto.randomBytes(32).toString('base64url'),
+  expiraEn: new Date(Date.now() + HORAS_INVITACION * 60 * 60 * 1000),
+});
 
 // El CRUD de usuarios pertenece a la sección "Asesores" (permiso enforced en
 // servidor, además del rol). /asesores y /promotores quedan fuera: son
@@ -49,21 +56,30 @@ router.get('/promotores', asyncHandler(async (_req, res) => {
   res.json(promotores);
 }));
 
+// Sin `password` la cuenta nace inactiva y sin registro abierto: no entra
+// hasta que se redima el link de invitación (ver POST /:id/invitacion y
+// routes/invitaciones.js) con la cuenta de Google del correo exacto de aquí.
+// Con `password` sigue el alta clásica (activa de inmediato, login normal).
 router.post('/', esAdmin, permiteSeccion('asesores'), asyncHandler(async (req, res) => {
   const { nombre, apellidoP, apellidoM, email, password, telefono, rol } = req.body || {};
-  if (!nombre || !apellidoP || !email || !password) return res.status(400).json({ error: 'nombre, apellidoP, email y password son requeridos' });
+  if (!nombre || !apellidoP || !email) return res.status(400).json({ error: 'nombre, apellidoP y email son requeridos' });
   const rolFinal = rol || 'ASESOR';
   if (!['SUPERADMIN', 'ADMIN', 'ASESOR'].includes(rolFinal)) return res.status(400).json({ error: 'Rol inválido' });
   if (rolFinal === 'SUPERADMIN' && req.user.rol !== 'SUPERADMIN') return res.status(403).json({ error: 'Solo SUPERADMIN puede crear SUPERADMIN' });
-  if (password.length < 6) return res.status(400).json({ error: 'Password mínimo 6 caracteres' });
+  if (password && password.length < 6) return res.status(400).json({ error: 'Password mínimo 6 caracteres' });
 
   const existe = await prisma.usuario.findUnique({ where: { email: String(email).toLowerCase() } });
   if (existe) return res.status(409).json({ error: 'Email ya registrado' });
 
-  const hash = await bcrypt.hash(password, 10);
-  // El acceso del usuario nuevo lo define la política de su rol (PoliticaRol);
-  // no se fijan permisos individuales.
-  const data = { nombre, apellidoP, apellidoM, email: String(email).toLowerCase(), password: hash, telefono, rol: rolFinal };
+  const porInvitacion = !password;
+  // Sin password: hash aleatorio irrecuperable (la cuenta solo entra con
+  // Google). El acceso del usuario nuevo lo define la política de su rol
+  // (PoliticaRol); no se fijan permisos individuales.
+  const hash = await bcrypt.hash(password || crypto.randomBytes(32).toString('hex'), 10);
+  const data = {
+    nombre, apellidoP, apellidoM, email: String(email).toLowerCase(), password: hash, telefono, rol: rolFinal,
+    activo: !porInvitacion,
+  };
   const usuario = await prisma.usuario.create({
     data,
     select: { id: true, nombre: true, apellidoP: true, apellidoM: true, email: true, telefono: true, rol: true, activo: true, creadoEn: true },
@@ -73,7 +89,34 @@ router.post('/', esAdmin, permiteSeccion('asesores'), asyncHandler(async (req, r
     usuarioNombre: `${usuario.nombre} ${usuario.apellidoP || ''}`.trim(),
     rol: rolFinal,
   });
-  res.status(201).json(usuario);
+
+  let invitacion = null;
+  if (porInvitacion) {
+    const { token, expiraEn } = nuevaInvitacion();
+    await prisma.invitacionUsuario.create({ data: { usuarioId: usuario.id, token, expiraEn, creadoPorId: req.user.id } });
+    invitacion = { token, expiraEn };
+  }
+  res.status(201).json({ ...usuario, invitacion });
+}));
+
+// Genera (o reemplaza, si el anterior venció o no llegó a compartirse) el
+// link de invitación de una cuenta inactiva. No aplica a cuentas ya activas.
+router.post('/:id/invitacion', esAdmin, permiteSeccion('asesores'), asyncHandler(async (req, res) => {
+  const usuario = await prisma.usuario.findUnique({ where: { id: req.params.id } });
+  if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
+  if (usuario.activo) return res.status(400).json({ error: 'El usuario ya está activo' });
+
+  const { token, expiraEn } = nuevaInvitacion();
+  await prisma.invitacionUsuario.upsert({
+    where: { usuarioId: usuario.id },
+    update: { token, expiraEn, usadaEn: null, creadoPorId: req.user.id },
+    create: { usuarioId: usuario.id, token, expiraEn, creadoPorId: req.user.id },
+  });
+  await logPermiso(req.user, 'INVITACION_CREADA', {
+    usuarioId: usuario.id,
+    usuarioNombre: `${usuario.nombre} ${usuario.apellidoP || ''}`.trim(),
+  });
+  res.json({ token, expiraEn });
 }));
 
 router.patch('/:id', esAdmin, permiteSeccion('asesores'), asyncHandler(async (req, res) => {

@@ -19,10 +19,26 @@ llegar a producción ni quedar hardcodeadas en código que entre al bundle.
 el frontend manda el ID token del botón (`components/login/BotonGoogle.jsx`,
 solo se renderiza con `VITE_GOOGLE_CLIENT_ID`) y el backend lo verifica con
 `google-auth-library` contra `GOOGLE_CLIENT_ID`. Email ya registrado y activo
-→ sesión normal; email nuevo → se crea como **ASESOR inactivo** (decisión de
-producto: un promotor debe activarlo en Asesores → Equipo; la cuenta **nunca
-nace activa**) y el backend responde 403 `{pendiente: true}` que el login
-muestra como aviso ámbar, no como error.
+→ sesión normal; email sin cuenta → **403 sin crear nada** (`No existe una
+cuenta con este correo...`) — este es un CRM privado con datos de clientes,
+**no hay registro abierto**: cualquiera con una cuenta de Google no puede
+crearse un perfil. Email registrado pero inactivo → 403 `{pendiente: true}`
+que el login muestra como aviso ámbar, no como error.
+
+**Invitaciones** (alta controlada, reemplaza el registro abierto): un
+promotor/superadmin crea el perfil en Asesores → Equipo **sin contraseña**
+(`POST /api/usuarios` sin `password`) → nace `activo: false` y el backend
+genera un `InvitacionUsuario` (token de un solo uso, vence a las 72h) que la
+UI muestra para copiar y compartir fuera del sistema (WhatsApp, correo). El
+asesor abre `/invitacion/:token` (`pages/Invitacion.jsx`, pública, fuera de
+`ProtectedRoute`) y confirma con Google (`routes/invitaciones.js`, sin
+`authenticate`): el backend exige que el correo de la credencial coincida
+**exactamente** con el del perfil ya creado — si coincide, activa la cuenta
+(`activo: true`) y marca la invitación usada; si no, 403 sin tocar nada. Un
+link vencido o ya usado se reemplaza con `POST /api/usuarios/:id/invitacion`
+(botón "Invitar" en la fila, solo visible si el usuario está inactivo). Los
+usuarios creados **con** contraseña siguen naciendo activos (alta clásica,
+sin invitación).
 
 **Deploy (Railway, un solo servicio)**: ver `DEPLOY.md`. El `package.json`
 raíz hace build del frontend y el backend sirve `frontend/dist` como

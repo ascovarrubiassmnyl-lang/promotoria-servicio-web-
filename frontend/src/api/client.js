@@ -16,7 +16,12 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (r) => r,
   (err) => {
-    if (err.response?.status === 401) {
+    // Solo es "sesión expirada" si había un token que el servidor rechazó.
+    // Peticiones anónimas (login, invitaciones) también pueden responder 401
+    // por credenciales inválidas — eso lo debe mostrar la propia pantalla,
+    // no una redirección forzada a /login que se traga el mensaje de error.
+    const habiaSesion = !!localStorage.getItem('token');
+    if (err.response?.status === 401 && habiaSesion) {
       localStorage.removeItem('token');
       if (!window.location.pathname.startsWith('/login')) {
         window.location.href = '/login';

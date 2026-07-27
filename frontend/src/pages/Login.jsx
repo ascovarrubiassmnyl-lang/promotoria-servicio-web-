@@ -45,8 +45,10 @@ export default function Login() {
       await loginConGoogle(credential);
       navigate('/');
     } catch (err) {
-      // 403 {pendiente: true} = registro correcto pero falta que un promotor
-      // active la cuenta: se muestra como aviso, no como error.
+      // 403 {pendiente: true} = la cuenta existe pero un promotor aún no la
+      // activa (o la invitación no se ha redimido): se muestra como aviso,
+      // no como error. Si el correo no tiene cuenta, es un error normal (no
+      // hay registro abierto: solo un promotor puede invitar).
       if (err?.response?.data?.pendiente) setAviso(err.response.data.error);
       else setError(handleError(err));
     }
