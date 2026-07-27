@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 
 // Botón "Continuar con Google" (Google Identity Services). Solo se renderiza
 // si VITE_GOOGLE_CLIENT_ID está configurado; el script de GIS se carga bajo
-// demanda y si falla no rompe el login normal (el formulario sigue intacto).
-// onCredential recibe el ID token que el backend verifica en /api/auth/google.
+// demanda. Hoy el único uso es Invitacion.jsx: confirma que la cuenta de
+// Google coincide con el correo del perfil invitado (no hay login recurrente
+// con Google — de ahí en adelante se entra por /login con email+contraseña).
+// onCredential recibe el ID token que el backend verifica.
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 const GSI_SRC = 'https://accounts.google.com/gsi/client';
@@ -25,7 +27,7 @@ function cargarGsi() {
   return gsiPromise;
 }
 
-export default function BotonGoogle({ onCredential, caption = 'Debes tener una cuenta creada por tu promotor.' }) {
+export default function BotonGoogle({ onCredential, caption }) {
   const ref = useRef(null);
   const [fallo, setFallo] = useState(false);
 

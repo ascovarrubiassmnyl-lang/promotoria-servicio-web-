@@ -30,21 +30,12 @@ export function AuthProvider({ children }) {
     return data.usuario;
   };
 
-  // credential = ID token del botón de Google (GIS); el backend lo verifica
-  // y responde igual que /login. No hay registro abierto: si el correo no
-  // tiene cuenta o está inactiva, el backend responde 403 y aquí solo se
-  // propaga (Login.jsx lo muestra como aviso o error según el caso).
-  const loginConGoogle = async (credential) => {
-    const { data } = await api.post('/auth/google', { credential });
-    localStorage.setItem('token', data.token);
-    setUser(data.usuario);
-    return data.usuario;
-  };
-
   // Redime un link de invitación (creado por un promotor en Asesores →
-  // Equipo) con Google: solo activa la cuenta si el correo coincide.
-  const loginConInvitacion = async (token, credential) => {
-    const { data } = await api.post(`/invitaciones/${token}/google`, { credential });
+  // Equipo): la persona crea su contraseña aquí y confirma con Google solo
+  // para verificar que el correo coincide con el del perfil ya creado. De
+  // ahí en adelante entra siempre por /login con email + esa contraseña.
+  const loginConInvitacion = async (token, credential, password) => {
+    const { data } = await api.post(`/invitaciones/${token}/google`, { credential, password });
     localStorage.setItem('token', data.token);
     setUser(data.usuario);
     return data.usuario;
@@ -69,7 +60,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, loginConGoogle, loginConInvitacion, logout, refresh, esAdmin, esSuperadmin, puede }}>
+    <AuthContext.Provider value={{ user, loading, login, loginConInvitacion, logout, refresh, esAdmin, esSuperadmin, puede }}>
       {children}
     </AuthContext.Provider>
   );

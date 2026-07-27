@@ -15,30 +15,55 @@ desde `SUPERADMIN_EMAIL`/`SUPERADMIN_PASSWORD`, create-only) y la pantalla de
 login solo muestra la de superadmin en `import.meta.env.DEV` — nunca deben
 llegar a producción ni quedar hardcodeadas en código que entre al bundle.
 
-**Acceso con Google** (`POST /api/auth/google`, Google Identity Services):
-el frontend manda el ID token del botón (`components/login/BotonGoogle.jsx`,
-solo se renderiza con `VITE_GOOGLE_CLIENT_ID`) y el backend lo verifica con
-`google-auth-library` contra `GOOGLE_CLIENT_ID`. Email ya registrado y activo
-→ sesión normal; email sin cuenta → **403 sin crear nada** (`No existe una
-cuenta con este correo...`) — este es un CRM privado con datos de clientes,
-**no hay registro abierto**: cualquiera con una cuenta de Google no puede
-crearse un perfil. Email registrado pero inactivo → 403 `{pendiente: true}`
-que el login muestra como aviso ámbar, no como error.
+**Alta de usuarios = solo por invitación (no hay registro abierto, ni con
+Google ni con contraseña).** `POST /api/usuarios` (Asesores → Equipo → "+
+Nuevo usuario", solo ADMIN/SUPERADMIN) ya **no acepta `password`**: el rol
+solo puede ser `ADMIN` o `ASESOR` (el select de la UI no ofrece Súper Admin —
+ver más abajo) y toda alta nace `activo: false` con un hash aleatorio
+irrecuperable. Al guardar, en la misma request: (1) se crea un
+`InvitacionUsuario` (token de un solo uso, vence a las 72h), (2) se intenta
+enviar por correo vía SMTP (`services/mailer.js`, "mejor esfuerzo": si no hay
+`SMTP_HOST/SMTP_USER/SMTP_PASS` en el `.env` o el envío falla, solo queda un
+`console.warn`/`console.error`, la respuesta no se bloquea), y (3) la UI abre
+**automáticamente** el modal "Link de invitación" con el link para copiar y
+compartir a mano (WhatsApp, correo) — el correo automático nunca sustituye
+ese respaldo manual, siempre aparece. Un link vencido o no entregado se
+reemplaza con `POST /api/usuarios/:id/invitacion` (botón "Invitar" en el menú
+⋯ de la fila, solo visible si el usuario está inactivo; también reintenta el
+correo).
 
-**Invitaciones** (alta controlada, reemplaza el registro abierto): un
-promotor/superadmin crea el perfil en Asesores → Equipo **sin contraseña**
-(`POST /api/usuarios` sin `password`) → nace `activo: false` y el backend
-genera un `InvitacionUsuario` (token de un solo uso, vence a las 72h) que la
-UI muestra para copiar y compartir fuera del sistema (WhatsApp, correo). El
-asesor abre `/invitacion/:token` (`pages/Invitacion.jsx`, pública, fuera de
-`ProtectedRoute`) y confirma con Google (`routes/invitaciones.js`, sin
-`authenticate`): el backend exige que el correo de la credencial coincida
-**exactamente** con el del perfil ya creado — si coincide, activa la cuenta
-(`activo: true`) y marca la invitación usada; si no, 403 sin tocar nada. Un
-link vencido o ya usado se reemplaza con `POST /api/usuarios/:id/invitacion`
-(botón "Invitar" en la fila, solo visible si el usuario está inactivo). Los
-usuarios creados **con** contraseña siguen naciendo activos (alta clásica,
-sin invitación).
+El asesor/promotor abre `/invitacion/:token` (`pages/Invitacion.jsx`, pública,
+fuera de `ProtectedRoute`): ahí **crea su propia contraseña** (mínimo 6
+caracteres, con confirmación) y solo cuando es válida aparece el botón de
+Google — que sirve **únicamente para verificar identidad**, no como login
+recurrente. `POST /invitaciones/:token/google` (`routes/invitaciones.js`, sin
+`authenticate`) exige que el correo de la credencial coincida **exactamente**
+con el del perfil ya creado; si coincide, en una sola transacción activa la
+cuenta (`activo: true`), guarda esa contraseña (hash) y marca la invitación
+usada — de ahí en adelante esa persona entra siempre por `/login` con
+email + contraseña, igual que el superadmin. Si no coincide (o la credencial
+no es válida), 403/401 sin tocar nada. `POST /api/auth/google` **ya no
+existe**: el login normal no muestra botón de Google (`Login.jsx`), Google
+Identity Services solo se usa dentro de esta pantalla de invitación.
+
+**SUPERADMIN es un solo rol reservado para quien desarrolla el servicio**
+(se siembra por `SUPERADMIN_EMAIL`/`SUPERADMIN_PASSWORD`, ver arriba): no se
+crea ni se asigna desde la app en ningún caso (ni aunque el actor ya sea
+superadmin) — `POST /api/usuarios` y el PATCH de rol lo rechazan siempre
+(400), y el `<select>` de rol en el modal de Asesores → Equipo solo ofrece
+Admin/Promotor y Asesor. El admin puede administrar el negocio por completo
+(crear/editar/invitar/desactivar/eliminar usuarios) pero nunca tocar ese rol.
+
+**Borrado permanente de usuarios** (`DELETE /api/usuarios/:id`, ADMIN o
+SUPERADMIN, menú ⋯ → "Eliminar definitivamente" con modal de confirmación —
+nunca botón directo): distinto de "Desactivar", que solo cambia `activo` y
+conserva todo. Antes de borrar la fila de la base de datos, cuenta los
+registros asociados por `asesorId` (`Cliente`, `Venta`, `Cita`, `Actividad`,
+`Target`, `Bono`, `Nota`, `Referido`, `DocumentoCliente`) — si tiene
+cualquiera, rechaza con 409 y sugiere desactivar en su lugar. Es necesario
+porque casi todas esas relaciones son `onDelete: Cascade` en el schema: un
+borrado sin esta guarda se llevaría en silencio toda la cartera del asesor.
+No se puede eliminar a uno mismo ni al SUPERADMIN.
 
 **Deploy (Railway, un solo servicio)**: ver `DEPLOY.md`. El `package.json`
 raíz hace build del frontend y el backend sirve `frontend/dist` como

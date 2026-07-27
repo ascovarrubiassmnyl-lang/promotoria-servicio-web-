@@ -31,11 +31,12 @@ En el servicio de la app → **Variables**:
 | `JWT_EXPIRES_IN` | `7d` |
 | `SUPERADMIN_EMAIL` | email real del super admin |
 | `SUPERADMIN_PASSWORD` | contraseña del super admin (mínimo 8 caracteres) |
-| `GOOGLE_CLIENT_ID` | Client ID de OAuth (paso 3) |
+| `GOOGLE_CLIENT_ID` | Client ID de OAuth (paso 3) — solo se usa para redimir invitaciones |
 | `VITE_GOOGLE_CLIENT_ID` | el **mismo** Client ID (lo lee el build del frontend) |
-| `FRONTEND_URL` | la URL pública del servicio (para CORS) |
+| `FRONTEND_URL` | la URL pública del servicio (para CORS y para armar el link del correo de invitación) |
 | `PUBLIC_URL` | la URL pública del servicio (links de notificaciones push) |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | opcional: push web (`npx web-push generate-vapid-keys`); sin ellas el push queda deshabilitado sin romper nada |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_FROM` | opcional: correo automático de invitación (paso 4); sin ellas el envío queda deshabilitado sin romper nada — el link de invitación siempre se puede copiar y compartir a mano desde el modal |
 
 **No** definas `VITE_API_URL` en producción: el frontend usa `/api` (mismo
 origen) por default.
@@ -45,7 +46,7 @@ admin de `SUPERADMIN_EMAIL`/`SUPERADMIN_PASSWORD` (create-only: cambiar la
 variable después no resetea la contraseña; eso se hace desde la app). Las
 cuentas `*@demo.com` y los datos de prueba solo existen en desarrollo.
 
-## 3. Google OAuth (registro/acceso con Google)
+## 3. Google OAuth (verificación de identidad en invitaciones)
 
 1. En [Google Cloud Console](https://console.cloud.google.com/apis/credentials):
    crea un proyecto (o usa uno existente) → **Credentials → Create Credentials
@@ -61,18 +62,32 @@ cuentas `*@demo.com` y los datos de prueba solo existen en desarrollo.
    `GOOGLE_CLIENT_ID` y `VITE_GOOGLE_CLIENT_ID` en Railway, y a
    `backend/.env` y `frontend/.env` locales para probar en desarrollo.
 
-Comportamiento (decisión de producto): cualquier cuenta de Google puede
-registrarse, pero nace como **ASESOR inactivo** y no puede entrar hasta que
-un promotor la active en **Asesores → Equipo → Activar**. Un usuario ya
-existente y activo puede iniciar sesión con Google si el email coincide.
+Comportamiento (decisión de producto, ver `CLAUDE.md` → "Alta de usuarios"):
+**no hay registro abierto**. Un promotor/superadmin crea el perfil en
+Asesores → Equipo (sin contraseña, rol Admin o Asesor) y comparte el link de
+invitación; la persona invitada crea ahí su propia contraseña y confirma con
+Google solo para probar que el correo coincide con el del perfil. De ahí en
+adelante entra siempre por `/login` con email + contraseña — Google no se usa
+para el login normal.
 
-## 4. Archivos subidos (uploads)
+## 4. Correo de invitación (SMTP)
+
+Opcional: si configuras `SMTP_HOST`/`SMTP_USER`/`SMTP_PASS` (paso 2), al crear
+un usuario (o reenviar su invitación) el sistema le manda un correo con el
+link de activación, además de mostrar el link en pantalla para copiarlo a
+mano. Con Gmail como proveedor SMTP: activa la verificación en dos pasos en
+esa cuenta y usa una **contraseña de aplicación** como `SMTP_PASS` (no la
+contraseña normal); `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`,
+`SMTP_USER`/`SMTP_FROM` = esa cuenta de Gmail. Cualquier otro proveedor SMTP
+(Resend, SendGrid, Mailgun, etc.) funciona igual con sus propios datos.
+
+## 5. Archivos subidos (uploads)
 
 `backend/uploads/` (documentos de clientes) vive en el filesystem, que en
 Railway es **efímero**: se pierde en cada deploy. Para conservarlos, agrega un
 **Volume** al servicio (Settings → Volumes) montado en `/app/backend/uploads`.
 
-## 5. Verificar el deploy
+## 6. Verificar el deploy
 
 1. `https://<app>.up.railway.app/health` → `{ ok: true }`.
 2. Login con el super admin de las variables.

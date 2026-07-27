@@ -2,11 +2,19 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, handleError } from '../api/client.js';
 import { TendenciaMes, VentasAsesor, CitasAsesor } from '../components/VistasAsesor.jsx';
-import { Card, Modal, Field, Badge, EmptyState } from '../components/ui.jsx';
+import { Card, Modal, Field, Badge, EmptyState, MenuAcciones } from '../components/ui.jsx';
 import ClientesView from '../components/clientes/ClientesView.jsx';
 import { mxn, num, fechaCorta } from '../lib/format.js';
+import { ROLES_LABEL } from '../components/configuracion/secciones.js';
+import { useAuth } from '../context/AuthContext.jsx';
 
+// Filtro/tabla del roster puede mostrar el SUPERADMIN si existe (es quien
+// desarrolla el servicio). El alta/edición NO lo ofrece: ver ROLES_ASIGNABLES.
 const ROLES = ['SUPERADMIN', 'ADMIN', 'ASESOR'];
+// Roles que un promotor puede asignar desde "Nuevo usuario"/"Editar usuario":
+// Súper Admin es un solo rol reservado para el desarrollador del sistema, se
+// siembra por variable de entorno y nunca se crea ni se asigna desde la app.
+const ROLES_ASIGNABLES = ['ADMIN', 'ASESOR'];
 const rolColor = { SUPERADMIN: 'red', ADMIN: 'blue', ASESOR: 'slate' };
 const iniciales = (nombre = '') => nombre.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
 
@@ -166,32 +174,34 @@ const linkInvitacion = (token) => `${window.location.origin}/invitacion/${token}
 //.Tab "Equipo": CRUD de usuarios similar a la antigua Usuarios.jsx
 function EquipoTab() {
   const qc = useQueryClient();
+  const { user } = useAuth();
   const [rol, setRol] = useState('');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ nombre: '', apellidoP: '', apellidoM: '', email: '', password: '', telefono: '', rol: 'ASESOR' });
+  const [form, setForm] = useState({ nombre: '', apellidoP: '', apellidoM: '', email: '', telefono: '', rol: 'ASESOR' });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [invitacion, setInvitacion] = useState(null); // { nombre, email, token, expiraEn }
   const [copiado, setCopiado] = useState(false);
+  const [toDelete, setToDelete] = useState(null);
+  const [eliminando, setEliminando] = useState(false);
+  const [errEliminar, setErrEliminar] = useState('');
 
   const { data: usuarios } = useQuery({
     queryKey: ['usuarios', rol],
     queryFn: async () => (await api.get('/usuarios', { params: rol ? { rol } : {} })).data,
   });
 
-  const openNew = () => { setEditing(null); setForm({ nombre: '', apellidoP: '', apellidoM: '', email: '', password: '', telefono: '', rol: 'ASESOR' }); setOpen(true); };
-  const openEdit = (u) => { setEditing(u); setForm({ nombre: u.nombre, apellidoP: u.apellidoP, apellidoM: u.apellidoM || '', email: u.email, password: '', telefono: u.telefono || '', rol: u.rol, activo: u.activo }); setOpen(true); };
+  const openNew = () => { setEditing(null); setForm({ nombre: '', apellidoP: '', apellidoM: '', email: '', telefono: '', rol: 'ASESOR' }); setOpen(true); };
+  const openEdit = (u) => { setEditing(u); setForm({ nombre: u.nombre, apellidoP: u.apellidoP, apellidoM: u.apellidoM || '', email: u.email, telefono: u.telefono || '', rol: u.rol, activo: u.activo }); setOpen(true); };
 
   const submit = async (e) => {
     e.preventDefault(); setSaving(true); setErr('');
     try {
-      const payload = { ...form };
-      if (!payload.password) delete payload.password;
       if (editing) {
-        await api.patch(`/usuarios/${editing.id}`, payload);
+        await api.patch(`/usuarios/${editing.id}`, form);
       } else {
-        const { data } = await api.post('/usuarios', payload);
+        const { data } = await api.post('/usuarios', form);
         if (data.invitacion) setInvitacion({ nombre: data.nombre, email: data.email, ...data.invitacion });
       }
       setOpen(false);
@@ -204,7 +214,7 @@ function EquipoTab() {
   };
 
   // Genera (o reemplaza) el link de invitación de una cuenta pendiente —
-  // altas sin password que aún no se activaron con Google, o cuyo link venció.
+  // altas que aún no se activaron con la invitación, o cuyo link venció.
   const invitar = async (u) => {
     try {
       const { data } = await api.post(`/usuarios/${u.id}/invitacion`);
@@ -216,12 +226,25 @@ function EquipoTab() {
     try { await navigator.clipboard.writeText(linkInvitacion(invitacion.token)); setCopiado(true); setTimeout(() => setCopiado(false), 2000); } catch { /* clipboard no disponible */ }
   };
 
+  // Borrado permanente: el servidor lo rechaza (409) si el usuario ya tiene
+  // clientes/pólizas/citas/actividad — en ese caso hay que desactivarlo en
+  // vez de eliminarlo, para no perder el historial de negocio.
+  const confirmarEliminar = async () => {
+    if (!toDelete) return;
+    setEliminando(true); setErrEliminar('');
+    try {
+      await api.delete(`/usuarios/${toDelete.id}`);
+      setToDelete(null);
+      qc.invalidateQueries(['usuarios']);
+    } catch (e) { setErrEliminar(handleError(e)); } finally { setEliminando(false); }
+  };
+
   return (
     <Card>
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <select className="input w-auto" value={rol} onChange={(e) => setRol(e.target.value)}>
           <option value="">Todos los roles</option>
-          {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+          {ROLES.map((r) => <option key={r} value={r}>{ROLES_LABEL[r]}</option>)}
         </select>
         <button onClick={openNew} className="btn-primary">+ Nuevo usuario</button>
       </div>
@@ -235,13 +258,21 @@ function EquipoTab() {
                   <td className="py-2 pr-4 font-medium text-slate-700 dark:text-slate-300">{u.nombre} {u.apellidoP} {u.apellidoM || ''}</td>
                   <td className="py-2 pr-4 text-slate-600 dark:text-slate-300">{u.email}</td>
                   <td className="py-2 pr-4 text-slate-600 dark:text-slate-300">{u.telefono || '—'}</td>
-                  <td className="py-2 pr-4"><Badge color={rolColor[u.rol]}>{u.rol}</Badge></td>
+                  <td className="py-2 pr-4"><Badge color={rolColor[u.rol]}>{ROLES_LABEL[u.rol]}</Badge></td>
                   <td className="py-2 pr-4"><Badge color={u.activo ? 'green' : 'red'}>{u.activo ? 'Activo' : 'Inactivo'}</Badge></td>
                   <td className="py-2 pr-4 text-slate-500 dark:text-slate-400">{fechaCorta(u.creadoEn)}</td>
                   <td className="py-2 pr-4 whitespace-nowrap">
-                    <button onClick={() => openEdit(u)} className="text-xs text-brand-600 dark:text-brand-400 hover:underline mr-2">Editar</button>
-                    {!u.activo && <button onClick={() => invitar(u)} className="text-xs text-brand-600 dark:text-brand-400 hover:underline mr-2">Invitar</button>}
-                    <button onClick={() => toggleActivo(u)} className="text-xs text-slate-500 dark:text-slate-400 hover:underline">{u.activo ? 'Desactivar' : 'Activar'}</button>
+                    <MenuAcciones
+                      small
+                      label={`Acciones de ${u.nombre}`}
+                      items={[
+                        { label: 'Editar', onClick: () => openEdit(u) },
+                        !u.activo && { label: 'Invitar', onClick: () => invitar(u) },
+                        { label: u.activo ? 'Desactivar' : 'Activar', onClick: () => toggleActivo(u) },
+                        u.rol !== 'SUPERADMIN' && u.id !== user?.id && 'sep',
+                        u.rol !== 'SUPERADMIN' && u.id !== user?.id && { label: 'Eliminar definitivamente', onClick: () => { setErrEliminar(''); setToDelete(u); }, danger: true },
+                      ]}
+                    />
                   </td>
                 </tr>
               ))}
@@ -258,11 +289,14 @@ function EquipoTab() {
             <Field label="Apellido materno"><input className="input" value={form.apellidoM} onChange={(e) => setForm({ ...form, apellidoM: e.target.value })} /></Field>
             <Field label="Teléfono"><input className="input" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} /></Field>
             <Field label="Email*"><input className="input" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} disabled={!!editing} /></Field>
-            <Field label="Rol"><select className="input" value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })}>{ROLES.map((r) => <option key={r} value={r}>{r}</option>)}</select></Field>
+            <Field label="Rol"><select className="input" value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })}>{ROLES_ASIGNABLES.map((r) => <option key={r} value={r}>{ROLES_LABEL[r]}</option>)}</select></Field>
           </div>
-          <Field label={editing ? 'Contraseña (dejar vacío para no cambiar)' : 'Contraseña (vacío = acceso solo con Google, por invitación)'}>
-            <input className="input" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-          </Field>
+          {!editing && (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Al guardar se genera un link de invitación (y se manda por correo si está configurado):
+              la persona crea ahí su propia contraseña y confirma con Google. No se fija contraseña desde aquí.
+            </p>
+          )}
           {err && <p className="text-sm text-red-600">{err}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={() => setOpen(false)} className="btn-secondary">Cancelar</button>
@@ -275,8 +309,9 @@ function EquipoTab() {
         {invitacion && (
           <div className="space-y-3">
             <p className="text-sm text-slate-600 dark:text-slate-300">
-              Comparte este link con <b>{invitacion.nombre}</b> ({invitacion.email}) fuera del sistema (WhatsApp, correo).
-              Solo funciona con esa cuenta de Google y vence el {fechaCorta(invitacion.expiraEn)}.
+              También se intentó enviar por correo a <b>{invitacion.email}</b>. Por si no llega (o para compartirlo
+              tú mismo por WhatsApp), copia este link: solo lo activa <b>{invitacion.nombre}</b> confirmando con esa
+              cuenta de Google, donde crea su propia contraseña. Vence el {fechaCorta(invitacion.expiraEn)}.
             </p>
             <div className="flex gap-2">
               <input className="input flex-1 font-mono text-xs" readOnly value={linkInvitacion(invitacion.token)} onFocus={(e) => e.target.select()} />
@@ -284,6 +319,28 @@ function EquipoTab() {
             </div>
             <div className="flex justify-end pt-2">
               <button type="button" onClick={() => setInvitacion(null)} className="btn-primary">Listo</button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Borrado real de la fila (no confundir con Desactivar, que conserva
+          el historial): el servidor lo rechaza si el usuario ya tiene datos
+          de negocio asociados. */}
+      <Modal open={!!toDelete} onClose={() => setToDelete(null)} title="Eliminar usuario definitivamente">
+        {toDelete && (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-700 dark:text-slate-300">
+              ¿Seguro que deseas eliminar a <strong>{toDelete.nombre} {toDelete.apellidoP}</strong> ({toDelete.email})?
+              Esta acción no se puede deshacer. Si ya tiene clientes, pólizas, citas u otra actividad, el sistema no
+              lo dejará eliminar — usa <strong>Desactivar</strong> en su lugar para conservar el historial.
+            </p>
+            {errEliminar && <p className="text-sm text-red-600">{errEliminar}</p>}
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setToDelete(null)} className="btn-secondary">Cancelar</button>
+              <button type="button" onClick={confirmarEliminar} disabled={eliminando} className="btn-danger">
+                {eliminando ? 'Eliminando…' : 'Eliminar definitivamente'}
+              </button>
             </div>
           </div>
         )}

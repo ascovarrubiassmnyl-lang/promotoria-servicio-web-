@@ -19,7 +19,13 @@ export default function Invitacion() {
   const [estado, setEstado] = useState('cargando'); // cargando | valida | invalida
   const [invitado, setInvitado] = useState(null);
   const [error, setError] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmar, setConfirmar] = useState('');
   const [conWebGL] = useState(soportaWebGL);
+
+  const passwordCorta = password.length > 0 && password.length < 6;
+  const passwordNoCoincide = confirmar.length > 0 && password !== confirmar;
+  const passwordValida = password.length >= 6 && password === confirmar;
 
   useEffect(() => {
     let activo = true;
@@ -36,7 +42,7 @@ export default function Invitacion() {
   const conGoogle = async (credential) => {
     setError('');
     try {
-      await loginConInvitacion(token, credential);
+      await loginConInvitacion(token, credential, password);
       navigate('/');
     } catch (err) {
       setError(err?.response?.data?.error || 'No se pudo confirmar tu acceso.');
@@ -76,12 +82,48 @@ export default function Invitacion() {
           <>
             <p className="text-sm text-slate-400 mt-2">Hola, {invitado.nombre}</p>
             <p className="mt-1 text-xs text-slate-500">
-              Confirma tu acceso entrando con la cuenta de Google de <b className="text-slate-300">{invitado.email}</b>.
+              Crea tu contraseña y confirma con la cuenta de Google de{' '}
+              <b className="text-slate-300">{invitado.email}</b> para activar tu cuenta.
             </p>
+
+            <div className="mt-4 space-y-3 text-left">
+              <div>
+                <label htmlFor="inv-password" className="block text-sm font-medium text-slate-200 mb-1">Contraseña</label>
+                <input
+                  id="inv-password"
+                  type="password"
+                  className="w-full rounded-lg border border-indigo-300/20 bg-white/5 px-3 py-2 text-slate-100 placeholder-slate-500 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/30"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="new-password"
+                  placeholder="Mínimo 6 caracteres"
+                />
+              </div>
+              <div>
+                <label htmlFor="inv-confirmar" className="block text-sm font-medium text-slate-200 mb-1">Confirmar contraseña</label>
+                <input
+                  id="inv-confirmar"
+                  type="password"
+                  className="w-full rounded-lg border border-indigo-300/20 bg-white/5 px-3 py-2 text-slate-100 placeholder-slate-500 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/30"
+                  value={confirmar}
+                  onChange={(e) => setConfirmar(e.target.value)}
+                  autoComplete="new-password"
+                  placeholder="Repite la contraseña"
+                />
+              </div>
+              {passwordCorta && <p className="text-xs text-amber-400">La contraseña debe tener al menos 6 caracteres.</p>}
+              {passwordNoCoincide && <p className="text-xs text-amber-400">Las contraseñas no coinciden.</p>}
+            </div>
+
             {error && (
               <p className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</p>
             )}
-            <BotonGoogle onCredential={conGoogle} caption="El correo de Google debe coincidir con el de tu invitación." />
+
+            {passwordValida ? (
+              <BotonGoogle onCredential={conGoogle} caption="El correo de Google debe coincidir con el de tu invitación." />
+            ) : (
+              <p className="mt-5 text-center text-xs text-slate-500">Completa tu contraseña para continuar con Google.</p>
+            )}
           </>
         )}
       </div>

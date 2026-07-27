@@ -22,6 +22,7 @@ import bonosRoutes from './routes/bonos.js';
 import documentosRoutes from './routes/documentos.js';
 import configuracionRoutes from './routes/configuracion.js';
 import { startReminderJob } from './jobs/reminderJob.js';
+import { initMailer } from './services/mailer.js';
 import { errorHandler, notFound } from './middleware/error.js';
 
 const app = express();
@@ -70,6 +71,7 @@ app.use(errorHandler);
 const port = process.env.PORT || 4000;
 app.listen(port, () => {
   console.log(`CRM backend escuchando en http://localhost:${port}`);
+  initMailer();
   startReminderJob();
 });
 

@@ -2,9 +2,10 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../prisma.js';
-import { authenticate, esAdmin, esSuperadmin } from '../middleware/auth.js';
+import { authenticate, esAdmin } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion, logPermiso } from '../middleware/permisos.js';
+import { enviarInvitacion } from '../services/mailer.js';
 
 const router = Router();
 router.use(authenticate);
@@ -14,6 +15,10 @@ const nuevaInvitacion = () => ({
   token: crypto.randomBytes(32).toString('base64url'),
   expiraEn: new Date(Date.now() + HORAS_INVITACION * 60 * 60 * 1000),
 });
+
+// Mismo origen que sirve la SPA y la API (single service en Railway); en
+// desarrollo cae al puerto de Vite. Se usa para armar el link del correo.
+const origenApp = (req) => process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
 
 // El CRUD de usuarios pertenece a la sección "Asesores" (permiso enforced en
 // servidor, además del rol). /asesores y /promotores quedan fuera: son
@@ -56,29 +61,27 @@ router.get('/promotores', asyncHandler(async (_req, res) => {
   res.json(promotores);
 }));
 
-// Sin `password` la cuenta nace inactiva y sin registro abierto: no entra
-// hasta que se redima el link de invitación (ver POST /:id/invitacion y
-// routes/invitaciones.js) con la cuenta de Google del correo exacto de aquí.
-// Con `password` sigue el alta clásica (activa de inmediato, login normal).
+// Toda alta nace inactiva: no hay password que fije el promotor (ni registro
+// abierto). La cuenta solo entra cuando se redime el link de invitación
+// (routes/invitaciones.js) — ahí la persona crea su propia contraseña y
+// confirma con la cuenta de Google del correo exacto de aquí.
 router.post('/', esAdmin, permiteSeccion('asesores'), asyncHandler(async (req, res) => {
-  const { nombre, apellidoP, apellidoM, email, password, telefono, rol } = req.body || {};
+  const { nombre, apellidoP, apellidoM, email, telefono, rol } = req.body || {};
   if (!nombre || !apellidoP || !email) return res.status(400).json({ error: 'nombre, apellidoP y email son requeridos' });
   const rolFinal = rol || 'ASESOR';
-  if (!['SUPERADMIN', 'ADMIN', 'ASESOR'].includes(rolFinal)) return res.status(400).json({ error: 'Rol inválido' });
-  if (rolFinal === 'SUPERADMIN' && req.user.rol !== 'SUPERADMIN') return res.status(403).json({ error: 'Solo SUPERADMIN puede crear SUPERADMIN' });
-  if (password && password.length < 6) return res.status(400).json({ error: 'Password mínimo 6 caracteres' });
+  // SUPERADMIN no se crea desde la app (ni el propio superadmin): es un solo
+  // rol reservado para quien desarrolla el servicio, se siembra por env/seed.
+  if (!['ADMIN', 'ASESOR'].includes(rolFinal)) return res.status(400).json({ error: 'Rol inválido' });
 
   const existe = await prisma.usuario.findUnique({ where: { email: String(email).toLowerCase() } });
   if (existe) return res.status(409).json({ error: 'Email ya registrado' });
 
-  const porInvitacion = !password;
-  // Sin password: hash aleatorio irrecuperable (la cuenta solo entra con
-  // Google). El acceso del usuario nuevo lo define la política de su rol
-  // (PoliticaRol); no se fijan permisos individuales.
-  const hash = await bcrypt.hash(password || crypto.randomBytes(32).toString('hex'), 10);
+  // Hash aleatorio irrecuperable: la cuenta solo se activa por invitación,
+  // donde la persona fija su propia contraseña.
+  const hash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
   const data = {
     nombre, apellidoP, apellidoM, email: String(email).toLowerCase(), password: hash, telefono, rol: rolFinal,
-    activo: !porInvitacion,
+    activo: false,
   };
   const usuario = await prisma.usuario.create({
     data,
@@ -90,13 +93,16 @@ router.post('/', esAdmin, permiteSeccion('asesores'), asyncHandler(async (req, r
     rol: rolFinal,
   });
 
-  let invitacion = null;
-  if (porInvitacion) {
-    const { token, expiraEn } = nuevaInvitacion();
-    await prisma.invitacionUsuario.create({ data: { usuarioId: usuario.id, token, expiraEn, creadoPorId: req.user.id } });
-    invitacion = { token, expiraEn };
-  }
-  res.status(201).json({ ...usuario, invitacion });
+  const { token, expiraEn } = nuevaInvitacion();
+  await prisma.invitacionUsuario.create({ data: { usuarioId: usuario.id, token, expiraEn, creadoPorId: req.user.id } });
+
+  // El correo es "mejor esfuerzo": si falla o no hay SMTP configurado, el
+  // recuadro con el link para copiar/compartir a mano sigue apareciendo igual
+  // (no bloquea la respuesta ni la creación del usuario).
+  enviarInvitacion({ email: usuario.email, nombre: usuario.nombre, link: `${origenApp(req)}/invitacion/${token}`, expiraEn })
+    .catch((e) => console.error('[mailer] no se pudo enviar la invitación:', e.message));
+
+  res.status(201).json({ ...usuario, invitacion: { token, expiraEn } });
 }));
 
 // Genera (o reemplaza, si el anterior venció o no llegó a compartirse) el
@@ -116,6 +122,10 @@ router.post('/:id/invitacion', esAdmin, permiteSeccion('asesores'), asyncHandler
     usuarioId: usuario.id,
     usuarioNombre: `${usuario.nombre} ${usuario.apellidoP || ''}`.trim(),
   });
+
+  enviarInvitacion({ email: usuario.email, nombre: usuario.nombre, link: `${origenApp(req)}/invitacion/${token}`, expiraEn })
+    .catch((e) => console.error('[mailer] no se pudo enviar la invitación:', e.message));
+
   res.json({ token, expiraEn });
 }));
 
@@ -129,19 +139,29 @@ router.patch('/:id', esAdmin, permiteSeccion('asesores'), asyncHandler(async (re
   if (apellidoP) data.apellidoP = apellidoP;
   if (apellidoM !== undefined) data.apellidoM = apellidoM;
   if (telefono !== undefined) data.telefono = telefono;
+  let previo = null;
   if (rol) {
-    if (!['SUPERADMIN', 'ADMIN', 'ASESOR'].includes(rol)) return res.status(400).json({ error: 'Rol inválido' });
-    if (rol === 'SUPERADMIN' && req.user.rol !== 'SUPERADMIN') return res.status(403).json({ error: 'Solo SUPERADMIN puede asignar SUPERADMIN' });
-    // Anti-lockout: nadie cambia su propio rol (evita auto-degradarse o escalar).
-    if (id === req.user.id && rol !== req.user.rol) return res.status(400).json({ error: 'No puedes cambiar tu propio rol' });
-    data.rol = rol;
+    previo = await prisma.usuario.findUnique({ where: { id }, select: { rol: true, nombre: true, apellidoP: true } });
+    if (!previo) return res.status(404).json({ error: 'Usuario no encontrado' });
+    // El formulario de edición reenvía el rol actual aunque no cambie (para no
+    // romper ediciones de otros campos); solo se valida si es un cambio real.
+    if (previo.rol !== rol) {
+      // SUPERADMIN no se asigna ni se modifica desde la app (rol reservado,
+      // sembrado por env; ver POST / y Configuración → "Roles y accesos").
+      if (previo.rol === 'SUPERADMIN' || rol === 'SUPERADMIN') {
+        return res.status(400).json({ error: 'El rol Súper Admin no se puede asignar ni modificar desde la app' });
+      }
+      if (!['ADMIN', 'ASESOR'].includes(rol)) return res.status(400).json({ error: 'Rol inválido' });
+      // Anti-lockout: nadie cambia su propio rol (evita auto-degradarse o escalar).
+      if (id === req.user.id) return res.status(400).json({ error: 'No puedes cambiar tu propio rol' });
+      data.rol = rol;
+    }
   }
   if (activo !== undefined) data.activo = activo === true || activo === 'true';
   if (password) {
     if (password.length < 6) return res.status(400).json({ error: 'Password mínimo 6 caracteres' });
     data.password = await bcrypt.hash(password, 10);
   }
-  const previo = data.rol ? await prisma.usuario.findUnique({ where: { id }, select: { rol: true, nombre: true, apellidoP: true } }) : null;
   const usuario = await prisma.usuario.update({
     where: { id },
     data,
@@ -158,10 +178,41 @@ router.patch('/:id', esAdmin, permiteSeccion('asesores'), asyncHandler(async (re
   res.json(usuario);
 }));
 
-router.delete('/:id', esSuperadmin, permiteSeccion('asesores'), asyncHandler(async (req, res) => {
+// Borrado permanente (no es el archivado/soft-delete de Cliente): la fila del
+// usuario desaparece de la base de datos. Antes de borrar se verifica que no
+// tenga datos de negocio asociados (clientes, pólizas, citas, actividad,
+// metas, bonos, notas, referidos, documentos) — si los tiene, la mayoría de
+// esas relaciones son onDelete: Cascade en el schema y un borrado directo se
+// llevaría esos registros consigo sin avisar; en ese caso se rechaza y se
+// sugiere desactivar la cuenta en su lugar (conserva el historial).
+router.delete('/:id', esAdmin, permiteSeccion('asesores'), asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (id === req.user.id) return res.status(400).json({ error: 'No puedes eliminarte a ti mismo' });
+
+  const usuario = await prisma.usuario.findUnique({ where: { id } });
+  if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
+  if (usuario.rol === 'SUPERADMIN') return res.status(400).json({ error: 'El Súper Admin no se puede eliminar' });
+
+  const [clientes, ventas, citas, actividad, targets, bonos, notas, referidos, documentos] = await Promise.all([
+    prisma.cliente.count({ where: { asesorId: id } }),
+    prisma.venta.count({ where: { asesorId: id } }),
+    prisma.cita.count({ where: { asesorId: id } }),
+    prisma.actividad.count({ where: { asesorId: id } }),
+    prisma.target.count({ where: { asesorId: id } }),
+    prisma.bono.count({ where: { asesorId: id } }),
+    prisma.nota.count({ where: { asesorId: id } }),
+    prisma.referido.count({ where: { asesorId: id } }),
+    prisma.documentoCliente.count({ where: { asesorId: id } }),
+  ]);
+  if (clientes || ventas || citas || actividad || targets || bonos || notas || referidos || documentos) {
+    return res.status(409).json({ error: 'No se puede eliminar: el usuario ya tiene clientes, pólizas, citas u otra actividad registrada. Desactiva la cuenta en su lugar para conservar el historial.' });
+  }
+
   await prisma.usuario.delete({ where: { id } });
+  await logPermiso(req.user, 'USUARIO_ELIMINADO', {
+    usuarioId: usuario.id,
+    usuarioNombre: `${usuario.nombre} ${usuario.apellidoP || ''}`.trim(),
+  });
   res.json({ ok: true });
 }));
 

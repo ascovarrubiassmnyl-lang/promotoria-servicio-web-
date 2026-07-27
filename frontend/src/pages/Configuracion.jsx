@@ -258,6 +258,12 @@ function textoLog(l) {
       return <>cambió el rol de <b>{d.usuarioNombre}</b>: {ROLES_LABEL[d.antes] || d.antes} → <b>{ROLES_LABEL[d.ahora] || d.ahora}</b></>;
     case 'USUARIO_CREADO':
       return <>creó al usuario <b>{d.usuarioNombre}</b> con rol <b>{ROLES_LABEL[d.rol] || d.rol}</b></>;
+    case 'USUARIO_ELIMINADO':
+      return <>eliminó permanentemente al usuario <b>{d.usuarioNombre}</b></>;
+    case 'INVITACION_CREADA':
+      return <>generó un link de invitación para <b>{d.usuarioNombre}</b></>;
+    case 'INVITACION_REDIMIDA':
+      return <><b>{d.usuarioNombre}</b> activó su cuenta con la invitación</>;
     default:
       return <>{l.accion}</>;
   }

@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { handleError } from '../api/client.js';
 import { soportaWebGL, Silencioso } from '../components/decor/util3d.jsx';
-import BotonGoogle from '../components/login/BotonGoogle.jsx';
 
 // El 3D es decorativo y nunca bloquea el formulario: se carga con lazy
 // (code-split, three no entra al bundle inicial) y solo si hay WebGL; si el
@@ -15,19 +14,18 @@ const DEMOS = [
 ];
 
 export default function Login() {
-  const { login, loginConGoogle } = useAuth();
+  const { login } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [verPassword, setVerPassword] = useState(false);
   const [error, setError] = useState('');
-  const [aviso, setAviso] = useState(''); // cuenta creada / pendiente de activación
   const [loading, setLoading] = useState(false);
   const [conWebGL] = useState(soportaWebGL);
 
   const submit = async (e) => {
     e.preventDefault();
-    setError(''); setAviso('');
+    setError('');
     setLoading(true);
     try {
       await login(email, password);
@@ -36,21 +34,6 @@ export default function Login() {
       setError(handleError(err));
     } finally {
       setLoading(false);
-    }
-  };
-
-  const conGoogle = async (credential) => {
-    setError(''); setAviso('');
-    try {
-      await loginConGoogle(credential);
-      navigate('/');
-    } catch (err) {
-      // 403 {pendiente: true} = la cuenta existe pero un promotor aún no la
-      // activa (o la invitación no se ha redimido): se muestra como aviso,
-      // no como error. Si el correo no tiene cuenta, es un error normal (no
-      // hay registro abierto: solo un promotor puede invitar).
-      if (err?.response?.data?.pendiente) setAviso(err.response.data.error);
-      else setError(handleError(err));
     }
   };
 
@@ -127,17 +110,10 @@ export default function Login() {
             </div>
           </div>
           {error && <p className="text-sm text-red-400">{error}</p>}
-          {aviso && (
-            <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
-              {aviso}
-            </p>
-          )}
           <button type="submit" disabled={loading} className="btn-primary w-full">
             {loading ? 'Entrando…' : 'Entrar'}
           </button>
         </form>
-
-        <BotonGoogle onCredential={conGoogle} />
 
         {import.meta.env.DEV && (
           <div className="mt-6 rounded-lg border border-indigo-300/15 bg-white/5 p-3 text-xs text-slate-400">

@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import { OAuth2Client } from 'google-auth-library';
 import { prisma } from '../prisma.js';
 import { signToken } from '../utils/tokens.js';
 import { authenticate } from '../middleware/auth.js';
@@ -8,9 +7,6 @@ import { asyncHandler } from '../middleware/error.js';
 import { accesosDe } from '../middleware/permisos.js';
 
 const router = Router();
-
-let _googleClient = null;
-const googleClient = () => (_googleClient ??= new OAuth2Client(process.env.GOOGLE_CLIENT_ID));
 
 router.post('/login', asyncHandler(async (req, res) => {
   const { email, password } = req.body || {};
@@ -29,47 +25,11 @@ router.post('/login', asyncHandler(async (req, res) => {
   res.json({ token, usuario: { ...sinPassword, accesos: await accesosDe(usuario) } });
 }));
 
-// Acceso con Google (Google Identity Services): el frontend manda el ID
-// token del botón y aquí se verifica contra GOOGLE_CLIENT_ID.
-//  - Email ya registrado y activo → sesión normal (mismo shape que /login).
-//  - Email sin cuenta → 403, **no se crea nada**: este es un CRM privado de
-//    la promotoría (con datos de clientes), no un servicio público. Solo un
-//    promotor/superadmin decide quién entra: crea el perfil en Asesores →
-//    Equipo y comparte el link de invitación (`/invitacion/:token`, ver
-//    routes/invitaciones.js) para que la cuenta se active con Google.
-router.post('/google', asyncHandler(async (req, res) => {
-  if (!process.env.GOOGLE_CLIENT_ID) {
-    return res.status(503).json({ error: 'El acceso con Google no está configurado' });
-  }
-  const { credential } = req.body || {};
-  if (!credential) return res.status(400).json({ error: 'Falta la credencial de Google' });
-
-  let payload;
-  try {
-    const ticket = await googleClient().verifyIdToken({ idToken: credential, audience: process.env.GOOGLE_CLIENT_ID });
-    payload = ticket.getPayload();
-  } catch {
-    return res.status(401).json({ error: 'Credencial de Google inválida' });
-  }
-  if (!payload?.email || !payload.email_verified) {
-    return res.status(401).json({ error: 'La cuenta de Google no tiene un email verificado' });
-  }
-
-  const email = payload.email.toLowerCase();
-  const usuario = await prisma.usuario.findUnique({ where: { email } });
-
-  if (!usuario) {
-    return res.status(403).json({ error: 'No existe una cuenta con este correo. Pide a tu promotor que te invite.' });
-  }
-
-  if (!usuario.activo) {
-    return res.status(403).json({ pendiente: true, error: 'Tu cuenta está pendiente de activación por un promotor.' });
-  }
-
-  const token = signToken(usuario);
-  const { password: _p, ...sinPassword } = usuario;
-  res.json({ token, usuario: { ...sinPassword, accesos: await accesosDe(usuario) } });
-}));
+// Google Identity Services solo se usa para redimir invitaciones (ver
+// routes/invitaciones.js) — ahí se verifica que el correo de la cuenta de
+// Google coincida con el del perfil ya creado por un promotor y la persona
+// crea su propia contraseña. No hay login recurrente con Google: de ahí en
+// adelante todos entran por /login con email + contraseña.
 
 router.get('/me', authenticate, asyncHandler(async (req, res) =>
   res.json({ usuario: { ...req.user, accesos: await accesosDe(req.user) } })));

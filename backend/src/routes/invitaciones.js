@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import bcrypt from 'bcryptjs';
 import { OAuth2Client } from 'google-auth-library';
 import { prisma } from '../prisma.js';
 import { signToken } from '../utils/tokens.js';
@@ -33,9 +34,11 @@ router.get('/:token', asyncHandler(async (req, res) => {
   res.json({ nombre, apellidoP, email });
 }));
 
-// Redime la invitación con Google. El correo de la credencial debe coincidir
-// exactamente con el del perfil que el promotor ya creó — nunca se crea una
-// cuenta nueva ni se decide el rol a partir del correo de Google.
+// Redime la invitación: la persona crea su contraseña (login normal de ahí
+// en adelante, en /login) y confirma con Google solo para verificar que el
+// correo de esa cuenta coincide exactamente con el del perfil que el
+// promotor ya creó — nunca se crea una cuenta nueva ni se decide el rol a
+// partir del correo de Google, y Google no vuelve a usarse tras este paso.
 router.post('/:token/google', asyncHandler(async (req, res) => {
   if (!process.env.GOOGLE_CLIENT_ID) {
     return res.status(503).json({ error: 'El acceso con Google no está configurado' });
@@ -43,8 +46,9 @@ router.post('/:token/google', asyncHandler(async (req, res) => {
   const { invitacion, error } = await invitacionVigente(req.params.token);
   if (error) return res.status(410).json({ error });
 
-  const { credential } = req.body || {};
+  const { credential, password } = req.body || {};
   if (!credential) return res.status(400).json({ error: 'Falta la credencial de Google' });
+  if (!password || password.length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
 
   let payload;
   try {
@@ -60,10 +64,11 @@ router.post('/:token/google', asyncHandler(async (req, res) => {
     return res.status(403).json({ error: `Esta invitación es para ${invitacion.usuario.email}. Entra con esa cuenta de Google.` });
   }
 
+  const hash = await bcrypt.hash(password, 10);
   const [usuario] = await prisma.$transaction([
     prisma.usuario.update({
       where: { id: invitacion.usuario.id },
-      data: { activo: true, ...(payload.picture ? { fotoUrl: payload.picture } : {}) },
+      data: { activo: true, password: hash, ...(payload.picture ? { fotoUrl: payload.picture } : {}) },
     }),
     prisma.invitacionUsuario.update({ where: { token: req.params.token }, data: { usadaEn: new Date() } }),
   ]);
