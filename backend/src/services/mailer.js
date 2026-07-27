@@ -18,6 +18,12 @@ export function initMailer() {
     port: Number(process.env.SMTP_PORT || 587),
     secure: Number(process.env.SMTP_PORT) === 465,
     auth: { user: SMTP_USER, pass: SMTP_PASS },
+    // Sin esto, un SMTP colgado (red bloqueada, TLS mal negociado) puede
+    // tardar minutos en fallar por su cuenta — mucho más que el timeout del
+    // frontend (15s) — y deja la creación de usuario esperando indefinidamente.
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 8000,
   });
   configured = true;
   console.log('[mailer] Configurado OK');
