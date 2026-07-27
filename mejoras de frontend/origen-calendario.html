@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Origen Asesores · Calendario</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#f6f7f9; --surface:#ffffff; --surface-2:#f1f3f7; --surface-3:#e9edf3;
+    --border:#e6e8ee; --border-strong:#d6dae3;
+    --text:#161d2b; --text-2:#5b6577; --text-3:#98a1b3;
+    --accent:#4f6ef7; --accent-bg:#eef1ff;
+    --ch-tel:#2f7de1; --ch-pres:#0ea5a5; --ch-video:#7c5cdb;
+    --st-ok:#17925f; --st-cancel:#98a1b3; --st-noshow:#d64c46;
+    --radius:14px;
+  }
+  body.dark{
+    --bg:#0b1017; --surface:#111826; --surface-2:#161f30; --surface-3:#1c2740;
+    --border:#212b3d; --border-strong:#2c3a52;
+    --text:#e8edf5; --text-2:#9aa7bd; --text-3:#657189;
+    --accent:#5f7cff; --accent-bg:#1c2748;
+    --ch-tel:#5aa2ff; --ch-pres:#3ecfce; --ch-video:#a98bff;
+    --st-ok:#3ecf8e; --st-cancel:#657189; --st-noshow:#e2635c;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-font-smoothing:antialiased}
+  body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;font-size:14px}
+  button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+  .num{font-variant-numeric:tabular-nums}
+  .ico{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+
+  /* sidebar */
+  .sidebar{width:250px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:22px 16px}
+  .brand{display:flex;align-items:center;gap:11px;padding:6px 8px 24px}
+  .brand-mark{width:30px;height:30px;border-radius:50%;border:1.5px solid var(--text);position:relative}
+  .brand-mark::after{content:"";position:absolute;inset:5px 5px 5px 12px;border-radius:50%;background:var(--surface);border:1.5px solid var(--text)}
+  .brand-name{font-weight:600;letter-spacing:.14em;font-size:13px}.brand-sub{font-size:9px;letter-spacing:.28em;color:var(--text-3);margin-top:1px}
+  .nav{display:flex;flex-direction:column;gap:2px}
+  .nav a{display:flex;align-items:center;gap:13px;padding:11px 13px;border-radius:10px;color:var(--text-2);font-weight:500;cursor:pointer}
+  .nav a.active{background:var(--accent-bg);color:var(--accent)}.nav a:hover:not(.active){background:var(--surface-2)}
+  .nav .ico{width:18px;height:18px}
+  .sidebar-foot{margin-top:auto;padding-top:16px;border-top:1px solid var(--border)}
+  .theme-btn{display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:10px;color:var(--text-2);font-weight:500;width:100%}
+  .theme-btn:hover{background:var(--surface-2)}
+  .who{padding:12px 8px 2px}.who-name{font-weight:600}.who-role{font-size:10px;letter-spacing:.22em;color:var(--text-3);margin-top:2px}
+
+  .main{flex:1;padding:24px 30px;overflow:auto;max-height:100vh;display:flex;flex-direction:column}
+  .topbar{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+  h1{font-size:25px;font-weight:600;letter-spacing:-.01em}
+  .top-right{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .seg{display:flex;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px}
+  .seg button{padding:7px 14px;border-radius:7px;font-weight:500;font-size:13px;color:var(--text-2)}
+  .seg button.on{background:var(--accent);color:#fff}
+  .navbtns{display:flex;gap:6px;align-items:center}
+  .nb{width:36px;height:36px;border:1px solid var(--border);border-radius:9px;background:var(--surface);display:flex;align-items:center;justify-content:center;color:var(--text-2)}
+  .nb:hover{color:var(--text)}
+  .today-btn{border:1px solid var(--border);border-radius:9px;background:var(--surface);padding:8px 14px;font-weight:500;color:var(--text-2)}
+  .period{font-weight:600;font-size:16px;min-width:130px}
+  .btn-primary{background:var(--accent);color:#fff;padding:10px 16px;border-radius:10px;font-weight:600;display:inline-flex;align-items:center;gap:7px}
+
+  /* filters */
+  .filters{display:flex;gap:9px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
+  select{appearance:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:9px 32px 9px 13px;color:var(--text);font-family:inherit;font-size:13px;font-weight:500;cursor:pointer;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%2398a1b3' stroke-width='2'%3E%3Cpath d='M2 4l4 4 4-4'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
+  .legend{display:flex;gap:14px;margin-left:auto;font-size:12px;color:var(--text-2);flex-wrap:wrap}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .legend i{width:9px;height:9px;border-radius:50%}
+  .role-toggle{display:flex;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px}
+  .role-toggle button{padding:7px 12px;border-radius:7px;font-weight:500;font-size:12px;color:var(--text-2)}
+  .role-toggle button.on{background:var(--accent);color:#fff}
+
+  /* layout */
+  .layout{display:grid;grid-template-columns:1fr 320px;gap:20px;flex:1;min-height:0}
+  @media(max-width:1050px){.layout{grid-template-columns:1fr}}
+  .cal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column}
+
+  /* month */
+  .dow{display:grid;grid-template-columns:repeat(7,1fr);border-bottom:1px solid var(--border)}
+  .dow div{padding:12px 10px;font-size:11px;letter-spacing:.06em;color:var(--text-3);font-weight:600;text-transform:uppercase}
+  .month{display:grid;grid-template-columns:repeat(7,1fr);grid-auto-rows:1fr;flex:1}
+  .cell{border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:8px;min-height:96px;cursor:pointer;position:relative;overflow:hidden}
+  .cell:nth-child(7n){border-right:none}
+  .cell.out{background:var(--surface-2);opacity:.5}
+  .cell.sel{background:var(--accent-bg)}
+  .cell:hover:not(.sel){background:var(--surface-2)}
+  .dnum{font-size:13px;font-weight:600;color:var(--text-2);width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:50%}
+  .cell.today .dnum{background:var(--accent);color:#fff}
+  .chip{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;padding:3px 6px;border-radius:6px;margin-top:4px;background:var(--ev-bg);color:var(--ev-c);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .chip.cancelled{text-decoration:line-through;opacity:.6}
+  .chip i{width:6px;height:6px;border-radius:50%;background:var(--ev-c);flex-shrink:0}
+  .chip .t{font-variant-numeric:tabular-nums;flex-shrink:0}
+  .more{font-size:11px;color:var(--text-3);margin-top:4px;font-weight:500;padding-left:6px}
+
+  /* week */
+  .week{flex:1;overflow:auto;display:flex;flex-direction:column}
+  .week-head{display:grid;grid-template-columns:56px repeat(7,1fr);border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:2}
+  .week-head .wd{padding:10px 8px;text-align:center;border-left:1px solid var(--border)}
+  .week-head .wd .n{font-size:11px;color:var(--text-3);letter-spacing:.05em;text-transform:uppercase}
+  .week-head .wd .d{font-size:17px;font-weight:600;margin-top:2px;width:30px;height:30px;line-height:30px;border-radius:50%;margin:2px auto 0}
+  .week-head .wd.today .d{background:var(--accent);color:#fff}
+  .week-grid{display:grid;grid-template-columns:56px repeat(7,1fr);position:relative}
+  .hours{display:flex;flex-direction:column}
+  .hour{height:46px;font-size:11px;color:var(--text-3);text-align:right;padding:2px 8px 0 0;box-sizing:border-box}
+  .wcol{border-left:1px solid var(--border);position:relative}
+  .wcol .hline{height:46px;border-bottom:1px solid var(--border)}
+  .wev{position:absolute;left:3px;right:3px;border-radius:7px;padding:5px 7px;background:var(--ev-bg);border-left:3px solid var(--ev-c);overflow:hidden;cursor:pointer}
+  .wev .wt{font-size:11px;font-weight:600;color:var(--ev-c);font-variant-numeric:tabular-nums}
+  .wev .wl{font-size:11px;color:var(--text);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* agenda */
+  .agenda{flex:1;overflow:auto;padding:8px 4px}
+  .agd{padding:14px 18px 6px}
+  .agd-h{font-weight:600;font-size:14px;display:flex;gap:9px;align-items:baseline}
+  .agd-h .c{color:var(--text-3);font-size:12px;font-weight:500}
+  .aev{display:flex;gap:14px;padding:12px 18px;border-radius:10px;cursor:pointer}
+  .aev:hover{background:var(--surface-2)}
+  .aev-time{width:120px;flex-shrink:0;font-variant-numeric:tabular-nums;color:var(--text-2);font-size:13px;font-weight:500}
+  .aev-bar{width:3px;border-radius:2px;background:var(--ev-c);flex-shrink:0}
+  .aev-t{font-weight:600}
+  .aev-s{font-size:12px;color:var(--text-3);margin-top:3px;display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+
+  /* day panel */
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;overflow:auto}
+  .panel h3{font-size:15px;font-weight:600;margin-bottom:4px}
+  .panel .psub{color:var(--text-3);font-size:13px;margin-bottom:16px}
+  .pcard{border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px;border-left:3px solid var(--ev-c)}
+  .pcard-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+  .pcard-t{font-weight:600}
+  .stpill{font-size:10px;font-weight:700;letter-spacing:.03em;padding:3px 8px;border-radius:6px;text-transform:uppercase;background:color-mix(in srgb,var(--st-col) 15%,var(--surface));color:var(--st-col);white-space:nowrap}
+  .pcard-meta{font-size:12px;color:var(--text-2);margin-top:8px;display:flex;flex-direction:column;gap:5px}
+  .pcard-meta .r{display:flex;align-items:center;gap:7px}
+  .pcard-meta .ico{width:13px;height:13px;color:var(--text-3)}
+  .pacts{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .pbtn{font-size:12px;font-weight:600;padding:6px 11px;border-radius:8px;border:1px solid var(--border-strong);color:var(--text-2)}
+  .pbtn:hover{color:var(--text)}
+  .pbtn.done{color:var(--st-ok);border-color:color-mix(in srgb,var(--st-ok) 40%,transparent)}
+  .accbadge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--ch-video);background:color-mix(in srgb,var(--ch-video) 13%,var(--surface));padding:3px 8px;border-radius:6px}
+  .empty{color:var(--text-3);font-size:13px;text-align:center;padding:30px 0}
+
+  /* modal */
+  .overlay{position:fixed;inset:0;background:rgba(6,10,18,.55);backdrop-filter:blur(2px);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
+  .overlay.open{display:flex}
+  .modal{background:var(--surface);border:1px solid var(--border-strong);border-radius:16px;width:560px;max-width:100%;max-height:92vh;overflow:auto;box-shadow:0 24px 60px rgba(0,0,0,.4)}
+  .modal-h{display:flex;justify-content:space-between;align-items:center;padding:20px 24px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface)}
+  .modal-h h2{font-size:18px;font-weight:600}
+  .x{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--text-2)}
+  .x:hover{background:var(--surface-2)}
+  .modal-b{padding:22px 24px}
+  .fg{margin-bottom:16px}
+  .fg label{display:block;font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:6px}
+  .fg label .req{color:var(--accent)}
+  .fg .hint{font-size:11px;color:var(--text-3);margin-top:5px}
+  .inp{width:100%;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;padding:11px 13px;color:var(--text);font-family:inherit;font-size:14px;outline:none}
+  .inp:focus{border-color:var(--accent)}
+  textarea.inp{resize:vertical;min-height:70px}
+  .fg select.inp{appearance:none;padding-right:34px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%2398a1b3' stroke-width='2'%3E%3Cpath d='M2 4l4 4 4-4'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 13px center}
+  .fg2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .segsel{display:flex;gap:8px}
+  .segsel button{flex:1;border:1px solid var(--border-strong);border-radius:10px;padding:10px;font-weight:500;color:var(--text-2);font-size:13px;display:flex;flex-direction:column;align-items:center;gap:5px}
+  .segsel button.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}
+  .segsel .ico{width:17px;height:17px}
+  .warn{display:flex;gap:9px;align-items:flex-start;background:color-mix(in srgb,var(--st-noshow) 10%,var(--surface));border:1px solid color-mix(in srgb,var(--st-noshow) 30%,transparent);color:var(--st-noshow);padding:11px 14px;border-radius:10px;font-size:12.5px;margin-bottom:16px}
+  .warn .ico{width:16px;height:16px;flex-shrink:0;margin-top:1px}
+  .status-note{font-size:12px;color:var(--text-3);background:var(--surface-2);padding:9px 12px;border-radius:9px;margin-bottom:16px}
+  .modal-f{display:flex;justify-content:flex-end;gap:10px;padding:18px 24px;border-top:1px solid var(--border);position:sticky;bottom:0;background:var(--surface)}
+  .btn-cancel{border:1px solid var(--border-strong);padding:11px 18px;border-radius:10px;font-weight:600;color:var(--text-2)}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="brand"><div class="brand-mark"></div><div><div class="brand-name">ORIGEN</div><div class="brand-sub">ASESORES</div></div></div>
+  <nav class="nav">
+    <a><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Dashboard</a>
+    <a><svg class="ico" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M4 20c0-3 2-5 5-5s5 2 5 5"/></svg>Clientes</a>
+    <a class="active"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>Citas / Calendario</a>
+    <a><svg class="ico" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/></svg>Pólizas</a>
+    <a><svg class="ico" viewBox="0 0 24 24"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>Actividad</a>
+  </nav>
+  <div class="sidebar-foot">
+    <button class="theme-btn" onclick="document.body.classList.toggle('dark');this.querySelector('span').textContent=document.body.classList.contains('dark')?'Modo claro':'Modo oscuro';render()">
+      <svg class="ico" style="width:18px;height:18px" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg><span>Modo oscuro</span>
+    </button>
+    <div class="who"><div class="who-name">Juan Pérez</div><div class="who-role">ASESOR</div></div>
+  </div>
+</aside>
+
+<main class="main">
+  <div class="topbar">
+    <h1>Calendario</h1>
+    <div class="top-right">
+      <div class="seg" id="viewseg">
+        <button data-v="mes" class="on" onclick="setView('mes')">Mes</button>
+        <button data-v="semana" onclick="setView('semana')">Semana</button>
+        <button data-v="agenda" onclick="setView('agenda')">Agenda</button>
+      </div>
+      <div class="navbtns">
+        <button class="nb" onclick="step(-1)"><svg class="ico" style="width:16px;height:16px" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <button class="today-btn" onclick="goToday()">Hoy</button>
+        <button class="nb" onclick="step(1)"><svg class="ico" style="width:16px;height:16px" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+      </div>
+      <div class="period" id="period">Julio 2026</div>
+      <button class="btn-primary" onclick="openModal()"><span style="font-size:16px;line-height:1">+</span> Agendar cita</button>
+    </div>
+  </div>
+
+  <div class="filters">
+    <div class="role-toggle">
+      <button id="r-ase" class="on" onclick="setRole('asesor')">Asesor</button>
+      <button id="r-adm" onclick="setRole('admin')">Admin</button>
+    </div>
+    <select id="f-canal" onchange="render()"><option value="">Todos los canales</option><option value="telefonica">Telefónica</option><option value="presencial">Presencial</option><option value="videollamada">Videollamada</option></select>
+    <select id="f-estado" onchange="render()"><option value="">Todos los estados</option><option value="programada">Programada</option><option value="completada">Completada</option><option value="cancelada">Cancelada</option></select>
+    <select id="f-asesor" class="hidden" onchange="render()"><option value="">Todos los asesores</option><option>Juan Pérez</option><option>María López</option></select>
+    <div class="legend">
+      <span><i style="background:var(--ch-tel)"></i>Telefónica</span>
+      <span><i style="background:var(--ch-pres)"></i>Presencial</span>
+      <span><i style="background:var(--ch-video)"></i>Videollamada</span>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div class="cal" id="cal"></div>
+    <div class="panel" id="panel"></div>
+  </div>
+</main>
+
+<!-- MODAL -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <div class="modal-h"><h2>Agendar cita</h2><button class="x" onclick="closeModal()"><svg class="ico" style="width:18px;height:18px" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="modal-b">
+      <div class="fg"><label>Cliente <span class="req">*</span></label>
+        <select class="inp"><option>Selecciona…</option><option>Carlos Ramírez</option><option>Roberto Cruz</option><option>Ana Torres</option></select></div>
+      <div class="fg"><label>Título <span class="req">*</span></label><input class="inp" placeholder="Ej. Presentación de póliza"></div>
+
+      <div class="fg"><label>Tipo de cita <span class="req">*</span></label>
+        <select class="inp" id="m-tipo" onchange="toggleAcc()"><option value="asesor">Cita de asesor</option><option value="acomp">Acompañamiento con promotor</option></select>
+        <div class="hint">"Acompañamiento" = el promotor asiste contigo a la cita.</div></div>
+      <div class="fg hidden" id="m-acc"><label>Promotor que acompaña <span class="req">*</span></label>
+        <select class="inp"><option>Promotora Admin</option></select></div>
+
+      <div class="fg"><label>Canal <span class="req">*</span></label>
+        <div class="segsel" id="m-canal">
+          <button class="on" data-c="presencial" onclick="pickCanal(this)"><svg class="ico" viewBox="0 0 24 24"><path d="M12 21s-7-5.2-7-11a7 7 0 0114 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Presencial</button>
+          <button data-c="telefonica" onclick="pickCanal(this)"><svg class="ico" viewBox="0 0 24 24"><path d="M5 4h4l2 5-3 2a11 11 0 005 5l2-3 5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2z"/></svg>Telefónica</button>
+          <button data-c="videollamada" onclick="pickCanal(this)"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="6" width="12" height="12" rx="2"/><path d="M15 10l6-3v10l-6-3"/></svg>Videollamada</button>
+        </div></div>
+
+      <div class="fg2">
+        <div class="fg" style="margin:0"><label>Inicio <span class="req">*</span></label><input type="datetime-local" class="inp num" id="m-inicio" value="2026-07-25T10:00" onchange="autoEnd()"></div>
+        <div class="fg" style="margin:0"><label>Fin <span class="req">*</span></label><input type="datetime-local" class="inp num" id="m-fin" value="2026-07-25T10:30"></div>
+      </div>
+      <div class="hint" style="margin:-6px 0 16px">Duración por defecto: 30 min. El fin se ajusta solo al cambiar el inicio.</div>
+
+      <div class="warn"><svg class="ico" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 4l-8 14h19.4z"/></svg>
+        Ya tienes una cita el 25 jul a las 10:00 (Presentación de propuesta). Revisa el empalme antes de guardar.</div>
+
+      <div class="fg" id="m-ubic"><label>Ubicación</label><input class="inp" placeholder="Dirección de la cita"></div>
+      <div class="fg"><label>Notas</label><textarea class="inp" placeholder="Objetivo de la cita"></textarea></div>
+
+      <div class="status-note">Se guardará como <strong>Programada</strong>. El estado cambia después con las acciones de la cita (completar, cancelar, no asistió).</div>
+    </div>
+    <div class="modal-f"><button class="btn-cancel" onclick="closeModal()">Cancelar</button><button class="btn-primary" onclick="closeModal()">Agendar cita</button></div>
+  </div>
+</div>
+
+<script>
+const DOW=['DOM','LUN','MAR','MIÉ','JUE','VIE','SÁB'];
+const CH={telefonica:{c:'var(--ch-tel)',label:'Telefónica'},presencial:{c:'var(--ch-pres)',label:'Presencial'},videollamada:{c:'var(--ch-video)',label:'Videollamada'}};
+const ST={programada:{col:'var(--accent)',label:'Programada'},completada:{col:'var(--st-ok)',label:'Completada'},cancelada:{col:'var(--st-cancel)',label:'Cancelada'},noshow:{col:'var(--st-noshow)',label:'No asistió'}};
+
+const EVENTS=[
+  {day:16,start:'11:00',end:'11:30',title:'Seguimiento propuesta',client:'Ana Torres',phone:'5551111112',channel:'telefonica',status:'programada',advisor:'Juan Pérez'},
+  {day:22,start:'17:00',end:'18:00',title:'Cierre de venta',client:'Ana Torres',channel:'presencial',status:'completada',location:'Oficina Centro',advisor:'Juan Pérez'},
+  {day:24,start:'10:00',end:'10:30',title:'Primera llamada',client:'Carlos Ramírez',phone:'5551111111',channel:'telefonica',status:'programada',advisor:'Juan Pérez'},
+  {day:25,start:'10:00',end:'11:00',title:'Presentación de propuesta',client:'Ana Torres',channel:'videollamada',status:'programada',location:'meet.google.com/xxx',advisor:'Juan Pérez'},
+  {day:25,start:'16:00',end:'16:45',title:'Acompañamiento',client:'Roberto Cruz',channel:'telefonica',status:'programada',acc:'Promotora Admin',advisor:'Juan Pérez'},
+  {day:28,start:'09:30',end:'10:00',title:'Renovación',client:'Luis Martínez',channel:'presencial',status:'programada',location:'Oficina Centro',advisor:'María López'},
+  {day:30,start:'15:00',end:'15:30',title:'Renovación auto',client:'Roberto Cruz',channel:'presencial',status:'programada',location:'Oficina Centro',advisor:'Juan Pérez'},
+];
+
+const TODAY=25;
+let view='mes', selDay=25, role='asesor';
+const $=s=>document.querySelector(s);
+const toMin=t=>{const[h,m]=t.split(':').map(Number);return h*60+m};
+const fmtT=t=>{let[h,m]=t.split(':').map(Number);const ap=h>=12?'p.m.':'a.m.';h=h%12||12;return `${h}:${String(m).padStart(2,'0')} ${ap}`};
+
+function filtered(){
+  const canal=$('#f-canal').value, est=$('#f-estado').value, ase=$('#f-asesor').value;
+  return EVENTS.filter(e=>
+    (role==='admin'||e.advisor==='Juan Pérez') &&
+    (!canal||e.channel===canal) && (!est||e.status===est) && (!ase||e.advisor===ase));
+}
+function dayEvents(d){return filtered().filter(e=>e.day===d).sort((a,b)=>toMin(a.start)-toMin(b.start))}
+
+function setRole(r){role=r;$('#r-ase').classList.toggle('on',r==='asesor');$('#r-adm').classList.toggle('on',r==='admin');
+  $('#f-asesor').classList.toggle('hidden',r!=='admin');render()}
+function setView(v){view=v;document.querySelectorAll('#viewseg button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));render()}
+function step(d){/* ilustrativo: cambia de mes/semana en producción */}
+function goToday(){selDay=TODAY;render()}
+
+function render(){renderCal();renderPanel()}
+
+function renderCal(){
+  const cal=$('#cal');
+  if(view==='mes')cal.innerHTML=monthHTML();
+  else if(view==='semana')cal.innerHTML=weekHTML();
+  else cal.innerHTML=agendaHTML();
+}
+
+function monthHTML(){
+  let html='<div class="dow">'+DOW.map(d=>`<div>${d}</div>`).join('')+'</div><div class="month">';
+  // July 2026 starts Wednesday (index 3)
+  const startOffset=3, daysInMonth=31;
+  for(let i=0;i<startOffset;i++)html+=`<div class="cell out"></div>`;
+  for(let d=1;d<=daysInMonth;d++){
+    const evs=dayEvents(d);
+    const chips=evs.slice(0,2).map(e=>{const ch=CH[e.channel];
+      return `<div class="chip ${e.status==='cancelada'?'cancelled':''}" style="--ev-c:${ch.c};--ev-bg:color-mix(in srgb,${ch.c} 14%,var(--surface))"><i></i><span class="t">${fmtT(e.start).replace(' ','')}</span> ${e.title}</div>`}).join('');
+    const more=evs.length>2?`<div class="more">+${evs.length-2} más</div>`:'';
+    html+=`<div class="cell ${d===selDay?'sel':''} ${d===TODAY?'today':''}" onclick="selDay=${d};render()">
+      <div class="dnum">${d}</div>${chips}${more}</div>`;
+  }
+  const rem=(startOffset+daysInMonth)%7; if(rem)for(let i=0;i<7-rem;i++)html+=`<div class="cell out"></div>`;
+  return html+'</div>';
+}
+
+function weekHTML(){
+  // week containing selDay (Jul 2026: day->dow). day1=Wed. dow = (2 + d) % 7
+  const dow=(2+selDay)%7; const weekStart=selDay-dow;
+  let head='<div class="week-head"><div></div>';
+  for(let i=0;i<7;i++){const d=weekStart+i;const valid=d>=1&&d<=31;
+    head+=`<div class="wd ${d===TODAY?'today':''}"><div class="n">${DOW[i]}</div><div class="d">${valid?d:''}</div></div>`}
+  head+='</div>';
+  let hours='<div class="hours">';for(let h=8;h<=20;h++)hours+=`<div class="hour">${h>12?h-12:h} ${h>=12?'pm':'am'}</div>`;hours+='</div>';
+  let cols='';
+  for(let i=0;i<7;i++){const d=weekStart+i;let lines='';for(let h=8;h<=20;h++)lines+='<div class="hline"></div>';
+    let evs=(d>=1&&d<=31)?dayEvents(d):[];
+    let evh=evs.map(e=>{const ch=CH[e.channel];const top=(toMin(e.start)-480)/60*46;const height=Math.max((toMin(e.end)-toMin(e.start))/60*46,22);
+      return `<div class="wev" style="top:${top}px;height:${height}px;--ev-c:${ch.c};--ev-bg:color-mix(in srgb,${ch.c} 13%,var(--surface))" onclick="selDay=${d};render()"><div class="wt">${fmtT(e.start)}</div><div class="wl">${e.title}</div></div>`}).join('');
+    cols+=`<div class="wcol">${lines}${evh}</div>`;
+  }
+  return `<div class="week"><div class="week-grid">${hours}${cols}</div></div>`.replace('<div class="week-grid">',head+'<div class="week-grid">');
+}
+
+function agendaHTML(){
+  const days=[...new Set(filtered().map(e=>e.day))].sort((a,b)=>a-b);
+  if(!days.length)return '<div class="empty" style="padding:60px">Sin citas en este periodo.</div>';
+  let html='<div class="agenda">';
+  days.forEach(d=>{const evs=dayEvents(d);
+    html+=`<div class="agd"><div class="agd-h">${d} de julio ${d===TODAY?'· <span class="c">Hoy</span>':''}<span class="c">${evs.length} cita(s)</span></div></div>`;
+    evs.forEach(e=>{const ch=CH[e.channel];
+      html+=`<div class="aev" style="--ev-c:${ch.c}" onclick="selDay=${d};render()">
+        <div class="aev-time">${fmtT(e.start)} – ${fmtT(e.end)}</div>
+        <div class="aev-bar"></div>
+        <div><div class="aev-t">${e.title}</div>
+          <div class="aev-s"><span>${e.client}</span>·<span>${ch.label}</span>${e.acc?`·<span style="color:var(--ch-video)">+ ${e.acc}</span>`:''}${e.location?`·<span>${e.location}</span>`:''}</div></div></div>`;
+    });
+  });
+  return html+'</div>';
+}
+
+function renderPanel(){
+  const evs=dayEvents(selDay);
+  let html=`<h3>Citas · ${selDay} jul 2026</h3><div class="psub">${evs.length?evs.length+' cita(s) programada(s)':'Sin citas este día'}</div>`;
+  if(!evs.length)html+='<div class="empty">Nada agendado.<br>Usa "+ Agendar cita".</div>';
+  evs.forEach(e=>{const ch=CH[e.channel], st=ST[e.status];
+    html+=`<div class="pcard" style="--ev-c:${ch.c}">
+      <div class="pcard-top"><div class="pcard-t">${e.title}</div><span class="stpill" style="--st-col:${st.col}">${st.label}</span></div>
+      <div class="pcard-meta">
+        <div class="r"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>${fmtT(e.start)} – ${fmtT(e.end)}</div>
+        <div class="r"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.2"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/></svg>${e.client}${e.phone?' · '+e.phone:''}</div>
+        <div class="r"><i style="width:9px;height:9px;border-radius:50%;background:${ch.c}"></i>${ch.label}${e.location?' · '+e.location:''}</div>
+        ${e.acc?`<div class="r"><span class="accbadge">◎ Acompaña ${e.acc}</span></div>`:''}
+      </div>
+      <div class="pacts">
+        <button class="pbtn done">✓ Completar</button>
+        <button class="pbtn">Reagendar</button>
+        <button class="pbtn">Cancelar cita</button>
+      </div></div>`;
+  });
+  $('#panel').innerHTML=html;
+}
+
+/* modal */
+function openModal(){$('#overlay').classList.add('open')}
+function closeModal(){$('#overlay').classList.remove('open')}
+function pickCanal(b){document.querySelectorAll('#m-canal button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  const c=b.dataset.c;const lbl=c==='videollamada'?'Link de videollamada':c==='telefonica'?'Teléfono (opcional)':'Dirección de la cita';
+  $('#m-ubic').querySelector('label').textContent='Ubicación'; $('#m-ubic').querySelector('input').placeholder=lbl;}
+function toggleAcc(){$('#m-acc').classList.toggle('hidden',$('#m-tipo').value!=='acomp')}
+function autoEnd(){const i=$('#m-inicio').value;if(!i)return;const d=new Date(i);d.setMinutes(d.getMinutes()+30);
+  const p=n=>String(n).padStart(2,'0');$('#m-fin').value=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`}
+
+render();
+</script>
+</body>
+</html>
