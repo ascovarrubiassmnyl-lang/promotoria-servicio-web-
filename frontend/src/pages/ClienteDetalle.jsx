@@ -1,88 +1,138 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams, Link, useNavigate } from 'react-router-dom';
-import { useState, useMemo, useRef } from 'react';
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { api, handleError } from '../api/client.js';
-import { Card, Modal, Field, CitaBadge, VentaBadge, EmptyState } from '../components/ui.jsx';
-import { mxn, fechaHora, fechaCorta, isoLocalInput, isoLocalDateInput, RAMOS, RAMOS_LABEL, ESTADOS_CLIENTE, ESTADOS_CLIENTE_LABEL, ESTADOS_VENTA, ESTADOS_VENTA_LABEL, FORMAS_PAGO, FORMAS_PAGO_LIST } from '../lib/format.js';
+import { useAuth } from '../context/AuthContext.jsx';
+import { Card, Modal, Field, CitaBadge, VentaBadge, EmptyState, MenuAcciones } from '../components/ui.jsx';
+import PolizaFormModal from '../components/polizas/PolizaFormModal.jsx';
+import CitaFormModal from '../components/citas/CitaFormModal.jsx';
+import ActivityTimeline from '../components/actividad/ActivityTimeline.jsx';
+import { ETAPAS, infoEtapa, siguienteEtapa } from '../components/clientes/etapas.js';
+import { infoCanal, CITA_VIVA } from '../components/citas/tipos.js';
+import {
+  mxn, fechaHora, fechaCorta, isoLocalInput,
+  RAMOS, RAMOS_LABEL,
+  FORMAS_PAGO, esVentaGanada, esVentaPipeline,
+} from '../lib/format.js';
 
-const TIPO_CITA = { TELEFONICA: 'Telefónica', VIDEO: 'Videollamada', PRESENCIAL: 'Presencial' };
-const MODALIDAD_CITA_LABEL = { CITA_UNICA: 'Cita única', ACOMPANAMIENTO: 'Acompañamiento' };
-// Pólizas en estado PAGADA o FIRMADA se consideran "activas"
+// Subestado derivado: una póliza está "activa" en función de su estado — no es
+// un campo independiente (por eso se muestra como subestado, no como columna).
 const POLIZA_ACTIVA = new Set(['PAGADA', 'FIRMADA', 'APROBADA']);
-const ESTADO_CITA = ['PROGRAMADA', 'CONFIRMADA', 'COMPLETADA', 'CANCELADA', 'NO_ASISTIO'];
-const PAGOS_POR_ANIO = { MENSUAL: 12, TRIMESTRAL: 4, SEMESTRAL: 2, ANUAL: 1, UNICO: 1 };
-const PERIODO_LABEL = { MENSUAL: 'mensuales', TRIMESTRAL: 'por trimestre', SEMESTRAL: 'por semestre' };
 
 function tamanoLegible(bytes) {
   if (!bytes) return '0 KB';
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
-const POLIZA_FORM_INICIAL = {
-  ramo: 'VIDA', productoCatalogoId: '', producto: '', primaAnual: '',
-  comisionPct: 10, formaPago: 'ANUAL', estado: 'PENDIENTE_PAGAR',
-  fechaInicioVigencia: '', fechaProximoPago: '', notas: '',
-};
+
+const iniciales = (c) => `${c.nombre?.[0] || ''}${c.apellidoP?.[0] || ''}`.toUpperCase();
+
+// Stepper del embudo: posición sobre el enum ordenado de etapas, pintado con
+// el color de la etapa actual (el color encodea progreso — mapa único en
+// components/clientes/etapas.js).
+function PipelineStepper({ estado }) {
+  const actual = infoEtapa(estado);
+  const idx = actual.orden;
+  const ultimo = ETAPAS.length - 1;
+  return (
+    <div className="card px-6 py-5 overflow-x-auto">
+      <div className="flex min-w-[620px]">
+        {ETAPAS.map((e, i) => {
+          const done = idx >= 0 && i < idx;
+          const current = i === idx;
+          return (
+            <div key={e.value} className="relative flex-1 pt-6 text-center">
+              <div className={`absolute top-[6px] h-0.5 ${i === 0 ? 'left-1/2' : 'left-0'} ${i === ultimo ? 'right-1/2' : 'right-0'} ${done || current ? actual.dot : 'bg-slate-200 dark:bg-slate-700'}`} />
+              <span className={`absolute top-0 left-1/2 -translate-x-1/2 h-3.5 w-3.5 rounded-full border-2 ${done || current
+                ? `${actual.border} ${actual.dot}`
+                : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'} ${current ? `ring-4 ${actual.halo}` : ''}`} />
+              <p className={`text-xs px-1 ${current
+                ? 'font-semibold text-slate-800 dark:text-slate-100'
+                : done ? 'text-slate-500 dark:text-slate-400' : 'text-slate-400 dark:text-slate-500'}`}>
+                {e.label}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export default function ClienteDetalle() {
   const { id } = useParams();
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  const { user, esAdmin } = useAuth();
+
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
-  const [toDeleteClient, setToDeleteClient] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const navigate = useNavigate();
 
-  // Nota modal
+  // Archivar (borrado lógico) del cliente
+  const [archivarOpen, setArchivarOpen] = useState(false);
+  const [archivando, setArchivando] = useState(false);
+
+  // Nota / recordatorio
   const [notaOpen, setNotaOpen] = useState(false);
   const [notaForm, setNotaForm] = useState({ tipo: 'NOTA', texto: '', fechaAviso: '' });
   const [notaSaving, setNotaSaving] = useState(false);
 
-  // Cita modal
+  // Cita: modal compartido del módulo de Citas (clienteId fija el cliente)
   const [citaOpen, setCitaOpen] = useState(false);
-  const [citaForm, setCitaForm] = useState({ titulo: '', descripcion: '', tipo: 'TELEFONICA', fechaHoraInicio: '', fechaHoraFin: '', ubicacion: '', estado: 'PROGRAMADA' });
-  const [citaSaving, setCitaSaving] = useState(false);
 
-  // Producto modal (interés)
+  // Producto de interés
   const [productoOpen, setProductoOpen] = useState(false);
   const [productoForm, setProductoForm] = useState(null);
   const [productoSaving, setProductoSaving] = useState(false);
 
-  // Póliza modal (crear/editar venta desde la ficha)
-  const [polizaOpen, setPolizaOpen] = useState(false);
-  const [polizaEditId, setPolizaEditId] = useState(null); // null = crear, id = editar
-  const [polizaForm, setPolizaForm] = useState(POLIZA_FORM_INICIAL);
-  const [polizaSaving, setPolizaSaving] = useState(false);
-  const [polizaErr, setPolizaErr] = useState('');
+  // Pólizas: modal compartido de Pólizas (crear/editar) + acciones destructivas
+  const [polizaModal, setPolizaModal] = useState({ open: false, venta: null });
+  const [cancelarPoliza, setCancelarPoliza] = useState(null);
+  const [cancelandoPoliza, setCancelandoPoliza] = useState(false);
+  const [delPolizaId, setDelPolizaId] = useState(null);
+  const [delPolizaBusy, setDelPolizaBusy] = useState(false);
 
-  // Archivos del cliente
+  // Archivos
   const archivoInputRef = useRef(null);
   const [docSubiendo, setDocSubiendo] = useState(false);
   const [docErr, setDocErr] = useState('');
   const [delDocId, setDelDocId] = useState(null);
 
-  // Eliminar
-  const [delCitaId, setDelCitaId] = useState(null);
   const [delNotaId, setDelNotaId] = useState(null);
-  const [delPolizaId, setDelPolizaId] = useState(null);
-  const [delPolizaBusy, setDelPolizaBusy] = useState(false);
+
+  const location = useLocation();
 
   const { data: c, isLoading } = useQuery({
     queryKey: ['cliente', id],
     queryFn: async () => (await api.get(`/clientes/${id}`)).data,
   });
 
-  const { data: catalogo } = useQuery({
-    queryKey: ['productos-catalogo'],
-    queryFn: async () => (await api.get('/productos-catalogo', { params: { soloActivos: true } })).data,
+  // Actividad reciente del cliente (mismo timeline del módulo de Actividad)
+  const { data: actividadCliente, isLoading: actividadLoading } = useQuery({
+    queryKey: ['actividad-cliente', id],
+    queryFn: async () => (await api.get('/actividad', { params: { clienteId: id, limit: 20 } })).data,
   });
 
-  const productosPorRamo = useMemo(
-    () => (catalogo || []).filter((p) => p.ramo === polizaForm.ramo),
-    [catalogo, polizaForm.ramo]
-  );
+  // "Agendar cita" desde el menú de la lista de clientes abre el modal directo
+  useEffect(() => {
+    if (location.state?.abrirCita) {
+      setCitaOpen(true);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const resumen = useMemo(() => {
+    const ventas = c?.ventas || [];
+    const vigentes = ventas.filter((v) => !['CANCELADA', 'RECHAZADA'].includes(v.estado));
+    return {
+      polizas: ventas.length,
+      primaTotal: vigentes.reduce((s, v) => s + (v.primaAnual || 0), 0),
+      comisionGanada: ventas.filter(esVentaGanada).reduce((s, v) => s + (v.comisionMonto || 0), 0),
+      comisionPipeline: ventas.filter(esVentaPipeline).reduce((s, v) => s + (v.comisionMonto || 0), 0),
+    };
+  }, [c]);
 
   if (isLoading) return <div className="p-10 text-center text-slate-400 dark:text-slate-500">Cargando…</div>;
   if (!c) return <EmptyState message="Cliente no encontrado" />;
@@ -104,7 +154,6 @@ export default function ClienteDetalle() {
     } catch (e2) { setErr(handleError(e2)); } finally { setSaving(false); }
   };
 
-  // Cambiar estado inline
   const cambiarEstado = async (estado) => {
     try {
       await api.patch(`/clientes/${id}`, { estado });
@@ -113,7 +162,25 @@ export default function ClienteDetalle() {
     } catch (e2) { alert(handleError(e2)); }
   };
 
-  // Agregar nota o recordatorio
+  // Archivar (DELETE hace borrado lógico en el backend) y restaurar
+  const confirmarArchivar = async () => {
+    setArchivando(true);
+    try {
+      await api.delete(`/clientes/${id}`);
+      qc.invalidateQueries(['clientes']);
+      navigate('/clientes');
+    } catch (e2) { alert(handleError(e2)); } finally { setArchivando(false); }
+  };
+
+  const restaurarCliente = async () => {
+    try {
+      await api.patch(`/clientes/${id}`, { archivado: false });
+      qc.invalidateQueries(['cliente', id]);
+      qc.invalidateQueries(['clientes']);
+    } catch (e2) { alert(handleError(e2)); }
+  };
+
+  // Notas y recordatorios
   const abrirNota = (tipo) => {
     setNotaForm({ tipo, texto: '', fechaAviso: tipo === 'RECORDATORIO' ? isoLocalInput(new Date(Date.now() + 24 * 60 * 60 * 1000)) : '' });
     setNotaOpen(true);
@@ -123,12 +190,7 @@ export default function ClienteDetalle() {
     e.preventDefault();
     setNotaSaving(true);
     try {
-      await api.post('/notas', {
-        clienteId: id,
-        tipo: notaForm.tipo,
-        texto: notaForm.texto,
-        fechaAviso: notaForm.fechaAviso || null,
-      });
+      await api.post('/notas', { clienteId: id, tipo: notaForm.tipo, texto: notaForm.texto, fechaAviso: notaForm.fechaAviso || null });
       setNotaOpen(false);
       qc.invalidateQueries(['cliente', id]);
     } catch (e2) { alert(handleError(e2)); } finally { setNotaSaving(false); }
@@ -142,38 +204,21 @@ export default function ClienteDetalle() {
     } catch (e2) { alert(handleError(e2)); }
   };
 
-  // Agendar cita
-  const abrirCita = () => {
-    const ahora = new Date(); ahora.setHours(ahora.getHours() + 1, 0, 0, 0);
-    setCitaForm({ titulo: '', descripcion: '', tipo: 'TELEFONICA', fechaHoraInicio: isoLocalInput(ahora), fechaHoraFin: '', ubicacion: '', estado: 'PROGRAMADA' });
-    setCitaOpen(true);
-  };
+  // Citas: el alta usa CitaFormModal; la baja normal es "Cancelar" (conserva
+  // el registro). El borrado real vive en el calendario, con confirmación.
+  const abrirCita = () => setCitaOpen(true);
 
-  const guardarCita = async (e) => {
-    e.preventDefault();
-    if (!citaForm.titulo || !citaForm.fechaHoraInicio) { alert('Título y fecha de inicio son requeridos'); return; }
-    setCitaSaving(true);
+  const cancelarCita = async (citaId) => {
     try {
-      await api.post('/citas', { clienteId: id, ...citaForm });
-      setCitaOpen(false);
+      await api.patch(`/citas/${citaId}`, { estado: 'CANCELADA' });
       qc.invalidateQueries(['cliente', id]);
-    } catch (e2) { alert(handleError(e2)); } finally { setCitaSaving(false); }
-  };
-
-  const eliminarCita = async () => {
-    try {
-      await api.delete(`/citas/${delCitaId}`);
-      setDelCitaId(null);
-      qc.invalidateQueries(['cliente', id]);
+      qc.invalidateQueries(['citas-cal']);
     } catch (e2) { alert(handleError(e2)); }
   };
 
-  // Producto
+  // Producto de interés
   const abrirProducto = () => {
-    setProductoForm({
-      productoInteres: c.productoInteres || '',
-      detalleInteres: c.detalleInteres || '',
-    });
+    setProductoForm({ productoInteres: c.productoInteres || '', detalleInteres: c.detalleInteres || '' });
     setProductoOpen(true);
   };
 
@@ -181,98 +226,24 @@ export default function ClienteDetalle() {
     e.preventDefault();
     setProductoSaving(true);
     try {
-      const payload = {
+      await api.patch(`/clientes/${id}`, {
         productoInteres: productoForm.productoInteres || null,
         detalleInteres: productoForm.detalleInteres || null,
-      };
-      await api.patch(`/clientes/${id}`, payload);
+      });
       setProductoOpen(false);
       qc.invalidateQueries(['cliente', id]);
     } catch (e2) { alert(handleError(e2)); } finally { setProductoSaving(false); }
   };
 
-  // Crear póliza desde la ficha del cliente
-  const abrirPoliza = () => {
-    setPolizaErr('');
-    setPolizaEditId(null);
-    // Si el cliente tiene producto de interés, arranca con ese ramo preseleccionado
-    setPolizaForm({ ...POLIZA_FORM_INICIAL, ramo: c.productoInteres || 'VIDA' });
-    setPolizaOpen(true);
-  };
-
-  // Editar una póliza existente con el mismo formulario completo
-  const abrirEditarPoliza = (v) => {
-    setPolizaErr('');
-    setPolizaEditId(v.id);
-    setPolizaForm({
-      ramo: v.ramo,
-      productoCatalogoId: v.productoCatalogoId || '',
-      producto: v.producto || '',
-      primaAnual: v.primaAnual ?? '',
-      comisionPct: v.comisionPct ?? 10,
-      formaPago: v.formaPago || 'ANUAL',
-      estado: v.estado,
-      fechaInicioVigencia: v.fechaInicioVigencia ? isoLocalDateInput(v.fechaInicioVigencia) : '',
-      fechaProximoPago: v.fechaProximoPago ? isoLocalDateInput(v.fechaProximoPago) : '',
-      notas: v.notas || '',
-    });
-    setPolizaOpen(true);
-  };
-
-  const onPolizaRamo = (ramo) => {
-    setPolizaForm({ ...polizaForm, ramo, productoCatalogoId: '', producto: '', comisionPct: 10 });
-  };
-
-  // Al elegir producto del catálogo se llena el nombre y la comisión oficial
-  const onPolizaProducto = (prodId) => {
-    const p = catalogo?.find((x) => x.id === prodId);
-    setPolizaForm({
-      ...polizaForm,
-      productoCatalogoId: prodId,
-      producto: p?.nombre || polizaForm.producto,
-      comisionPct: p?.comisionPct ?? polizaForm.comisionPct,
-    });
-  };
-
-  const guardarPoliza = async (e) => {
-    e.preventDefault();
-    setPolizaSaving(true); setPolizaErr('');
+  // Pólizas: cancelar (soft) y eliminar definitivo, siempre desde menú + confirmación
+  const confirmarCancelarPoliza = async () => {
+    setCancelandoPoliza(true);
     try {
-      const prima = +polizaForm.primaAnual;
-      const pagosAnio = PAGOS_POR_ANIO[polizaForm.formaPago] || 1;
-      const payload = {
-        ramo: polizaForm.ramo,
-        producto: polizaForm.producto,
-        primaAnual: prima,
-        comisionPct: polizaForm.comisionPct !== '' ? +polizaForm.comisionPct : undefined,
-        formaPago: polizaForm.formaPago,
-        estado: polizaForm.estado,
-        montoPago: polizaForm.formaPago !== 'UNICO' ? +(prima / pagosAnio).toFixed(2) : null,
-      };
-      if (polizaEditId) {
-        // Editar: los campos opcionales se mandan explícitos para poder limpiarlos
-        await api.patch(`/ventas/${polizaEditId}`, {
-          ...payload,
-          productoCatalogoId: polizaForm.productoCatalogoId || null,
-          fechaInicioVigencia: polizaForm.fechaInicioVigencia || null,
-          fechaProximoPago: polizaForm.fechaProximoPago || null,
-          notas: polizaForm.notas || null,
-        });
-      } else {
-        await api.post('/ventas', {
-          ...payload,
-          clienteId: id,
-          productoCatalogoId: polizaForm.productoCatalogoId || undefined,
-          montoPago: payload.montoPago ?? undefined,
-          fechaInicioVigencia: polizaForm.fechaInicioVigencia || undefined,
-          fechaProximoPago: polizaForm.fechaProximoPago || undefined,
-          notas: polizaForm.notas || undefined,
-        });
-      }
-      setPolizaOpen(false);
+      await api.patch(`/ventas/${cancelarPoliza.id}`, { estado: 'CANCELADA' });
+      setCancelarPoliza(null);
       qc.invalidateQueries(['cliente', id]);
       qc.invalidateQueries(['ventas']);
-    } catch (e2) { setPolizaErr(handleError(e2)); } finally { setPolizaSaving(false); }
+    } catch (e2) { alert(handleError(e2)); } finally { setCancelandoPoliza(false); }
   };
 
   const eliminarPoliza = async () => {
@@ -280,16 +251,15 @@ export default function ClienteDetalle() {
     try {
       await api.delete(`/ventas/${delPolizaId}`);
       setDelPolizaId(null);
-      setPolizaOpen(false);
       qc.invalidateQueries(['cliente', id]);
       qc.invalidateQueries(['ventas']);
     } catch (e2) { alert(handleError(e2)); } finally { setDelPolizaBusy(false); }
   };
 
-  // Archivos del cliente
+  // Archivos
   const subirArchivo = async (e) => {
     const archivo = e.target.files?.[0];
-    e.target.value = ''; // permite volver a elegir el mismo archivo
+    e.target.value = '';
     if (!archivo) return;
     setDocSubiendo(true); setDocErr('');
     try {
@@ -323,270 +293,336 @@ export default function ClienteDetalle() {
     } catch (e2) { alert(handleError(e2)); }
   };
 
-  const confirmarEliminarCliente = async () => {
-    setDeleting(true);
-    try {
-      await api.delete(`/clientes/${id}`);
-      qc.invalidateQueries(['clientes']);
-      navigate('/clientes');
-    } catch (e) {
-      alert(handleError(e));
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  // Separar notas y recordatorios
   const notas = c.notasItems?.filter((n) => n.tipo === 'NOTA') || [];
   const recordatorios = c.notasItems?.filter((n) => n.tipo === 'RECORDATORIO') || [];
+  const fichaAjena = esAdmin() && c.asesorId !== user?.id;
+  const proxima = siguienteEtapa(c.estado);
 
-  // Cálculo en vivo de la comisión de la póliza que se está capturando
-  const polizaPrima = +polizaForm.primaAnual || 0;
-  const polizaPct = +polizaForm.comisionPct || 0;
-  const polizaComision = polizaPrima * polizaPct / 100;
-  const polizaPagosAnio = PAGOS_POR_ANIO[polizaForm.formaPago] || 1;
-  const polizaMontoPago = polizaPrima / polizaPagosAnio;
-  const productoSel = catalogo?.find((p) => p.id === polizaForm.productoCatalogoId);
+  const toggleSeguimiento = async () => {
+    try {
+      await api.patch(`/clientes/${id}`, { necesitaSeguimiento: !c.necesitaSeguimiento });
+      qc.invalidateQueries(['cliente', id]);
+      qc.invalidateQueries(['clientes']);
+    } catch (e2) { alert(handleError(e2)); }
+  };
 
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <Link to="/clientes" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">← Volver a clientes</Link>
-          <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 mt-1">{c.nombre} {c.apellidoP} {c.apellidoM || ''}</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Asesor: {c.asesor?.nombre} {c.asesor?.apellidoP} · Creado {fechaCorta(c.creadoEn)}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            className="input w-auto"
-            value={c.estado}
-            onChange={(e) => cambiarEstado(e.target.value)}
-            title="Cambiar estado del cliente"
-          >
-            {ESTADOS_CLIENTE.map((e) => <option key={e} value={e}>{ESTADOS_CLIENTE_LABEL[e]}</option>)}
-          </select>
-          <button onClick={() => { startEdit(); setEditing(true); }} className="btn-secondary">Editar</button>
-          <button onClick={() => setToDeleteClient(true)} className="btn-primary bg-red-600 hover:bg-red-700">Eliminar</button>
-        </div>
-      </div>
-
-      <div className="grid md:grid-cols-3 gap-4">
-        {/* Contacto */}
-        <Card title="Contacto">
-          <dl className="text-sm space-y-1">
-            <div><dt className="text-slate-400 dark:text-slate-500">Teléfono</dt><dd className="text-slate-700 dark:text-slate-300">{c.telefono || '—'}</dd></div>
-            <div><dt className="text-slate-400 dark:text-slate-500">Email</dt><dd className="text-slate-700 dark:text-slate-300">{c.email || '—'}</dd></div>
-            <div><dt className="text-slate-400 dark:text-slate-500">RFC</dt><dd className="text-slate-700 dark:text-slate-300">{c.rfc || '—'}</dd></div>
-            <div><dt className="text-slate-400 dark:text-slate-500">Dirección</dt><dd className="text-slate-700 dark:text-slate-300">{c.direccion || '—'}</dd></div>
-            <div><dt className="text-slate-400 dark:text-slate-500">Fuente</dt><dd className="text-slate-700 dark:text-slate-300">{c.fuente || '—'}</dd></div>
-          </dl>
-        </Card>
-
-        {/* Notas libres */}
-        <Card title="Notas generales" actions={<button className="btn-secondary text-xs py-1 px-2" onClick={() => abrirNota('NOTA')}>+ Nota</button>}>
-          {c.notas && <p className="text-sm text-slate-600 dark:text-slate-300 whitespace-pre-wrap border-l-2 border-slate-200 dark:border-slate-700 pl-3 italic">{c.notas}</p>}
-          {notas.length ? (
-            <ul className="mt-3 space-y-2 text-sm">
-              {notas.map((n) => (
-                <li key={n.id} className="group flex items-start justify-between gap-2 border-b border-slate-100 dark:border-slate-700 pb-2">
-                  <p className="text-slate-600 dark:text-slate-300">{n.texto}</p>
-                  <button
-                    onClick={() => setDelNotaId(n.id)}
-                    className="opacity-0 group-hover:opacity-100 text-red-500 text-xs transition-opacity shrink-0"
-                    title="Eliminar nota"
-                  >Eliminar</button>
-                </li>
-              ))}
-            </ul>
-          ) : !c.notas && <EmptyState message="Sin notas" />}
-        </Card>
-
-        {/* Recordatorios */}
-        <Card title="Recordatorios" actions={<button className="btn-secondary text-xs py-1 px-2" onClick={() => abrirNota('RECORDATORIO')}>+ Recordatorio</button>}>
-          {recordatorios.length ? (
-            <ul className="space-y-2 text-sm">
-              {recordatorios.map((n) => (
-                <li key={n.id} className="group flex items-start justify-between gap-2 border-b border-slate-100 dark:border-slate-700 pb-2">
-                  <div>
-                    <p className="text-slate-700 dark:text-slate-300">{n.texto}</p>
-                    {n.fechaAviso && (
-                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">Avisar: {fechaHora(n.fechaAviso)}</p>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => setDelNotaId(n.id)}
-                    className="opacity-0 group-hover:opacity-100 text-red-500 text-xs transition-opacity shrink-0"
-                    title="Eliminar recordatorio"
-                  >Eliminar</button>
-                </li>
-              ))}
-            </ul>
-          ) : <EmptyState message="Sin recordatorios" />}
-        </Card>
-      </div>
-
-      {/* Pólizas del cliente */}
-      <Card
-        title={`Póliza${(c.ventas?.length || 0) === 1 ? '' : 's'}${c.ventas?.length ? ` (${c.ventas.length})` : ''}`}
-        className="md:col-span-3"
-        actions={<button onClick={abrirPoliza} className="btn-primary text-xs py-1 px-2">+ Crear póliza</button>}
-      >
-        {/* Producto de interés (cuando aún no hay pólizas) */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Producto de interés</h4>
-            {c.productoInteres && (
-              <button onClick={() => abrirProducto()} className="btn-secondary text-xs py-1 px-2">Editar</button>
-            )}
-          </div>
-          {c.productoInteres ? (
-            <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-3 bg-slate-50/50 dark:bg-slate-800/40">
-              <p className="text-base font-bold text-slate-800 dark:text-slate-100">{RAMOS_LABEL[c.productoInteres]}</p>
-              {c.detalleInteres && <p className="text-sm text-slate-600 dark:text-slate-300 mt-0.5">{c.detalleInteres}</p>}
+      <div>
+        <Link to="/clientes" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">← Volver a clientes</Link>
+        <div className="flex flex-wrap items-start justify-between gap-3 mt-2">
+          <div className="flex items-center gap-4">
+            <div className="avatar !h-14 !w-14 text-xl">{iniciales(c)}</div>
+            <div>
+              <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">{c.nombre} {c.apellidoP} {c.apellidoM || ''}</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                Asesor: <span className="font-medium text-slate-700 dark:text-slate-300">{c.asesor?.nombre} {c.asesor?.apellidoP}</span>
+                {' · '}Creado {fechaCorta(c.creadoEn)}
+                {c.fuente && <> · Fuente {c.fuente}</>}
+              </p>
             </div>
-          ) : (
-            <p className="text-sm text-slate-400 dark:text-slate-500">Sin producto de interés registrado</p>
-          )}
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1 pl-0.5">Etapa del pipeline</label>
+              <select
+                className="input w-auto font-semibold"
+                value={c.estado}
+                onChange={(e) => cambiarEstado(e.target.value)}
+              >
+                {ETAPAS.map((e) => <option key={e.value} value={e.value}>{e.label}</option>)}
+                {infoEtapa(c.estado).orden === -1 && <option value={c.estado}>{infoEtapa(c.estado).label}</option>}
+              </select>
+            </div>
+            {proxima && (
+              <button onClick={() => cambiarEstado(proxima.value)} className="btn-primary" title={`Pasar a ${proxima.label}`}>
+                Avanzar etapa →
+              </button>
+            )}
+            <button onClick={() => { startEdit(); setEditing(true); }} className="btn-secondary">Editar</button>
+            <MenuAcciones
+              label="Más acciones del cliente"
+              items={c.archivadoEn ? [
+                { label: 'Restaurar cliente', onClick: restaurarCliente },
+              ] : [
+                { label: 'Editar datos del cliente', onClick: () => { startEdit(); setEditing(true); } },
+                { label: c.necesitaSeguimiento ? 'Quitar marca de seguimiento' : 'Marcar «necesita seguimiento»', onClick: toggleSeguimiento },
+                'sep',
+                { label: 'Archivar cliente', danger: true, onClick: () => setArchivarOpen(true) },
+              ]}
+            />
+          </div>
+        </div>
+      </div>
+
+      {fichaAjena && (
+        <div className="scope-banner">
+          <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>
+          <span>Estás viendo la ficha de un cliente de <strong>{c.asesor?.nombre} {c.asesor?.apellidoP}</strong> como promotor.</span>
+        </div>
+      )}
+
+      {c.archivadoEn && (
+        <div className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm border border-slate-300 bg-slate-100 text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+          <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" /></svg>
+          <span>Cliente <strong>archivado</strong> el {fechaCorta(c.archivadoEn)}. Sus pólizas, citas y referidos se conservan.</span>
+          <button onClick={restaurarCliente} className="ml-auto font-semibold text-brand-600 dark:text-brand-400 hover:underline shrink-0">Restaurar</button>
+        </div>
+      )}
+
+      {c.necesitaSeguimiento && (
+        <div className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-700/50 dark:bg-amber-900/25 dark:text-amber-300 font-medium">
+          <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" /></svg>
+          <span>Este cliente está marcado como <strong>necesita seguimiento</strong> (independiente de su etapa).</span>
+          <button onClick={toggleSeguimiento} className="ml-auto font-semibold hover:underline shrink-0">Quitar marca</button>
+        </div>
+      )}
+
+      <PipelineStepper estado={c.estado} />
+
+      <div className="grid lg:grid-cols-[320px_1fr] gap-4 items-start">
+        {/* Riel izquierdo: contacto + resumen + referidos */}
+        <div className="space-y-4">
+          <Card title="Contacto" actions={<button className="btn-secondary text-xs py-1 px-2" onClick={() => { startEdit(); setEditing(true); }}>Editar</button>}>
+            <div className="space-y-3">
+              <div><p className="kv-k">Teléfono</p><p className="kv-v tabular-nums">{c.telefono || <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
+              <div><p className="kv-k">Email</p><p className="kv-v break-all">{c.email || <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
+              <div><p className="kv-k">RFC</p><p className="kv-v">{c.rfc || <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
+              <div><p className="kv-k">Dirección</p><p className="kv-v">{c.direccion || <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
+              <div><p className="kv-k">Fuente</p><p className="kv-v">{c.fuente || <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-700">
+                <div className="flex items-center justify-between">
+                  <p className="kv-k !mb-0">Producto de interés</p>
+                  <button onClick={abrirProducto} className="text-xs font-medium text-brand-600 dark:text-brand-400 hover:underline">{c.productoInteres ? 'Editar' : '+ Registrar'}</button>
+                </div>
+                {c.productoInteres ? (
+                  <>
+                    <p className="kv-v mt-1">{RAMOS_LABEL[c.productoInteres]}</p>
+                    {c.detalleInteres && <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{c.detalleInteres}</p>}
+                  </>
+                ) : <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">Sin registrar</p>}
+              </div>
+            </div>
+          </Card>
+
+          <Card title="Resumen">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-lg bg-slate-50 dark:bg-slate-700/40 px-3 py-2.5">
+                <p className="text-lg font-bold tabular-nums text-slate-800 dark:text-slate-100">{resumen.polizas}</p>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500">Póliza{resumen.polizas === 1 ? '' : 's'}</p>
+              </div>
+              <div className="rounded-lg bg-slate-50 dark:bg-slate-700/40 px-3 py-2.5">
+                <p className="text-lg font-bold tabular-nums text-slate-800 dark:text-slate-100">{mxn(resumen.primaTotal)}</p>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500">Prima anual</p>
+              </div>
+              <div className="rounded-lg bg-slate-50 dark:bg-slate-700/40 px-3 py-2.5">
+                <p className="text-lg font-bold money-earned">{mxn(resumen.comisionGanada)}</p>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500">Comisión ganada</p>
+              </div>
+              <div className="rounded-lg bg-slate-50 dark:bg-slate-700/40 px-3 py-2.5">
+                <p className="text-lg font-bold money-pending">{mxn(resumen.comisionPipeline)}</p>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500">En pipeline</p>
+              </div>
+            </div>
+          </Card>
+
+          <ReferidosCard clienteId={c.id} referidoPor={c.referidoPor} />
         </div>
 
-        {/* Lista de Pólizas (Ventas) con ramo + producto + estado activo/inactivo */}
-        {c.ventas?.length ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs uppercase text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
-                  <th className="py-2 pr-4">Ramo</th>
-                  <th className="py-2 pr-4">Producto</th>
-                  <th className="py-2 pr-4 text-right">Prima anual</th>
-                  <th className="py-2 pr-4 text-right">Comisión</th>
-                  <th className="py-2 pr-4">Forma de pago</th>
-                  <th className="py-2 pr-4">Póliza</th>
-                  <th className="py-2 pr-4">Estado</th>
-                  <th className="py-2 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {c.ventas.map((v) => {
-                  const activa = POLIZA_ACTIVA.has(v.estado);
-                  return (
-                    <tr key={v.id} className="border-b border-slate-50 dark:border-slate-700/50">
-                      <td className="py-2 pr-4">
-                        <span className="font-medium text-slate-700 dark:text-slate-200">{RAMOS_LABEL[v.ramo] || v.ramo}</span>
-                      </td>
-                      <td className="py-2 pr-4 text-slate-600 dark:text-slate-300">
-                        {v.productoCatalogo?.nombre || v.producto || '—'}
-                      </td>
-                      <td className="py-2 pr-4 text-right text-slate-700 dark:text-slate-300">{mxn(v.primaAnual)}</td>
-                      <td className="py-2 pr-4 text-right">
-                        <p className="text-emerald-600 dark:text-emerald-400 font-medium">{mxn(v.comisionMonto)}</p>
-                        <p className="text-xs text-slate-400 dark:text-slate-500">{v.comisionPct}% de la prima</p>
-                      </td>
-                      <td className="py-2 pr-4 text-slate-600 dark:text-slate-300">
-                        {v.formaPago ? ({ MENSUAL: 'Mensual', TRIMESTRAL: 'Trimestral', SEMESTRAL: 'Semestral', ANUAL: 'Anual', UNICO: 'Único' }[v.formaPago] || v.formaPago) : '—'}
-                      </td>
-                      <td className="py-2 pr-4">
-                        <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${activa ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'}`}>
-                          <span className={`w-2 h-2 rounded-full ${activa ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
-                          {activa ? 'Activa' : 'Inactiva'}
-                        </span>
-                      </td>
-                      <td className="py-2 pr-4"><VentaBadge estado={v.estado} /></td>
-                      <td className="py-2 text-right whitespace-nowrap">
-                        <button
-                          onClick={() => abrirEditarPoliza(v)}
-                          className="text-brand-600 dark:text-brand-400 text-xs font-medium hover:underline"
-                        >Editar</button>
-                        <button
-                          onClick={() => setDelPolizaId(v.id)}
-                          className="ml-3 text-red-500 text-xs font-medium hover:underline"
-                        >Eliminar</button>
-                      </td>
+        {/* Columna principal: pólizas, citas, notas/recordatorios, archivos */}
+        <div className="space-y-4">
+          <Card
+            title={`Pólizas${c.ventas?.length ? ` · ${c.ventas.length}` : ''}`}
+            actions={<button onClick={() => setPolizaModal({ open: true, venta: null })} className="btn-primary text-xs py-1 px-2">+ Crear póliza</button>}
+          >
+            {c.ventas?.length ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                      <th className="py-2 pr-4">Producto</th>
+                      <th className="py-2 pr-4 text-right">Prima anual</th>
+                      <th className="py-2 pr-4 text-right">Comisión</th>
+                      <th className="py-2 pr-4">Forma de pago</th>
+                      <th className="py-2 pr-4">Estado</th>
+                      <th className="py-2 text-right" />
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {c.ventas.map((v) => {
+                      const activa = POLIZA_ACTIVA.has(v.estado);
+                      const anulada = ['CANCELADA', 'RECHAZADA'].includes(v.estado);
+                      return (
+                        <tr key={v.id} className="border-b border-slate-50 dark:border-slate-700/50">
+                          <td className="py-2.5 pr-4">
+                            <p className="font-semibold text-slate-800 dark:text-slate-100">{v.productoCatalogo?.nombre || v.producto || '—'}</p>
+                            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{RAMOS_LABEL[v.ramo] || v.ramo}</p>
+                          </td>
+                          <td className="py-2.5 pr-4 text-right tabular-nums text-slate-700 dark:text-slate-300">{mxn(v.primaAnual)}</td>
+                          <td className="py-2.5 pr-4 text-right">
+                            {/* Verde SOLO si la comisión está ganada (PAGADA/APROBADA) */}
+                            <p className={esVentaGanada(v) ? 'money-earned' : anulada ? 'font-semibold tabular-nums text-slate-400 dark:text-slate-500 line-through' : 'money-pending'}>{mxn(v.comisionMonto)}</p>
+                            <p className="text-xs text-slate-400 dark:text-slate-500">{v.comisionPct}% de la prima</p>
+                          </td>
+                          <td className="py-2.5 pr-4">{v.formaPago ? <span className="tag">{FORMAS_PAGO[v.formaPago] || v.formaPago}</span> : '—'}</td>
+                          <td className="py-2.5 pr-4">
+                            <div className="flex flex-col items-start gap-0.5">
+                              <VentaBadge estado={v.estado} />
+                              <span className="text-[11px] text-slate-400 dark:text-slate-500 pl-0.5">Póliza {activa ? 'activa' : 'inactiva'}</span>
+                            </div>
+                          </td>
+                          <td className="py-2.5 text-right">
+                            <MenuAcciones
+                              small
+                              label={`Acciones de la póliza ${v.producto || ''}`}
+                              items={[
+                                { label: 'Editar póliza', onClick: () => setPolizaModal({ open: true, venta: v }) },
+                                'sep',
+                                v.estado !== 'CANCELADA' && { label: 'Cancelar póliza', danger: true, onClick: () => setCancelarPoliza(v) },
+                                { label: 'Eliminar definitivamente', danger: true, onClick: () => setDelPolizaId(v.id) },
+                              ]}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <EmptyState message="Sin pólizas registradas · usa «+ Crear póliza» para registrar la primera" />
+            )}
+          </Card>
+
+          <Card title="Próximas citas" actions={<button onClick={abrirCita} className="btn-primary text-xs py-1 px-2">+ Agendar cita</button>}>
+            {c.citas?.length ? (
+              <ul className="space-y-2 text-sm">
+                {c.citas.slice(0, 10).map((ci) => (
+                  <li key={ci.id} className="group flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-2 last:border-0 last:pb-0">
+                    <div>
+                      <p className="font-medium text-slate-700 dark:text-slate-300">{ci.titulo}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {infoCanal(ci.tipo).label}
+                        {ci.modalidad === 'ACOMPANAMIENTO' && ' · Acompañamiento'}
+                        {ci.promotor && ` con promotor ${ci.promotor.nombre} ${ci.promotor.apellidoP}`}
+                        {' · '}
+                        {fechaHora(ci.fechaHoraInicio)}
+                        {ci.ubicacion && ` · ${ci.ubicacion}`}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <CitaBadge estado={ci.estado} />
+                      {CITA_VIVA.includes(ci.estado) && (
+                        <button
+                          onClick={() => cancelarCita(ci.id)}
+                          className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-xs transition-opacity"
+                          title="Cancelar cita (conserva el registro)"
+                        >Cancelar</button>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="text-sm text-slate-400 dark:text-slate-500 py-1">Sin citas programadas.</p>}
+          </Card>
+
+          {/* Actividad reciente: mismo ActivityTimeline del módulo de Actividad,
+              filtrado a este cliente (metadata.clienteId) */}
+          <Card title="Actividad reciente" subtitle="Eventos registrados sobre este cliente">
+            <ActivityTimeline
+              eventos={actividadCliente || []}
+              loading={actividadLoading}
+              mensajeVacio="Sin actividad registrada de este cliente."
+            />
+          </Card>
+
+          {/* Notas y recordatorios: compactas, abajo — no dominan la ficha cuando están vacías */}
+          <div className="grid md:grid-cols-2 gap-4">
+            <Card title="Notas generales" actions={<button className="btn-secondary text-xs py-1 px-2" onClick={() => abrirNota('NOTA')}>+ Nota</button>}>
+              {c.notas && <p className="text-sm text-slate-600 dark:text-slate-300 whitespace-pre-wrap border-l-2 border-slate-200 dark:border-slate-700 pl-3 italic">{c.notas}</p>}
+              {notas.length ? (
+                <ul className={`space-y-2 text-sm ${c.notas ? 'mt-3' : ''}`}>
+                  {notas.map((n) => (
+                    <li key={n.id} className="group flex items-start justify-between gap-2 border-b border-slate-100 dark:border-slate-700 pb-2 last:border-0 last:pb-0">
+                      <p className="text-slate-600 dark:text-slate-300">{n.texto}</p>
+                      <button
+                        onClick={() => setDelNotaId(n.id)}
+                        className="opacity-0 group-hover:opacity-100 text-red-500 text-xs transition-opacity shrink-0"
+                        title="Eliminar nota"
+                      >Eliminar</button>
+                    </li>
+                  ))}
+                </ul>
+              ) : !c.notas && <p className="text-sm text-slate-400 dark:text-slate-500 py-1">Sin notas todavía.</p>}
+            </Card>
+
+            <Card title="Recordatorios" actions={<button className="btn-secondary text-xs py-1 px-2" onClick={() => abrirNota('RECORDATORIO')}>+ Recordatorio</button>}>
+              {recordatorios.length ? (
+                <ul className="space-y-2 text-sm">
+                  {recordatorios.map((n) => (
+                    <li key={n.id} className="group flex items-start justify-between gap-2 border-b border-slate-100 dark:border-slate-700 pb-2 last:border-0 last:pb-0">
+                      <div>
+                        <p className="text-slate-700 dark:text-slate-300">{n.texto}</p>
+                        {n.fechaAviso && (
+                          <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">Avisar: {fechaHora(n.fechaAviso)}</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setDelNotaId(n.id)}
+                        className="opacity-0 group-hover:opacity-100 text-red-500 text-xs transition-opacity shrink-0"
+                        title="Eliminar recordatorio"
+                      >Eliminar</button>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="text-sm text-slate-400 dark:text-slate-500 py-1">Sin recordatorios.</p>}
+            </Card>
           </div>
-        ) : (
-          <EmptyState message="Sin pólizas registradas · usa el botón «+ Crear póliza» para registrar la primera" />
-        )}
-      </Card>
 
-      {/* Próximas citas */}
-      <Card
-        title="Próximas citas"
-        actions={<button onClick={abrirCita} className="btn-primary text-xs py-1 px-2">+ Agendar cita</button>}
-      >
-        {c.citas?.length ? (
-          <ul className="space-y-2 text-sm">
-            {c.citas.slice(0, 10).map((ci) => (
-              <li key={ci.id} className="group flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-2">
-                <div>
-                  <p className="font-medium text-slate-700 dark:text-slate-300">{ci.titulo}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {TIPO_CITA[ci.tipo] || ci.tipo}
-                    {ci.modalidad === 'ACOMPANAMIENTO' && ' · Acompañamiento'}
-                    {ci.promotor && ` con promotor ${ci.promotor.nombre} ${ci.promotor.apellidoP}`}
-                    {' · '}
-                    {fechaHora(ci.fechaHoraInicio)}
-                    {ci.ubicacion && ` · ${ci.ubicacion}`}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CitaBadge estado={ci.estado} />
-                  <button
-                    onClick={() => setDelCitaId(ci.id)}
-                    className="opacity-0 group-hover:opacity-100 text-red-500 text-xs transition-opacity"
-                    title="Eliminar cita"
-                  >Eliminar</button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        ) : <EmptyState message="Sin citas programadas" />}
-      </Card>
-
-      {/* Archivos del cliente */}
-      <Card
-        title="Archivos del cliente"
-        subtitle="Identificaciones, solicitudes, pólizas escaneadas y cualquier documento del expediente"
-        actions={
-          <button
-            onClick={() => archivoInputRef.current?.click()}
-            disabled={docSubiendo}
-            className="btn-primary text-xs py-1 px-2"
-          >{docSubiendo ? 'Subiendo…' : '+ Subir archivo'}</button>
-        }
-      >
-        <input ref={archivoInputRef} type="file" className="hidden" onChange={subirArchivo} />
-        {docErr && <p className="text-sm text-red-600 mb-3">{docErr}</p>}
-        {c.documentos?.length ? (
-          <ul className="divide-y divide-slate-100 dark:divide-slate-700 text-sm">
-            {c.documentos.map((d) => (
-              <li key={d.id} className="group flex items-center gap-3 py-2.5">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-700 text-base">
-                  {d.mime?.startsWith('image/') ? '🖼️' : d.mime === 'application/pdf' ? '📄' : '📎'}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <button
-                    onClick={() => descargarArchivo(d)}
-                    className="block max-w-full truncate font-medium text-slate-700 dark:text-slate-200 hover:text-brand-600 dark:hover:text-brand-400 hover:underline text-left"
-                    title="Descargar archivo"
-                  >{d.nombre}</button>
-                  <p className="text-xs text-slate-400 dark:text-slate-500">
-                    {tamanoLegible(d.tamano)} · subido el {fechaCorta(d.creadoEn)}{d.asesor ? ` por ${d.asesor.nombre} ${d.asesor.apellidoP}` : ''}
-                  </p>
-                </div>
-                <button onClick={() => descargarArchivo(d)} className="text-brand-600 dark:text-brand-400 text-xs font-medium hover:underline shrink-0">Descargar</button>
-                <button onClick={() => setDelDocId(d.id)} className="text-red-500 text-xs font-medium hover:underline shrink-0">Eliminar</button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <EmptyState message="Sin archivos · usa «+ Subir archivo» para agregar documentos al expediente" />
-        )}
-      </Card>
+          <Card
+            title="Archivos del cliente"
+            subtitle="Identificaciones, solicitudes, pólizas escaneadas y cualquier documento del expediente"
+            actions={
+              <button
+                onClick={() => archivoInputRef.current?.click()}
+                disabled={docSubiendo}
+                className="btn-primary text-xs py-1 px-2"
+              >{docSubiendo ? 'Subiendo…' : '+ Subir archivo'}</button>
+            }
+          >
+            <input ref={archivoInputRef} type="file" className="hidden" onChange={subirArchivo} />
+            {docErr && <p className="text-sm text-red-600 mb-3">{docErr}</p>}
+            {c.documentos?.length ? (
+              <ul className="divide-y divide-slate-100 dark:divide-slate-700 text-sm">
+                {c.documentos.map((d) => (
+                  <li key={d.id} className="group flex items-center gap-3 py-2.5">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-700 text-base">
+                      {d.mime?.startsWith('image/') ? '🖼️' : d.mime === 'application/pdf' ? '📄' : '📎'}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <button
+                        onClick={() => descargarArchivo(d)}
+                        className="block max-w-full truncate font-medium text-slate-700 dark:text-slate-200 hover:text-brand-600 dark:hover:text-brand-400 hover:underline text-left"
+                        title="Descargar archivo"
+                      >{d.nombre}</button>
+                      <p className="text-xs text-slate-400 dark:text-slate-500">
+                        {tamanoLegible(d.tamano)} · subido el {fechaCorta(d.creadoEn)}{d.asesor ? ` por ${d.asesor.nombre} ${d.asesor.apellidoP}` : ''}
+                      </p>
+                    </div>
+                    <button onClick={() => descargarArchivo(d)} className="text-brand-600 dark:text-brand-400 text-xs font-medium hover:underline shrink-0">Descargar</button>
+                    <button onClick={() => setDelDocId(d.id)} className="text-red-500 text-xs font-medium hover:underline shrink-0">Eliminar</button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="rounded-lg border border-dashed border-slate-300 dark:border-slate-600 px-4 py-6 text-center text-sm text-slate-400 dark:text-slate-500">
+                Sin archivos · usa «+ Subir archivo» para agregar documentos al expediente
+              </div>
+            )}
+          </Card>
+        </div>
+      </div>
 
       {/* Modal editar cliente */}
       <Modal open={editing} onClose={() => setEditing(false)} title="Editar cliente">
@@ -598,7 +634,7 @@ export default function ClienteDetalle() {
               <Field label="Apellido materno"><input className="input" value={form.apellidoM} onChange={(e) => setForm({ ...form, apellidoM: e.target.value })} /></Field>
               <Field label="Teléfono"><input className="input" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} /></Field>
               <Field label="Email"><input className="input" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
-              <Field label="Estado"><select className="input" value={form.estado} onChange={(e) => setForm({ ...form, estado: e.target.value })}>{ESTADOS_CLIENTE.map((e) => <option key={e} value={e}>{ESTADOS_CLIENTE_LABEL[e]}</option>)}</select></Field>
+              <Field label="Etapa del pipeline"><select className="input" value={form.estado} onChange={(e) => setForm({ ...form, estado: e.target.value })}>{ETAPAS.map((e) => <option key={e.value} value={e.value}>{e.label}</option>)}{infoEtapa(form.estado).orden === -1 && <option value={form.estado}>{infoEtapa(form.estado).label}</option>}</select></Field>
               <Field label="RFC"><input className="input" value={form.rfc} onChange={(e) => setForm({ ...form, rfc: e.target.value })} /></Field>
               <Field label="Fuente"><input className="input" value={form.fuente} onChange={(e) => setForm({ ...form, fuente: e.target.value })} /></Field>
             </div>
@@ -647,31 +683,18 @@ export default function ClienteDetalle() {
         </form>
       </Modal>
 
-      {/* Modal cita */}
-      <Modal open={citaOpen} onClose={() => setCitaOpen(false)} title="Agendar cita">
-        <form onSubmit={guardarCita} className="space-y-3">
-          <Field label="Título"><input className="input" required value={citaForm.titulo} onChange={(e) => setCitaForm({ ...citaForm, titulo: e.target.value })} /></Field>
-          <Field label="Descripción"><textarea className="input" rows={2} value={citaForm.descripcion} onChange={(e) => setCitaForm({ ...citaForm, descripcion: e.target.value })} /></Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Tipo"><select className="input" value={citaForm.tipo} onChange={(e) => setCitaForm({ ...citaForm, tipo: e.target.value })}>{Object.entries(TIPO_CITA).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
-            <Field label="Estado"><select className="input" value={citaForm.estado} onChange={(e) => setCitaForm({ ...citaForm, estado: e.target.value })}>{ESTADO_CITA.map((e) => <option key={e} value={e}>{e}</option>)}</select></Field>
-            <Field label="Inicio"><input type="datetime-local" className="input" required value={citaForm.fechaHoraInicio} onChange={(e) => setCitaForm({ ...citaForm, fechaHoraInicio: e.target.value })} /></Field>
-            <Field label="Fin (opcional)"><input type="datetime-local" className="input" value={citaForm.fechaHoraFin} onChange={(e) => setCitaForm({ ...citaForm, fechaHoraFin: e.target.value })} /></Field>
-          </div>
-          <Field label="Ubicación"><input className="input" value={citaForm.ubicacion} onChange={(e) => setCitaForm({ ...citaForm, ubicacion: e.target.value })} /></Field>
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={() => setCitaOpen(false)} className="btn-secondary">Cancelar</button>
-            <button type="submit" disabled={citaSaving} className="btn-primary">{citaSaving ? 'Agendando…' : 'Agendar'}</button>
-          </div>
-        </form>
-      </Modal>
+      {/* Agendar cita: modal compartido del módulo de Citas (cliente fijo; con
+          ficha ajena el asesorId del dueño delimita clientes y aviso de empalme) */}
+      <CitaFormModal
+        open={citaOpen}
+        onClose={() => setCitaOpen(false)}
+        clienteId={id}
+        asesorId={c.asesorId}
+        onSaved={() => qc.invalidateQueries(['cliente', id])}
+      />
 
-      {/* Modal producto interés */}
-      <Modal
-        open={productoOpen}
-        onClose={() => setProductoOpen(false)}
-        title="Producto de interés"
-      >
+      {/* Modal producto de interés */}
+      <Modal open={productoOpen} onClose={() => setProductoOpen(false)} title="Producto de interés">
         {productoForm && (
           <form onSubmit={guardarProducto} className="space-y-3">
             <Field label="Ramo de interés">
@@ -691,137 +714,62 @@ export default function ClienteDetalle() {
         )}
       </Modal>
 
-      {/* Modal crear/editar póliza */}
-      <Modal
-        open={polizaOpen}
-        onClose={() => setPolizaOpen(false)}
-        title={polizaEditId ? `Editar póliza de ${c.nombre} ${c.apellidoP}` : `Crear póliza para ${c.nombre} ${c.apellidoP}`}
-      >
-        <form onSubmit={guardarPoliza} className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Ramo*">
-              <select className="input" required value={polizaForm.ramo} onChange={(e) => onPolizaRamo(e.target.value)}>
-                {RAMOS.map((r) => <option key={r} value={r}>{RAMOS_LABEL[r] || r}</option>)}
-              </select>
-            </Field>
-            <Field label="Producto del catálogo">
-              <select className="input" value={polizaForm.productoCatalogoId} onChange={(e) => onPolizaProducto(e.target.value)}>
-                <option value="">— Personalizado —</option>
-                {productosPorRamo.map((p) => (
-                  <option key={p.id} value={p.id}>{p.nombre}{p.comisionPct != null ? ` · comisión ${p.comisionPct}%` : ''}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Nombre del producto*">
-              <input
-                className="input"
-                required
-                value={polizaForm.producto}
-                onChange={(e) => setPolizaForm({ ...polizaForm, producto: e.target.value })}
-                placeholder={productosPorRamo.length ? 'Se llena al elegir del catálogo' : 'Ej. Póliza personalizada'}
-              />
-            </Field>
-            <Field label="Prima anual (MXN)*">
-              <input type="number" step="0.01" min="0" className="input" required value={polizaForm.primaAnual} onChange={(e) => setPolizaForm({ ...polizaForm, primaAnual: e.target.value })} />
-            </Field>
-            <Field label="Forma de pago">
-              <select className="input" value={polizaForm.formaPago} onChange={(e) => setPolizaForm({ ...polizaForm, formaPago: e.target.value })}>
-                {FORMAS_PAGO_LIST.map((f) => <option key={f} value={f}>{FORMAS_PAGO[f]}</option>)}
-              </select>
-            </Field>
-            <Field label="Comisión (%)">
-              <input type="number" step="0.1" min="0" className="input" value={polizaForm.comisionPct} onChange={(e) => setPolizaForm({ ...polizaForm, comisionPct: e.target.value })} placeholder="Auto del catálogo" />
-            </Field>
-            <Field label="Estado">
-              <select className="input" value={polizaForm.estado} onChange={(e) => setPolizaForm({ ...polizaForm, estado: e.target.value })}>
-                {ESTADOS_VENTA.map((es) => <option key={es} value={es}>{ESTADOS_VENTA_LABEL[es]}</option>)}
-              </select>
-            </Field>
-            <Field label="Inicio de vigencia">
-              <input type="date" className="input" value={polizaForm.fechaInicioVigencia} onChange={(e) => setPolizaForm({ ...polizaForm, fechaInicioVigencia: e.target.value })} />
-            </Field>
-            <Field label="Próximo pago">
-              <input type="date" className="input" value={polizaForm.fechaProximoPago} onChange={(e) => setPolizaForm({ ...polizaForm, fechaProximoPago: e.target.value })} />
-            </Field>
-          </div>
+      {/* Crear/editar póliza: modal compartido del módulo de Pólizas */}
+      <PolizaFormModal
+        open={polizaModal.open}
+        onClose={() => setPolizaModal({ open: false, venta: null })}
+        venta={polizaModal.venta}
+        clienteId={c.id}
+        asesorId={fichaAjena ? c.asesorId : null}
+        onSaved={() => qc.invalidateQueries(['cliente', id])}
+      />
 
-          {productoSel?.descripcion && (
-            <p className="text-xs text-slate-500 dark:text-slate-400 border-l-2 border-slate-200 dark:border-slate-600 pl-2">{productoSel.descripcion}</p>
-          )}
-
-          {/* Resumen en vivo: lo que ganará el asesor con esta póliza */}
-          {polizaPrima > 0 && (
-            <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/25 px-4 py-3 space-y-1.5 text-sm">
-              <div className="flex items-start justify-between gap-3">
-                <span className="text-slate-600 dark:text-slate-300">Tu comisión ({polizaPct}% de la prima anual)</span>
-                <span className="text-right shrink-0">
-                  {polizaPagosAnio > 1 ? (
-                    <>
-                      <span className="block text-base font-bold text-emerald-700 dark:text-emerald-400">
-                        {mxn(polizaComision / polizaPagosAnio)} {PERIODO_LABEL[polizaForm.formaPago]}
-                      </span>
-                      <span className="block text-xs font-medium text-emerald-700/80 dark:text-emerald-400/80">
-                        {mxn(polizaComision)} al año
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-base font-bold text-emerald-700 dark:text-emerald-400">{mxn(polizaComision)} al año</span>
-                  )}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-slate-600 dark:text-slate-300">
-                <span>Cobro al cliente ({FORMAS_PAGO[polizaForm.formaPago].toLowerCase()})</span>
-                <span className="font-medium">
-                  {mxn(polizaMontoPago)}{polizaPagosAnio > 1 ? ` × ${polizaPagosAnio} pagos al año` : ''}
-                </span>
-              </div>
-              {polizaForm.productoCatalogoId && productoSel?.comisionPct != null && (
-                <p className="text-xs text-emerald-700/80 dark:text-emerald-400/80">
-                  % según el esquema de comisiones registrado para este producto{productoSel.comisionBonoPct ? ` · bono adicional posible: ${productoSel.comisionBonoPct}%` : ''}
-                </p>
-              )}
-            </div>
-          )}
-
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Con forma de pago recurrente y fecha de <strong>próximo pago</strong>, el sistema genera recordatorios push automáticos de cada cobro.
-          </p>
-          <Field label="Notas">
-            <textarea className="input" rows={2} value={polizaForm.notas} onChange={(e) => setPolizaForm({ ...polizaForm, notas: e.target.value })} />
-          </Field>
-          {polizaErr && <p className="text-sm text-red-600">{polizaErr}</p>}
-          <div className="flex items-center gap-2 pt-2">
-            {polizaEditId && (
-              <button
-                type="button"
-                onClick={() => setDelPolizaId(polizaEditId)}
-                className="text-red-500 text-sm font-medium hover:underline"
-              >Eliminar póliza</button>
-            )}
-            <div className="ml-auto flex gap-2">
-              <button type="button" onClick={() => setPolizaOpen(false)} className="btn-secondary">Cancelar</button>
-              <button type="submit" disabled={polizaSaving} className="btn-primary">{polizaSaving ? 'Guardando…' : 'Guardar'}</button>
-            </div>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Referidos */}
-      <ReferidosBlock clienteId={c.id} referidoPor={c.referidoPor} referidos={c.referidos} />
-
-      {/* Confirmación eliminar cliente */}
-      <Modal open={toDeleteClient} onClose={() => setToDeleteClient(false)} title="Eliminar cliente">
+      {/* Confirmación archivar cliente (borrado lógico) */}
+      <Modal open={archivarOpen} onClose={() => setArchivarOpen(false)} title="Archivar cliente">
         <div className="space-y-4">
           <p className="text-sm text-slate-700 dark:text-slate-300">
-            ¿Seguro que deseas eliminar a <strong>{c.nombre} {c.apellidoP}</strong>?
-            Esta acción también borrará sus citas, notas y ventas asociadas y no se puede deshacer.
+            ¿Archivar a <strong>{c.nombre} {c.apellidoP}</strong>? El cliente dejará de aparecer
+            en tus listas, pero <strong>sus pólizas, citas, notas y referidos se conservan</strong> y
+            podrás restaurarlo cuando quieras desde «Ver archivados».
           </p>
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={() => setToDeleteClient(false)} className="btn-secondary">Cancelar</button>
-            <button type="button" onClick={confirmarEliminarCliente} disabled={deleting} className="btn-primary bg-red-600 hover:bg-red-700">
-              {deleting ? 'Eliminando…' : 'Eliminar definitivamente'}
+            <button type="button" onClick={() => setArchivarOpen(false)} className="btn-secondary">Cancelar</button>
+            <button type="button" onClick={confirmarArchivar} disabled={archivando} className="btn-danger">
+              {archivando ? 'Archivando…' : 'Archivar cliente'}
             </button>
           </div>
+        </div>
+      </Modal>
+
+      {/* Confirmación cancelar póliza (soft) */}
+      <Modal open={!!cancelarPoliza} onClose={() => setCancelarPoliza(null)} title="Cancelar póliza">
+        {cancelarPoliza && (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-700 dark:text-slate-300">
+              ¿Cancelar la póliza <strong>{cancelarPoliza.producto}</strong>? Pasará a estado
+              «Cancelada»: deja de contar en comisiones pero <strong>se conserva su historial</strong>.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setCancelarPoliza(null)} className="btn-secondary">Volver</button>
+              <button type="button" onClick={confirmarCancelarPoliza} disabled={cancelandoPoliza} className="btn-danger">
+                {cancelandoPoliza ? 'Cancelando…' : 'Cancelar póliza'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Confirmación eliminar póliza definitivamente */}
+      <Modal open={!!delPolizaId} onClose={() => setDelPolizaId(null)} title="Eliminar póliza definitivamente">
+        <p className="text-sm text-slate-700 dark:text-slate-300 mb-4">
+          ¿Eliminar esta póliza <strong>definitivamente</strong>? También se borrarán sus recordatorios
+          de pago y <strong>no se puede deshacer</strong>. Si solo quieres darla de baja, usa «Cancelar póliza».
+        </p>
+        <div className="flex justify-end gap-2">
+          <button onClick={() => setDelPolizaId(null)} className="btn-secondary">Volver</button>
+          <button onClick={eliminarPoliza} disabled={delPolizaBusy} className="btn-danger">
+            {delPolizaBusy ? 'Eliminando…' : 'Eliminar definitivamente'}
+          </button>
         </div>
       </Modal>
 
@@ -830,20 +778,7 @@ export default function ClienteDetalle() {
         <p className="text-sm text-slate-700 dark:text-slate-300 mb-4">¿Eliminar esta nota/recordatorio?</p>
         <div className="flex justify-end gap-2">
           <button onClick={() => setDelNotaId(null)} className="btn-secondary">Cancelar</button>
-          <button onClick={eliminarNota} className="btn-primary bg-red-600 hover:bg-red-700">Eliminar</button>
-        </div>
-      </Modal>
-
-      {/* Confirmación eliminar póliza */}
-      <Modal open={!!delPolizaId} onClose={() => setDelPolizaId(null)} title="Eliminar póliza">
-        <p className="text-sm text-slate-700 dark:text-slate-300 mb-4">
-          ¿Eliminar esta póliza? También se borrarán sus recordatorios de pago. Esta acción no se puede deshacer.
-        </p>
-        <div className="flex justify-end gap-2">
-          <button onClick={() => setDelPolizaId(null)} className="btn-secondary">Cancelar</button>
-          <button onClick={eliminarPoliza} disabled={delPolizaBusy} className="btn-primary bg-red-600 hover:bg-red-700">
-            {delPolizaBusy ? 'Eliminando…' : 'Eliminar'}
-          </button>
+          <button onClick={eliminarNota} className="btn-danger">Eliminar</button>
         </div>
       </Modal>
 
@@ -852,23 +787,17 @@ export default function ClienteDetalle() {
         <p className="text-sm text-slate-700 dark:text-slate-300 mb-4">¿Eliminar este archivo del expediente del cliente?</p>
         <div className="flex justify-end gap-2">
           <button onClick={() => setDelDocId(null)} className="btn-secondary">Cancelar</button>
-          <button onClick={eliminarArchivo} className="btn-primary bg-red-600 hover:bg-red-700">Eliminar</button>
+          <button onClick={eliminarArchivo} className="btn-danger">Eliminar</button>
         </div>
       </Modal>
 
-      {/* Confirmación eliminar cita */}
-      <Modal open={!!delCitaId} onClose={() => setDelCitaId(null)} title="Eliminar cita">
-        <p className="text-sm text-slate-700 dark:text-slate-300 mb-4">¿Eliminar esta cita?</p>
-        <div className="flex justify-end gap-2">
-          <button onClick={() => setDelCitaId(null)} className="btn-secondary">Cancelar</button>
-          <button onClick={eliminarCita} className="btn-primary bg-red-600 hover:bg-red-700">Eliminar</button>
-        </div>
-      </Modal>
     </div>
   );
 }
 
-function ReferidosBlock({ clienteId, referidoPor, referidos }) {
+// Referidos del cliente: quién lo refirió y a quiénes ha referido (compacto,
+// para el riel izquierdo de la ficha).
+function ReferidosCard({ clienteId, referidoPor }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -891,69 +820,60 @@ function ReferidosBlock({ clienteId, referidoPor, referidos }) {
     } catch (e2) { setErr(handleError(e2)); } finally { setSaving(false); }
   };
 
-  const actualizarEstado = async (id, estado) => {
-    await api.patch(`/referidos/${id}`, { estado });
+  const actualizarEstado = async (rid, estado) => {
+    await api.patch(`/referidos/${rid}`, { estado });
     qc.invalidateQueries(['referidos-cliente', clienteId]);
   };
 
   const lista = referidosLista || [];
   return (
-    <div className="space-y-3">
-      <Card title="Referidos" actions={<button className="btn-secondary text-xs py-1 px-2" onClick={() => setOpen(true)}>+ Registrar referido</button>}>
-        {referidoPor && (
-          <p className="text-sm text-slate-600 dark:text-slate-400 mb-3 pb-3 border-b border-slate-100 dark:border-slate-700">
-            Referido por: <Link to={`/clientes/${referidoPor.id}`} className="text-brand-600 dark:text-brand-400 hover:underline">{referidoPor.nombre} {referidoPor.apellidoP}</Link>
-          </p>
-        )}
-        {lista.length === 0 ? (
-          <EmptyState message="Aún no hay referidos registrados por este cliente" />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs uppercase text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
-                  <th className="py-2 pr-4">Referido</th>
-                  <th className="py-2 pr-4">Contacto</th>
-                  <th className="py-2 pr-4">Estado</th>
-                  <th className="py-2 pr-4 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lista.map((r) => (
-                  <tr key={r.id} className="border-b border-slate-50 dark:border-slate-700/60">
-                    <td className="py-2 pr-4">
-                      {r.clienteReferido ? (
-                        <Link to={`/clientes/${r.clienteReferido.id}`} className="text-brand-600 dark:text-brand-400 hover:underline">{r.clienteReferido.nombre} {r.clienteReferido.apellidoP}</Link>
-                      ) : (
-                        <span className="font-medium text-slate-700 dark:text-slate-300">{r.nombreReferido || '—'}</span>
-                      )}
-                    </td>
-                    <td className="py-2 pr-4 text-slate-600 dark:text-slate-300">
-                      {r.telefonoReferido && <p>{r.telefonoReferido}</p>}
-                      {r.emailReferido && <p className="text-xs">{r.emailReferido}</p>}
-                      {!r.telefonoReferido && !r.emailReferido && <p className="text-xs text-slate-400">—</p>}
-                    </td>
-                    <td className="py-2 pr-4">
-                      <select
-                        className="input w-auto text-xs"
-                        value={r.estado}
-                        onChange={(e) => actualizarEstado(r.id, e.target.value)}
-                      >
-                        <option value="PENDIENTE">Pendiente</option>
-                        <option value="CONTACTADO">Contactado</option>
-                        <option value="CONVERTIDO">Convertido</option>
-                        <option value="DESCARTADO">Descartado</option>
-                      </select>
-                    </td>
-                    <td className="py-2 pr-4 text-right text-xs text-slate-400 dark:text-slate-500">
-                      {new Date(r.fecha).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+    <>
+      <Card title="Referidos" actions={<button className="btn-secondary text-xs py-1 px-2" onClick={() => setOpen(true)}>+ Registrar</button>}>
+        <div className="space-y-3">
+          <div>
+            <p className="kv-k">Referido por</p>
+            {referidoPor ? (
+              <Link to={`/clientes/${referidoPor.id}`} className="text-sm font-semibold text-brand-600 dark:text-brand-400 hover:underline">
+                {referidoPor.nombre} {referidoPor.apellidoP}
+              </Link>
+            ) : <p className="text-sm text-slate-400 dark:text-slate-500">Captación directa</p>}
           </div>
-        )}
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-700">
+            <p className="kv-k">Ha referido a</p>
+            {lista.length === 0 ? (
+              <p className="text-sm text-slate-400 dark:text-slate-500">Aún no ha generado referidos</p>
+            ) : (
+              <ul className="space-y-2 mt-1">
+                {lista.map((r) => (
+                  <li key={r.id} className="flex items-center justify-between gap-2 text-sm">
+                    <div className="min-w-0">
+                      {r.clienteReferido ? (
+                        <Link to={`/clientes/${r.clienteReferido.id}`} className="font-medium text-brand-600 dark:text-brand-400 hover:underline truncate block">
+                          {r.clienteReferido.nombre} {r.clienteReferido.apellidoP}
+                        </Link>
+                      ) : (
+                        <p className="font-medium text-slate-700 dark:text-slate-300 truncate">{r.nombreReferido || '—'}</p>
+                      )}
+                      {(r.telefonoReferido || r.emailReferido) && (
+                        <p className="text-xs text-slate-400 dark:text-slate-500 truncate">{r.telefonoReferido || r.emailReferido}</p>
+                      )}
+                    </div>
+                    <select
+                      className="input w-auto !py-1 text-xs shrink-0"
+                      value={r.estado}
+                      onChange={(e) => actualizarEstado(r.id, e.target.value)}
+                    >
+                      <option value="PENDIENTE">Pendiente</option>
+                      <option value="CONTACTADO">Contactado</option>
+                      <option value="CONVERTIDO">Convertido</option>
+                      <option value="DESCARTADO">Descartado</option>
+                    </select>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
       </Card>
 
       <Modal open={open} onClose={() => setOpen(false)} title="Registrar referido">
@@ -971,6 +891,6 @@ function ReferidosBlock({ clienteId, referidoPor, referidos }) {
           </div>
         </form>
       </Modal>
-    </div>
+    </>
   );
 }

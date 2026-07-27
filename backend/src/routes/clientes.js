@@ -2,13 +2,18 @@ import { Router } from 'express';
 import { prisma } from '../prisma.js';
 import { authenticate, esAdmin } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
+import { permiteSeccion } from '../middleware/permisos.js';
+import { registrarActividad } from '../utils/actividad.js';
 
 const router = Router();
 router.use(authenticate);
+// Permiso de sección enforced en servidor (RBAC + excepciones, fail closed).
+router.use(permiteSeccion('clientes'));
 
 router.get('/', asyncHandler(async (req, res) => {
-  const { estado, q, asesorId } = req.query;
-  const where = {};
+  const { estado, q, asesorId, archivados } = req.query;
+  // Por defecto solo clientes activos; ?archivados=1 lista los archivados
+  const where = { archivadoEn: archivados === '1' ? { not: null } : null };
   if (req.user.rol === 'ASESOR') where.asesorId = req.user.id;
   else if (asesorId) where.asesorId = asesorId;
   if (estado) where.estado = estado;
@@ -21,10 +26,34 @@ router.get('/', asyncHandler(async (req, res) => {
   ];
   const clientes = await prisma.cliente.findMany({
     where,
-    include: { asesor: { select: { id: true, nombre: true, apellidoP: true } }, _count: { select: { citas: true, ventas: true } } },
+    include: {
+      asesor: { select: { id: true, nombre: true, apellidoP: true } },
+      _count: { select: { citas: true, ventas: true } },
+      // Para "próxima acción" (derivada, no inventada): la cita pendiente más
+      // antigua y el recordatorio sin completar más próximo.
+      citas: {
+        where: { estado: { in: ['PROGRAMADA', 'CONFIRMADA'] } },
+        orderBy: { fechaHoraInicio: 'asc' },
+        take: 1,
+        select: { fechaHoraInicio: true, titulo: true },
+      },
+      notasItems: {
+        where: { tipo: 'RECORDATORIO', completada: false, fechaAviso: { not: null } },
+        orderBy: { fechaAviso: 'asc' },
+        take: 1,
+        select: { fechaAviso: true, texto: true },
+      },
+    },
     orderBy: { creadoEn: 'desc' },
   });
-  res.json(clientes);
+  // Próxima acción = lo más urgente entre cita pendiente y recordatorio abierto.
+  res.json(clientes.map(({ citas, notasItems, ...c }) => {
+    const candidatos = [
+      citas[0] && { fecha: citas[0].fechaHoraInicio, tipo: 'CITA', titulo: citas[0].titulo },
+      notasItems[0] && { fecha: notasItems[0].fechaAviso, tipo: 'RECORDATORIO', titulo: notasItems[0].texto },
+    ].filter(Boolean).sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+    return { ...c, proximaAccion: candidatos[0] || null };
+  }));
 }));
 
 router.get('/:id', asyncHandler(async (req, res) => {
@@ -46,8 +75,12 @@ router.get('/:id', asyncHandler(async (req, res) => {
   res.json(cliente);
 }));
 
+// Legacy: NECESITA_SEGUIMIENTO ya no es etapa; si un cliente viejo lo manda
+// como estado, se traduce a la bandera sin tocar la etapa.
+const normalizarEtapa = (estado) => (estado === 'NECESITA_SEGUIMIENTO' ? null : estado);
+
 router.post('/', asyncHandler(async (req, res) => {
-  const { nombre, apellidoP, apellidoM, email, telefono, fechaNacimiento, rfc, direccion, estado, notas, fuente, productoInteres, detalleInteres, referidoPorId } = req.body || {};
+  const { nombre, apellidoP, apellidoM, email, telefono, fechaNacimiento, rfc, direccion, estado, notas, fuente, productoInteres, detalleInteres, referidoPorId, necesitaSeguimiento } = req.body || {};
   if (!nombre || !apellidoP) return res.status(400).json({ error: 'nombre y apellidoP son requeridos' });
   const asesorId = (req.user.rol === 'ASESOR') ? req.user.id : (req.body.asesorId || req.user.id);
   if (req.user.rol !== 'ASESOR' && req.body.asesorId) {
@@ -60,13 +93,18 @@ router.post('/', asyncHandler(async (req, res) => {
       telefono: telefono || null,
       fechaNacimiento: fechaNacimiento ? new Date(fechaNacimiento) : null,
       rfc: rfc || null, direccion: direccion || null,
-      estado: estado || 'PROSPECTO', notas: notas || null, fuente: fuente || null,
+      estado: normalizarEtapa(estado) || 'PROSPECTO',
+      necesitaSeguimiento: necesitaSeguimiento === true || estado === 'NECESITA_SEGUIMIENTO',
+      notas: notas || null, fuente: fuente || null,
       productoInteres: productoInteres || null, detalleInteres: detalleInteres || null,
       referidoPorId: referidoPorId || null,
     },
     include: { asesor: { select: { id: true, nombre: true, apellidoP: true } } },
   });
-  await prisma.actividad.create({ data: { asesorId, tipo: 'CLIENTE_CREADO', descripcion: `Cliente creado: ${nombre} ${apellidoP}` } });
+  await registrarActividad(asesorId, 'CLIENTE_CREADO', {
+    clienteId: cliente.id,
+    cliente: `${nombre} ${apellidoP}`,
+  });
   res.status(201).json(cliente);
 }));
 
@@ -91,7 +129,12 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   if (fechaNacimiento !== undefined) data.fechaNacimiento = fechaNacimiento ? new Date(fechaNacimiento) : null;
   if (rfc !== undefined) data.rfc = rfc || null;
   if (direccion !== undefined) data.direccion = direccion || null;
-  if (estado) data.estado = estado;
+  if (estado) {
+    const etapa = normalizarEtapa(estado);
+    if (etapa) data.estado = etapa;
+    else data.necesitaSeguimiento = true; // legacy: la pseudo-etapa marca la bandera
+  }
+  if (typeof req.body.necesitaSeguimiento === 'boolean') data.necesitaSeguimiento = req.body.necesitaSeguimiento;
   if (notas !== undefined) data.notas = notas || null;
   if (fuente !== undefined) data.fuente = fuente || null;
   if (asesorId && req.user.rol !== 'ASESOR') data.asesorId = asesorId;
@@ -107,17 +150,22 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   if (fechaRenovacion !== undefined) data.fechaRenovacion = fechaRenovacion ? new Date(fechaRenovacion) : null;
   // Referidos
   if (referidoPorId !== undefined) data.referidoPorId = referidoPorId || null;
+  // Restaurar / archivar por borrado lógico
+  if (req.body.archivado === false) data.archivadoEn = null;
+  if (req.body.archivado === true) data.archivadoEn = new Date();
   const cliente = await prisma.cliente.update({ where: { id }, data });
   res.json(cliente);
 }));
 
+// Borrado lógico: archiva el cliente en vez de borrarlo. Sus pólizas, citas,
+// notas y referidos se conservan; se restaura con PATCH { archivado: false }.
 router.delete('/:id', asyncHandler(async (req, res) => {
   const { id } = req.params;
   const existente = await prisma.cliente.findUnique({ where: { id } });
   if (!existente) return res.status(404).json({ error: 'Cliente no encontrado' });
   if (req.user.rol === 'ASESOR' && existente.asesorId !== req.user.id) return res.status(403).json({ error: 'Sin acceso a este cliente' });
-  await prisma.cliente.delete({ where: { id } });
-  res.json({ ok: true });
+  await prisma.cliente.update({ where: { id }, data: { archivadoEn: new Date() } });
+  res.json({ ok: true, archivado: true });
 }));
 
 export default router;

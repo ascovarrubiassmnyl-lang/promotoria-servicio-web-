@@ -2,9 +2,12 @@ import { Router } from 'express';
 import { prisma } from '../prisma.js';
 import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
+import { permiteAlguna } from '../middleware/permisos.js';
 
 const router = Router();
 router.use(authenticate);
+// Permiso de sección enforced en servidor (RBAC + excepciones, fail closed).
+router.use(permiteAlguna('dashboard', 'asesores'));
 
 function inicioMes(mes, anio) {
   return new Date(anio, mes - 1, 1);
@@ -26,8 +29,8 @@ router.get('/dashboard', asyncHandler(async (req, res) => {
   const wherePeriodo = { creadoEn: { gte: ini, lte: fin } };
 
   const [totalClientes, clientesMes, citasPeriodo, ventasAprobadas, ventasPendientes, primaAnualTotal] = await Promise.all([
-    prisma.cliente.count({ where: whereAsesor }),
-    prisma.cliente.count({ where: { ...whereAsesor, creadoEn: wherePeriodo.creadoEn } }),
+    prisma.cliente.count({ where: { ...whereAsesor, archivadoEn: null } }),
+    prisma.cliente.count({ where: { ...whereAsesor, archivadoEn: null, creadoEn: wherePeriodo.creadoEn } }),
     prisma.cita.count({ where: { ...whereAsesor, fechaHoraInicio: { gte: ini, lte: fin } } }),
     prisma.venta.count({ where: { ...whereAsesor, estado: { in: ['APROBADA', 'PAGADA'] }, ...wherePeriodo } }),
     prisma.venta.count({ where: { ...whereAsesor, estado: 'PENDIENTE_PAGAR' } }),
@@ -45,7 +48,7 @@ router.get('/dashboard', asyncHandler(async (req, res) => {
       const [ventas, prima, clientes, citas] = await Promise.all([
         prisma.venta.count({ where: { asesorId: a.id, estado: { in: ['APROBADA', 'PAGADA'] }, ...wherePeriodo } }),
         prisma.venta.aggregate({ where: { asesorId: a.id, estado: { in: ['APROBADA', 'PAGADA'] }, ...wherePeriodo }, _sum: { primaAnual: true } }),
-        prisma.cliente.count({ where: { asesorId: a.id } }),
+        prisma.cliente.count({ where: { asesorId: a.id, archivadoEn: null } }),
         prisma.cita.count({ where: { asesorId: a.id, fechaHoraInicio: { gte: ini, lte: fin } } }),
       ]);
       return { id: a.id, nombre: `${a.nombre} ${a.apellidoP}`, email: a.email, ventas, prima: prima._sum.primaAnual || 0, clientes, citas };
@@ -109,7 +112,7 @@ router.get('/pipeline', asyncHandler(async (req, res) => {
     prisma.venta.count({ where: { ...whereV, estado: 'RECHAZADA' } }),
     prisma.venta.aggregate({ where: { ...whereV, estado: { in: ['APROBADA', 'PAGADA'] } }, _sum: { primaAnual: true } }),
     prisma.venta.aggregate({ where: { ...whereV, estado: { in: ['APROBADA', 'PAGADA'] } }, _sum: { comisionMonto: true } }),
-    prisma.cliente.groupBy({ by: ['estado'], where: whereC, _count: { _all: true } }),
+    prisma.cliente.groupBy({ by: ['estado'], where: { ...whereC, archivadoEn: null }, _count: { _all: true } }),
     prisma.cita.count({ where: whereC }),
     prisma.referido.count({ where: whereC }),
     prisma.referido.count({ where: { ...whereC, estado: 'CONVERTIDO' } }),
@@ -159,8 +162,9 @@ router.get('/pipeline', asyncHandler(async (req, res) => {
 router.get('/funnel', asyncHandler(async (req, res) => {
   const esAsesor = req.user.rol === 'ASESOR';
   const whereC = esAsesor ? { asesorId: req.user.id } : (req.query.asesorId ? { asesorId: req.query.asesorId } : {});
-  const porEstado = await prisma.cliente.groupBy({ by: ['estado'], where: whereC, _count: { _all: true } });
-  const orden = ['PROSPECTO', 'CITA', 'PROPUESTA', 'CIERRE_FIRMA', 'ENTREGA_POLIZA', 'REFERIDOS', 'POST_VENTA_SEGUIMIENTO', 'NECESITA_SEGUIMIENTO'];
+  const porEstado = await prisma.cliente.groupBy({ by: ['estado'], where: { ...whereC, archivadoEn: null }, _count: { _all: true } });
+  // Solo etapas reales del embudo: "necesita seguimiento" es una bandera aparte
+  const orden = ['PROSPECTO', 'CITA', 'PROPUESTA', 'CIERRE_FIRMA', 'ENTREGA_POLIZA', 'REFERIDOS', 'POST_VENTA_SEGUIMIENTO'];
   const mapa = Object.fromEntries(porEstado.map((e) => [e.estado, e._count._all]));
   res.json(orden.map((k) => ({ etapa: k, count: mapa[k] || 0 })));
 }));

@@ -7,9 +7,12 @@ import crypto from 'crypto';
 import { prisma } from '../prisma.js';
 import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
+import { permiteSeccion } from '../middleware/permisos.js';
 
 const router = Router();
 router.use(authenticate);
+// Permiso de sección enforced en servidor (RBAC + excepciones, fail closed).
+router.use(permiteSeccion('clientes'));
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = path.resolve(__dirname, '../../uploads');

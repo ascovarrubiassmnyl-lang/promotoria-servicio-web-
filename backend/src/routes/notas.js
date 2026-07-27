@@ -2,9 +2,12 @@ import { Router } from 'express';
 import { prisma } from '../prisma.js';
 import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
+import { permiteSeccion } from '../middleware/permisos.js';
 
 const router = Router();
 router.use(authenticate);
+// Permiso de sección enforced en servidor (RBAC + excepciones, fail closed).
+router.use(permiteSeccion('clientes'));
 
 // GET /notas?clienteId=...&tipo=...&pendientes=true
 router.get('/', asyncHandler(async (req, res) => {

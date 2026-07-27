@@ -21,7 +21,9 @@ const d = (v) => (v ? isoLocalDateInput(new Date(v)) : '');
 // Modal único para crear (venta=null) o editar (venta=objeto) una póliza.
 // asesorId (opcional): scope de promotor — la póliza nueva se asigna a ese
 // asesor y el selector de clientes se limita a su cartera.
-export default function PolizaFormModal({ open, onClose, venta = null, asesorId = null, onSaved }) {
+// clienteId (opcional): al crear desde la ficha de un cliente, fija el cliente
+// y oculta el selector.
+export default function PolizaFormModal({ open, onClose, venta = null, asesorId = null, clienteId = null, onSaved }) {
   const qc = useQueryClient();
   const editando = !!venta;
   const [form, setForm] = useState(VACIO);
@@ -53,13 +55,13 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
       notas: venta.notas || '',
       coberturas: Array.isArray(venta.coberturas) ? venta.coberturas : [],
       beneficiarios: Array.isArray(venta.beneficiarios) ? venta.beneficiarios : [],
-    } : VACIO);
-  }, [open, venta]);
+    } : { ...VACIO, clienteId: clienteId || '' });
+  }, [open, venta, clienteId]);
 
   const { data: clientes } = useQuery({
     queryKey: ['clientes-min', asesorId || 'self'],
     queryFn: async () => (await api.get('/clientes', { params: { asesorId: asesorId || undefined } })).data,
-    enabled: open && !editando,
+    enabled: open && !editando && !clienteId,
   });
   const { data: catalogo } = useQuery({
     queryKey: ['productos-catalogo'],
@@ -126,7 +128,7 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
   return (
     <Modal open={open} onClose={onClose} title={editando ? `Editar póliza · ${venta.producto}` : 'Nueva póliza'} wide>
       <form onSubmit={submit} className="space-y-3">
-        {!editando && (
+        {!editando && !clienteId && (
           <Field label="Cliente*">
             <select className="input" required value={form.clienteId} onChange={(e) => set('clienteId', e.target.value)}>
               <option value="">Selecciona…</option>

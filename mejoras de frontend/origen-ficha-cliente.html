@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Origen Asesores · Ficha de cliente</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b1017; --surface:#111826; --surface-2:#161f30; --surface-3:#1c2740;
+    --border:#212b3d; --border-strong:#2c3a52;
+    --text:#e8edf5; --text-2:#9aa7bd; --text-3:#657189;
+    --accent:#5f7cff; --accent-bg:#1c2748;
+    --green:#3ecf8e; --amber:#e0a13a; --danger:#e2635c; --teal:#3ecfce;
+    --s-prospecto:#8a95ab; --s-cita:#5aa2ff; --s-propuesta:#a98bff; --s-entrega:#3ecfce; --s-postventa:#3ecf8e;
+    --radius:14px;
+  }
+  body.light{
+    --bg:#f6f7f9; --surface:#ffffff; --surface-2:#f1f3f7; --surface-3:#e9edf3;
+    --border:#e6e8ee; --border-strong:#d6dae3;
+    --text:#161d2b; --text-2:#5b6577; --text-3:#98a1b3;
+    --accent:#4f6ef7; --accent-bg:#eef1ff;
+    --green:#17925f; --amber:#d98a1f; --danger:#d64c46; --teal:#0ea5a5;
+    --s-prospecto:#6b7688; --s-cita:#2f7de1; --s-propuesta:#7c5cdb; --s-entrega:#0ea5a5; --s-postventa:#17925f;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-font-smoothing:antialiased}
+  body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;font-size:14px}
+  button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+  .num{font-variant-numeric:tabular-nums}
+  .ico{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+
+  /* sidebar */
+  .sidebar{width:250px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:22px 16px}
+  .brand{display:flex;align-items:center;gap:11px;padding:6px 8px 24px}
+  .brand-mark{width:30px;height:30px;border-radius:50%;border:1.5px solid var(--text);position:relative}
+  .brand-mark::after{content:"";position:absolute;inset:5px 5px 5px 12px;border-radius:50%;background:var(--surface);border:1.5px solid var(--text)}
+  .brand-name{font-weight:600;letter-spacing:.14em;font-size:13px}
+  .brand-sub{font-size:9px;letter-spacing:.28em;color:var(--text-3);margin-top:1px}
+  .nav{display:flex;flex-direction:column;gap:2px}
+  .nav a{display:flex;align-items:center;gap:13px;padding:11px 13px;border-radius:10px;color:var(--text-2);font-weight:500;cursor:pointer}
+  .nav a.active{background:var(--accent-bg);color:var(--accent)}
+  .nav a:hover:not(.active){background:var(--surface-2)}
+  .nav .ico{width:18px;height:18px}
+  .sidebar-foot{margin-top:auto;padding-top:16px;border-top:1px solid var(--border)}
+  .theme-btn{display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:10px;color:var(--text-2);font-weight:500;width:100%}
+  .theme-btn:hover{background:var(--surface-2)}
+  .who{padding:12px 8px 2px}.who-name{font-weight:600}.who-role{font-size:10px;letter-spacing:.22em;color:var(--text-3);margin-top:2px}
+
+  .main{flex:1;padding:24px 32px;overflow:auto;max-height:100vh}
+  .back-link{display:inline-flex;gap:7px;color:var(--accent);font-weight:500;font-size:13px;margin-bottom:14px;cursor:pointer}
+
+  /* header */
+  .head{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:flex-start;margin-bottom:20px}
+  .id{display:flex;gap:16px;align-items:center}
+  .avatar{width:58px;height:58px;border-radius:50%;background:var(--accent-bg);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:21px;font-weight:600;flex-shrink:0}
+  .id h1{font-size:24px;font-weight:600;letter-spacing:-.01em}
+  .id .meta{color:var(--text-2);margin-top:4px;font-size:13px}
+  .head-actions{display:flex;gap:10px;align-items:flex-end}
+  .stage-select{display:flex;flex-direction:column;gap:5px}
+  .stage-select label{font-size:10px;letter-spacing:.09em;color:var(--text-3);text-transform:uppercase;padding-left:2px}
+  select{appearance:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 34px 10px 14px;color:var(--text);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%2398a1b3' stroke-width='2'%3E%3Cpath d='M2 4l4 4 4-4'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 13px center}
+  .btn-ghost{border:1px solid var(--border-strong);padding:10px 15px;border-radius:10px;font-weight:500;color:var(--text-2);height:39px}
+  .btn-ghost:hover{color:var(--text)}
+  .menu-wrap{position:relative}
+  .menu-btn{width:39px;height:39px;border:1px solid var(--border-strong);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--text-2)}
+  .menu-btn:hover{color:var(--text)}
+  .menu{position:absolute;right:0;top:44px;background:var(--surface);border:1px solid var(--border-strong);border-radius:11px;padding:6px;min-width:180px;z-index:30;box-shadow:0 12px 30px rgba(0,0,0,.4);display:none}
+  .menu.open{display:block}
+  .menu button{display:flex;align-items:center;gap:10px;width:100%;padding:9px 11px;border-radius:8px;font-weight:500;color:var(--text-2);font-size:13px;text-align:left}
+  .menu button:hover{background:var(--surface-2);color:var(--text)}
+  .menu button.danger{color:var(--danger)}.menu button.danger:hover{background:color-mix(in srgb,var(--danger) 12%,var(--surface))}
+  .menu .sep{height:1px;background:var(--border);margin:5px 6px}
+  .menu .ico{width:15px;height:15px}
+
+  /* stepper */
+  .stepper-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px 26px;margin-bottom:20px}
+  .stepper{display:flex}
+  .step{flex:1;text-align:center;position:relative;padding-top:22px}
+  .step::before{content:"";position:absolute;top:7px;left:0;right:0;height:2px;background:var(--surface-3)}
+  .step.done::before,.step.current::before{background:var(--st-c)}
+  .step:first-child::before{left:50%}.step:last-child::before{right:50%}
+  .step .node{position:absolute;top:1px;left:50%;transform:translateX(-50%);width:14px;height:14px;border-radius:50%;background:var(--surface);border:2px solid var(--surface-3)}
+  .step.done .node,.step.current .node{border-color:var(--st-c);background:var(--st-c)}
+  .step.current .node{box-shadow:0 0 0 4px color-mix(in srgb,var(--st-c) 25%,transparent)}
+  .step .lbl{font-size:12px;color:var(--text-3)}
+  .step.done .lbl{color:var(--text-2)}.step.current .lbl{color:var(--text);font-weight:600}
+
+  /* layout */
+  .grid{display:grid;grid-template-columns:320px 1fr;gap:20px;align-items:start}
+  @media(max-width:980px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px 22px;margin-bottom:20px}
+  .card h3{font-size:12px;letter-spacing:.08em;color:var(--text-3);text-transform:uppercase;font-weight:600;display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+  .add{color:var(--accent);font-size:12px;letter-spacing:0;text-transform:none;cursor:pointer;font-weight:600;display:inline-flex;align-items:center;gap:5px;border:1px solid color-mix(in srgb,var(--accent) 35%,transparent);padding:5px 10px;border-radius:8px}
+  .add:hover{background:var(--accent-bg)}
+
+  .kv{margin-bottom:15px}.kv:last-child{margin-bottom:0}
+  .kv .k{font-size:12px;color:var(--text-3);margin-bottom:3px}
+  .kv .v{font-weight:500}.kv .v.num{font-variant-numeric:tabular-nums}
+  .empty{color:var(--text-3);font-size:13px;padding:6px 0}
+  .empty-box{border:1px dashed var(--border-strong);border-radius:10px;padding:20px;text-align:center;color:var(--text-3);font-size:13px}
+
+  .stat-row{display:flex;gap:10px;margin-top:4px}
+  .stat{flex:1;background:var(--surface-2);border-radius:10px;padding:11px 13px}
+  .stat .n{font-size:19px;font-weight:600;font-variant-numeric:tabular-nums}
+  .stat .l{font-size:11px;color:var(--text-3);margin-top:2px}
+
+  /* policies table */
+  table{width:100%;border-collapse:collapse}
+  thead th{text-align:left;font-size:11px;letter-spacing:.05em;color:var(--text-3);font-weight:600;text-transform:uppercase;padding:0 12px 12px}
+  th.r,td.r{text-align:right}
+  tbody tr{border-top:1px solid var(--border)}
+  td{padding:14px 12px;vertical-align:middle}
+  .p-name{font-weight:600}.p-ramo{font-size:12px;color:var(--text-3);margin-top:2px}
+  .money{font-weight:600;font-variant-numeric:tabular-nums}
+  .money.earned{color:var(--green)}.money.pending{color:var(--text-2)}
+  .money .pct{display:block;font-size:11px;color:var(--text-3);font-weight:400;margin-top:2px}
+  .status{display:flex;flex-direction:column;gap:4px}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:4px 10px;border-radius:7px;width:fit-content}
+  .pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+  .pill.ok{color:var(--green);background:color-mix(in srgb,var(--green) 14%,var(--surface))}
+  .pill.pend{color:var(--amber);background:color-mix(in srgb,var(--amber) 14%,var(--surface))}
+  .substatus{font-size:11px;color:var(--text-3);padding-left:2px}
+  .tag{font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;background:var(--surface-3);color:var(--text-2)}
+
+  /* appointments */
+  .appt{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:14px 0;border-top:1px solid var(--border)}
+  .appt:first-of-type{border-top:none}
+  .appt-t{font-weight:600}
+  .appt-s{font-size:12px;color:var(--text-3);margin-top:4px;display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+  .mod{display:inline-flex;align-items:center;gap:5px;color:var(--text-2)}
+  .appt-pill{font-size:11px;font-weight:600;padding:4px 10px;border-radius:7px;background:var(--accent-bg);color:var(--accent);white-space:nowrap}
+
+  .two-up{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  @media(max-width:640px){.two-up{grid-template-columns:1fr}}
+  .ref{display:flex;align-items:center;gap:10px;padding:10px 0}
+  .ref a{color:var(--accent);text-decoration:none;font-weight:500}
+  .ref a:hover{text-decoration:underline}
+  .flag-banner{display:flex;align-items:center;gap:9px;background:color-mix(in srgb,var(--amber) 12%,var(--surface));border:1px solid color-mix(in srgb,var(--amber) 30%,transparent);color:var(--amber);padding:10px 15px;border-radius:11px;font-size:13px;font-weight:500;margin-bottom:20px}
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="brand"><div class="brand-mark"></div><div><div class="brand-name">ORIGEN</div><div class="brand-sub">ASESORES</div></div></div>
+  <nav class="nav">
+    <a><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Dashboard</a>
+    <a class="active"><svg class="ico" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M4 20c0-3 2-5 5-5s5 2 5 5"/></svg>Clientes</a>
+    <a><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>Citas / Calendario</a>
+    <a><svg class="ico" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/></svg>Pólizas</a>
+    <a><svg class="ico" viewBox="0 0 24 24"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>Actividad</a>
+  </nav>
+  <div class="sidebar-foot">
+    <button class="theme-btn" onclick="document.body.classList.toggle('light');this.querySelector('span').textContent=document.body.classList.contains('light')?'Modo oscuro':'Modo claro'">
+      <svg class="ico" style="width:18px;height:18px" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/></svg><span>Modo claro</span>
+    </button>
+    <div class="who"><div class="who-name">Juan Pérez</div><div class="who-role">ASESOR</div></div>
+  </div>
+</aside>
+
+<main class="main">
+  <div class="back-link">← Volver a clientes</div>
+
+  <div class="head">
+    <div class="id">
+      <div class="avatar">RC</div>
+      <div>
+        <h1>Roberto Cruz</h1>
+        <div class="meta">Asesor: <strong style="color:var(--text)">Juan Pérez</strong> · Creado 23 jul 2026 · Fuente LinkedIn</div>
+      </div>
+    </div>
+    <div class="head-actions">
+      <div class="stage-select">
+        <label>Etapa del pipeline</label>
+        <select>
+          <option>Prospecto</option><option selected>Cita</option><option>Propuesta</option>
+          <option>Entrega de póliza</option><option>Post venta</option>
+        </select>
+      </div>
+      <button class="btn-ghost">Editar</button>
+      <div class="menu-wrap">
+        <button class="menu-btn" onclick="toggleMenu(event)"><svg class="ico" style="width:18px;height:18px" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button>
+        <div class="menu" id="cli-menu">
+          <button><svg class="ico" viewBox="0 0 24 24"><path d="M4 12v7a2 2 0 002 2h12a2 2 0 002-2v-7M12 3v13M8 7l4-4 4 4"/></svg>Exportar ficha (PDF)</button>
+          <button><svg class="ico" viewBox="0 0 24 24"><path d="M17 8a5 5 0 00-10 0v3a5 5 0 001 3H5l-1 3h16l-1-3h-3a5 5 0 001-3z"/></svg>Reasignar asesor</button>
+          <div class="sep"></div>
+          <button class="danger" onclick="alert('En producción: confirmación + ARCHIVAR (borrado lógico), conservando pólizas, citas y referidos.')"><svg class="ico" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg>Archivar cliente</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stepper-wrap" style="--st-c:var(--s-cita)">
+    <div class="stepper">
+      <div class="step done"><div class="node"></div><div class="lbl">Prospecto</div></div>
+      <div class="step current"><div class="node"></div><div class="lbl">Cita</div></div>
+      <div class="step"><div class="node"></div><div class="lbl">Propuesta</div></div>
+      <div class="step"><div class="node"></div><div class="lbl">Entrega de póliza</div></div>
+      <div class="step"><div class="node"></div><div class="lbl">Post venta</div></div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- LEFT RAIL -->
+    <div>
+      <div class="card">
+        <h3>Contacto <span class="add">Editar</span></h3>
+        <div class="kv"><div class="k">Teléfono</div><div class="v num">555 111 1121</div></div>
+        <div class="kv"><div class="k">Email</div><div class="v">roberto@example.com</div></div>
+        <div class="kv"><div class="k">RFC</div><div class="v" style="color:var(--text-3)">Sin registrar</div></div>
+        <div class="kv"><div class="k">Dirección</div><div class="v" style="color:var(--text-3)">Sin registrar</div></div>
+        <div class="kv"><div class="k">Producto de interés</div><div class="v" style="color:var(--text-3)">Sin registrar</div></div>
+      </div>
+
+      <div class="card">
+        <h3>Resumen</h3>
+        <div class="stat-row">
+          <div class="stat"><div class="n">3</div><div class="l">Pólizas</div></div>
+          <div class="stat"><div class="n num">$62k</div><div class="l">Prima anual</div></div>
+        </div>
+        <div class="stat-row">
+          <div class="stat"><div class="n num" style="color:var(--green)">$3,000</div><div class="l">Comisión ganada</div></div>
+          <div class="stat"><div class="n num" style="color:var(--amber)">$5,000</div><div class="l">En pipeline</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Referidos <span class="add">+ Registrar</span></h3>
+        <div class="kv"><div class="k">Referido por</div><div class="ref"><a>Carlos Ramírez</a></div></div>
+        <div class="kv"><div class="k">Ha referido a</div><div class="empty">Aún no ha generado referidos</div></div>
+      </div>
+    </div>
+
+    <!-- MAIN -->
+    <div>
+      <div class="card">
+        <h3>Pólizas · 3 <span class="add">+ Crear póliza</span></h3>
+        <table>
+          <thead><tr><th>Producto</th><th class="r">Prima anual</th><th class="r">Comisión</th><th>Forma de pago</th><th>Estado</th><th></th></tr></thead>
+          <tbody>
+            <tr>
+              <td><div class="p-name">SeguBeca</div><div class="p-ramo">Acumulación</div></td>
+              <td class="r money">$25,000</td>
+              <td class="r money pending">$2,500<span class="pct">10% de la prima</span></td>
+              <td><span class="tag">Mensual</span></td>
+              <td><div class="status"><span class="pill pend">Pendiente de pago</span><span class="substatus">Póliza inactiva</span></div></td>
+              <td class="r"><button class="menu-btn" style="width:30px;height:30px;border-color:transparent"><svg class="ico" style="width:16px;height:16px" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button></td>
+            </tr>
+            <tr>
+              <td><div class="p-name">Orvi 20 pagos</div><div class="p-ramo">Vida</div></td>
+              <td class="r money">$25,000</td>
+              <td class="r money pending">$2,500<span class="pct">10% de la prima</span></td>
+              <td><span class="tag">Mensual</span></td>
+              <td><div class="status"><span class="pill pend">Pendiente de pago</span><span class="substatus">Póliza inactiva</span></div></td>
+              <td class="r"><button class="menu-btn" style="width:30px;height:30px;border-color:transparent"><svg class="ico" style="width:16px;height:16px" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button></td>
+            </tr>
+            <tr>
+              <td><div class="p-name">Orvi 10 pagos</div><div class="p-ramo">Vida</div></td>
+              <td class="r money">$12,000</td>
+              <td class="r money earned">$3,000<span class="pct">25% de la prima</span></td>
+              <td><span class="tag">Anual</span></td>
+              <td><div class="status"><span class="pill ok">Aprobada</span><span class="substatus">Póliza activa</span></div></td>
+              <td class="r"><button class="menu-btn" style="width:30px;height:30px;border-color:transparent"><svg class="ico" style="width:16px;height:16px" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>Próximas citas <span class="add">+ Agendar cita</span></h3>
+        <div class="appt">
+          <div><div class="appt-t">Cita acompañamiento</div>
+            <div class="appt-s"><span class="mod"><svg class="ico" style="width:12px;height:12px" viewBox="0 0 24 24"><path d="M5 4h4l2 5-3 2a11 11 0 005 5l2-3 5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2z"/></svg>Telefónica</span>·<span>Con promotor: Promotora Admin</span>·<span class="num">05 ago, 10:00 a.m.</span></div></div>
+          <span class="appt-pill">Programada</span>
+        </div>
+        <div class="appt">
+          <div><div class="appt-t">Acompañamiento</div>
+            <div class="appt-s"><span class="mod"><svg class="ico" style="width:12px;height:12px" viewBox="0 0 24 24"><path d="M5 4h4l2 5-3 2a11 11 0 005 5l2-3 5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2z"/></svg>Telefónica</span>·<span class="num">01 ago, 03:00 p.m.</span></div></div>
+          <span class="appt-pill">Programada</span>
+        </div>
+        <div class="appt">
+          <div><div class="appt-t">Renovación auto</div>
+            <div class="appt-s"><span class="mod"><svg class="ico" style="width:12px;height:12px" viewBox="0 0 24 24"><path d="M12 21s-7-5.2-7-11a7 7 0 0114 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Presencial</span>·<span class="num">30 jul, 03:00 p.m.</span>·<span>Oficina Centro</span></div></div>
+          <span class="appt-pill">Programada</span>
+        </div>
+      </div>
+
+      <div class="two-up">
+        <div class="card"><h3>Notas generales <span class="add">+ Nota</span></h3><div class="empty">Sin notas todavía.</div></div>
+        <div class="card"><h3>Recordatorios <span class="add">+ Recordatorio</span></h3><div class="empty">Sin recordatorios.</div></div>
+      </div>
+
+      <div class="card">
+        <h3>Archivos del cliente <span class="add">+ Subir archivo</span></h3>
+        <div class="empty-box">Identificaciones, solicitudes, pólizas escaneadas y documentos del expediente.<br>Arrastra aquí o usa «+ Subir archivo».</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+function toggleMenu(e){ e.stopPropagation(); const m=document.getElementById('cli-menu'); m.classList.toggle('open'); }
+document.addEventListener('click',()=>document.getElementById('cli-menu').classList.remove('open'));
+</script>
+</body>
+</html>

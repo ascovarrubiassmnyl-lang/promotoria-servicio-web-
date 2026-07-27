@@ -12,10 +12,10 @@ const ETAPA_COLOR = {
   ENTREGA_POLIZA: { base: '#059669', claro: '#34d399' },
 };
 
+// "Necesita seguimiento" ya no llega del funnel: es bandera, no etapa.
 const CHIP_COLOR = {
   REFERIDOS: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/50 dark:text-cyan-300',
   POST_VENTA_SEGUIMIENTO: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300',
-  NECESITA_SEGUIMIENTO: 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300',
 };
 
 // Geometría del SVG

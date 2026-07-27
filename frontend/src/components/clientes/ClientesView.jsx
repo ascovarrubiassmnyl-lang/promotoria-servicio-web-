@@ -1,0 +1,459 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { api, handleError } from '../../api/client.js';
+import { useAuth } from '../../context/AuthContext.jsx';
+import { Card, Modal, Field, EmptyState, MenuAcciones } from '../ui.jsx';
+import { ETAPAS, infoEtapa, FLAG_SEGUIMIENTO } from './etapas.js';
+import { RAMOS_LABEL, fechaCorta, hora } from '../../lib/format.js';
+
+// Vista de clientes compartida por ambos roles (mismo patrón que PolizasView):
+//  - asesorId=null → cartera propia (asesor) o del equipo con filtro (promotor).
+//  - asesorId=X    → cartera del asesor X (promotor, control total; los
+//    clientes nuevos se asignan a ese asesor y se oculta el filtro/columna).
+// La autorización real vive en el backend: un ASESOR siempre recibe solo sus
+// clientes aunque manipule el parámetro asesorId.
+
+const FORM_VACIO = {
+  nombre: '', apellidoP: '', apellidoM: '', email: '', telefono: '',
+  estado: 'PROSPECTO', necesitaSeguimiento: false, notas: '', fuente: '',
+  productoInteres: '', productoCatalogoId: '', detalleInteres: '', referidoPorId: '',
+};
+
+const mismoDia = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
+// Próxima acción (derivada en el backend de citas pendientes y recordatorios
+// abiertos): fecha + tipo, en rojo lo vencido.
+function ProximaAccion({ pa }) {
+  if (!pa) return <span className="text-xs text-slate-400 dark:text-slate-500">—</span>;
+  const fecha = new Date(pa.fecha);
+  const ahora = new Date();
+  const vencida = fecha < ahora;
+  const esHoy = mismoDia(fecha, ahora);
+  const d = vencida
+    ? (esHoy ? `Hoy · ${hora(fecha)}` : `Vencida · ${fechaCorta(fecha)}`)
+    : (esHoy ? `Hoy · ${hora(fecha)}` : fechaCorta(fecha));
+  return (
+    <div className="text-sm">
+      <p className={`font-medium tabular-nums ${vencida ? 'text-red-600 dark:text-red-400' : 'text-slate-700 dark:text-slate-300'}`}>{d}</p>
+      <p className="text-xs text-slate-400 dark:text-slate-500 max-w-[180px] truncate" title={pa.titulo}>
+        {pa.tipo === 'CITA' ? 'Cita' : 'Recordatorio'} · {pa.titulo}
+      </p>
+    </div>
+  );
+}
+
+// Celda de etapa: pill de la etapa + bandera de seguimiento + mini indicador
+// de posición en el embudo (segmentos, color por progreso).
+function EtapaCell({ cliente }) {
+  const e = infoEtapa(cliente.estado);
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold ${e.pill}`}>{e.label}</span>
+        {cliente.necesitaSeguimiento && (
+          <span className={`inline-flex items-center gap-1 text-[11px] font-semibold ${FLAG_SEGUIMIENTO.text}`}>
+            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" /></svg>
+            Seguimiento
+          </span>
+        )}
+      </div>
+      <div className="flex gap-[3px]">
+        {ETAPAS.map((et, i) => (
+          <span key={et.value} className={`h-1 w-4 rounded-full ${i <= e.orden ? e.dot : 'bg-slate-200 dark:bg-slate-700'}`} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function ClientesView({ asesorId = null, titulo = 'Clientes', subtitulo = null, banner = null }) {
+  const { esAdmin } = useAuth();
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const scoped = !!asesorId; // cartera de un asesor concreto (vista de promotor)
+  const [q, setQ] = useState('');
+  const [asesorFiltro, setAsesorFiltro] = useState('');
+  const [etapaActiva, setEtapaActiva] = useState(null); // valor de etapa o '__flag'
+  const [verArchivados, setVerArchivados] = useState(false);
+
+  // Modal crear/editar (mismo formulario; editId define el modo)
+  const [open, setOpen] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [form, setForm] = useState(FORM_VACIO);
+  const [formAsesorId, setFormAsesorId] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  const [toArchive, setToArchive] = useState(null);
+  const [archiving, setArchiving] = useState(false);
+
+  // q y asesor se filtran en el servidor; los chips de etapa filtran en
+  // cliente para poder mostrar el conteo de todas las etapas a la vez.
+  const { data: clientes, refetch, isFetching } = useQuery({
+    queryKey: ['clientes', asesorId || 'all', q, asesorFiltro, verArchivados],
+    queryFn: async () => {
+      const params = {};
+      if (q) params.q = q;
+      const scope = asesorId || asesorFiltro;
+      if (scope) params.asesorId = scope;
+      if (verArchivados) params.archivados = '1';
+      const { data } = await api.get('/clientes', { params });
+      return data;
+    },
+  });
+
+  const { data: productosCatalogo } = useQuery({
+    queryKey: ['productos-catalogo'],
+    queryFn: async () => (await api.get('/productos-catalogo')).data,
+  });
+
+  const { data: asesores } = useQuery({
+    queryKey: ['asesores-list'],
+    queryFn: async () => (await api.get('/usuarios/asesores')).data,
+    enabled: esAdmin() && !scoped,
+  });
+
+  const conteos = useMemo(() => {
+    const m = { __flag: 0 };
+    for (const c of clientes || []) {
+      m[c.estado] = (m[c.estado] || 0) + 1;
+      if (c.necesitaSeguimiento) m.__flag += 1;
+    }
+    return m;
+  }, [clientes]);
+
+  const filas = useMemo(() => {
+    let r = clientes || [];
+    if (etapaActiva === '__flag') r = r.filter((c) => c.necesitaSeguimiento);
+    else if (etapaActiva) r = r.filter((c) => c.estado === etapaActiva);
+    return r;
+  }, [clientes, etapaActiva]);
+
+  const abrirCrear = () => {
+    setEditId(null); setErr('');
+    setForm(FORM_VACIO); setFormAsesorId('');
+    setOpen(true);
+  };
+
+  const abrirEditar = (c) => {
+    setEditId(c.id); setErr('');
+    setForm({
+      nombre: c.nombre, apellidoP: c.apellidoP, apellidoM: c.apellidoM || '',
+      email: c.email || '', telefono: c.telefono || '',
+      estado: c.estado, necesitaSeguimiento: !!c.necesitaSeguimiento,
+      notas: c.notas || '', fuente: c.fuente || '',
+      productoInteres: c.productoInteres || '', productoCatalogoId: '',
+      detalleInteres: c.detalleInteres || '', referidoPorId: c.referidoPorId || '',
+    });
+    setFormAsesorId(c.asesorId || '');
+    setOpen(true);
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setSaving(true); setErr('');
+    try {
+      const payload = { ...form };
+      if (!payload.productoInteres) delete payload.productoInteres;
+      if (!payload.referidoPorId) delete payload.referidoPorId;
+      delete payload.productoCatalogoId;
+      if (editId) {
+        await api.patch(`/clientes/${editId}`, {
+          ...payload,
+          productoInteres: form.productoInteres || null,
+          referidoPorId: form.referidoPorId || null,
+          asesorId: !scoped && esAdmin() && formAsesorId ? formAsesorId : undefined,
+        });
+      } else {
+        // En vista scoped los clientes nuevos se asignan al asesor consultado.
+        await api.post('/clientes', { ...payload, asesorId: asesorId || formAsesorId || undefined });
+      }
+      setOpen(false);
+      setForm(FORM_VACIO);
+      refetch();
+      qc.invalidateQueries(['cliente', editId]);
+    } catch (e2) { setErr(handleError(e2)); } finally { setSaving(false); }
+  };
+
+  // DELETE hace borrado lógico en el backend: el cliente se archiva y conserva
+  // sus pólizas, citas y referidos.
+  const confirmarArchivar = async () => {
+    if (!toArchive) return;
+    setArchiving(true);
+    try {
+      await api.delete(`/clientes/${toArchive.id}`);
+      setToArchive(null);
+      qc.invalidateQueries(['clientes']);
+    } catch (e) {
+      alert(handleError(e));
+    } finally {
+      setArchiving(false);
+    }
+  };
+
+  const restaurar = async (c) => {
+    try {
+      await api.patch(`/clientes/${c.id}`, { archivado: false });
+      qc.invalidateQueries(['clientes']);
+    } catch (e) {
+      alert(handleError(e));
+    }
+  };
+
+  const chipBase = 'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition bg-white dark:bg-slate-800';
+  const chipOff = 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-600';
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">{titulo}</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+            {filas.length} cliente{filas.length === 1 ? '' : 's'} · {subtitulo || (esAdmin() ? 'cartera del equipo' : 'tu cartera')}
+            {verArchivados && ' · archivados'}
+          </p>
+        </div>
+        <button onClick={abrirCrear} className="btn-primary">+ Nuevo cliente</button>
+      </div>
+
+      {banner}
+
+      <div className="flex flex-wrap gap-3">
+        <input className="input flex-1 min-w-[220px]" placeholder="Buscar por nombre, email, teléfono, RFC…" value={q} onChange={(e) => setQ(e.target.value)} />
+        {esAdmin() && !scoped && (
+          <select className="input w-auto" value={asesorFiltro} onChange={(e) => setAsesorFiltro(e.target.value)}>
+            <option value="">Todos los asesores</option>
+            {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
+          </select>
+        )}
+        <label className="inline-flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 select-none cursor-pointer px-1">
+          <input
+            type="checkbox"
+            className="rounded border-slate-300 dark:border-slate-600 text-brand-600 focus:ring-brand-500"
+            checked={verArchivados}
+            onChange={(e) => setVerArchivados(e.target.checked)}
+          />
+          Ver archivados
+        </label>
+      </div>
+
+      {/* Pipeline: los chips de etapa son el filtro (clic = filtra, con conteo).
+          "Necesita seguimiento" es bandera aparte, no etapa. */}
+      <div className="flex flex-wrap gap-2">
+        {ETAPAS.map((e) => {
+          const on = etapaActiva === e.value;
+          return (
+            <button
+              key={e.value}
+              onClick={() => setEtapaActiva(on ? null : e.value)}
+              className={`${chipBase} ${on ? `border-transparent ring-[1.5px] ring-inset ${e.chipOn} text-slate-800 dark:text-slate-100` : chipOff}`}
+            >
+              <span className={`h-2 w-2 rounded-full ${e.dot}`} />
+              {e.label}
+              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${on ? e.badgeOn : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
+                {conteos[e.value] || 0}
+              </span>
+            </button>
+          );
+        })}
+        <button
+          onClick={() => setEtapaActiva(etapaActiva === '__flag' ? null : '__flag')}
+          className={`${chipBase} ${etapaActiva === '__flag' ? `border-transparent ring-[1.5px] ring-inset ${FLAG_SEGUIMIENTO.chipOn} text-slate-800 dark:text-slate-100` : chipOff}`}
+        >
+          <svg className={`w-3.5 h-3.5 ${FLAG_SEGUIMIENTO.text}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" /></svg>
+          {FLAG_SEGUIMIENTO.label}
+          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${etapaActiva === '__flag' ? FLAG_SEGUIMIENTO.badgeOn : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
+            {conteos.__flag}
+          </span>
+        </button>
+      </div>
+
+      <Card>
+        {isFetching ? (
+          <div className="py-10 text-center text-slate-400 dark:text-slate-500">Cargando…</div>
+        ) : filas.length === 0 ? (
+          <EmptyState message={etapaActiva ? 'No hay clientes con este filtro' : 'No hay clientes que mostrar'} />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                  <th className="py-2 pr-4">Cliente</th>
+                  <th className="py-2 pr-4">Contacto</th>
+                  {esAdmin() && !scoped && <th className="py-2 pr-4">Asesor</th>}
+                  <th className="py-2 pr-4">Etapa</th>
+                  <th className="py-2 pr-4">Próxima acción</th>
+                  <th className="py-2 pr-4 text-center">Citas</th>
+                  <th className="py-2 pr-4 text-center">Ventas</th>
+                  <th className="py-2 text-right" />
+                </tr>
+              </thead>
+              <tbody>
+                {filas.map((c) => (
+                  <tr key={c.id} className="border-b border-slate-50 dark:border-slate-700/60 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition">
+                    <td className="py-2.5 pr-4">
+                      <Link to={`/clientes/${c.id}`} className="font-semibold text-brand-600 dark:text-brand-400 hover:underline">
+                        {c.nombre} {c.apellidoP} {c.apellidoM || ''}
+                      </Link>
+                      {c.fuente && <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Fuente: {c.fuente}</p>}
+                    </td>
+                    <td className="py-2.5 pr-4 text-slate-600 dark:text-slate-300">
+                      {c.telefono && <p className="tabular-nums">{c.telefono}</p>}
+                      {c.email && <p className="text-xs text-slate-400 dark:text-slate-500">{c.email}</p>}
+                      {!c.telefono && !c.email && '—'}
+                    </td>
+                    {esAdmin() && !scoped && (
+                      <td className="py-2.5 pr-4 text-slate-600 dark:text-slate-300">
+                        <div className="flex items-center gap-2">
+                          <span className="avatar !h-7 !w-7 text-[11px]">{`${c.asesor?.nombre?.[0] || ''}${c.asesor?.apellidoP?.[0] || ''}`}</span>
+                          {c.asesor?.nombre} {c.asesor?.apellidoP}
+                        </div>
+                      </td>
+                    )}
+                    <td className="py-2.5 pr-4"><EtapaCell cliente={c} /></td>
+                    <td className="py-2.5 pr-4"><ProximaAccion pa={c.proximaAccion} /></td>
+                    <td className="py-2.5 pr-4 text-center tabular-nums text-slate-600 dark:text-slate-300">{c._count?.citas || 0}</td>
+                    <td className="py-2.5 pr-4 text-center tabular-nums text-slate-600 dark:text-slate-300">{c._count?.ventas || 0}</td>
+                    <td className="py-2.5 text-right">
+                      <MenuAcciones
+                        small
+                        label={`Acciones de ${c.nombre}`}
+                        items={verArchivados ? [
+                          { label: 'Ver expediente', onClick: () => navigate(`/clientes/${c.id}`) },
+                          'sep',
+                          { label: 'Restaurar cliente', onClick: () => restaurar(c) },
+                        ] : [
+                          { label: 'Ver expediente', onClick: () => navigate(`/clientes/${c.id}`) },
+                          { label: 'Editar', onClick: () => abrirEditar(c) },
+                          { label: 'Agendar cita', onClick: () => navigate(`/clientes/${c.id}`, { state: { abrirCita: true } }) },
+                          'sep',
+                          { label: 'Archivar cliente', danger: true, onClick: () => setToArchive(c) },
+                        ]}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Modal open={open} onClose={() => setOpen(false)} title={editId ? 'Editar cliente' : 'Nuevo cliente'}>
+        <form onSubmit={submit} className="space-y-3">
+          {esAdmin() && !scoped && asesores?.length > 0 && (
+            <Field label="Asesor asignado">
+              <select className="input" value={formAsesorId} onChange={(e) => setFormAsesorId(e.target.value)}>
+                <option value="">Sin especificar</option>
+                {asesores.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
+              </select>
+            </Field>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Nombre*"><input className="input" required value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} /></Field>
+            <Field label="Apellido paterno*"><input className="input" required value={form.apellidoP} onChange={(e) => setForm({ ...form, apellidoP: e.target.value })} /></Field>
+            <Field label="Apellido materno"><input className="input" value={form.apellidoM} onChange={(e) => setForm({ ...form, apellidoM: e.target.value })} /></Field>
+            <Field label="Teléfono"><input className="input" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} /></Field>
+            <Field label="Email"><input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
+            <Field label="Etapa del pipeline">
+              <select className="input" value={form.estado} onChange={(e) => setForm({ ...form, estado: e.target.value })}>
+                {ETAPAS.map((e) => <option key={e.value} value={e.value}>{e.label}</option>)}
+                {infoEtapa(form.estado).orden === -1 && <option value={form.estado}>{infoEtapa(form.estado).label}</option>}
+              </select>
+            </Field>
+            <Field label="Fuente"><input className="input" value={form.fuente} onChange={(e) => setForm({ ...form, fuente: e.target.value })} placeholder="Referido, Facebook, etc." /></Field>
+          </div>
+          <label className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 select-none cursor-pointer">
+            <input
+              type="checkbox"
+              className="rounded border-slate-300 dark:border-slate-600 text-amber-500 focus:ring-amber-500"
+              checked={form.necesitaSeguimiento}
+              onChange={(e) => setForm({ ...form, necesitaSeguimiento: e.target.checked })}
+            />
+            Necesita seguimiento <span className="text-xs text-slate-400 dark:text-slate-500">(bandera independiente de la etapa)</span>
+          </label>
+
+          {/* Producto de interés — catálogo de productos NYL */}
+          <div className="border-t border-slate-100 dark:border-slate-700 pt-3 mt-1">
+            <p className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400 mb-2">Producto de interés (Seguros Monterrey NYL)</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Ramo">
+                <select
+                  className="input"
+                  value={form.productoInteres || ''}
+                  onChange={(e) => setForm({ ...form, productoInteres: e.target.value, productoCatalogoId: '' })}
+                >
+                  <option value="">Sin seleccionar</option>
+                  {Object.entries(RAMOS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </Field>
+              <Field label="Producto específico">
+                <select
+                  className="input"
+                  value={form.productoCatalogoId || ''}
+                  onChange={(e) => {
+                    const prod = productosCatalogo?.find((p) => p.id === e.target.value);
+                    setForm({ ...form, productoCatalogoId: e.target.value, detalleInteres: prod ? `${prod.nombre} (${RAMOS_LABEL[prod.ramo]})` : form.detalleInteres });
+                  }}
+                  disabled={!form.productoInteres}
+                >
+                  <option value="">{form.productoInteres ? '— elegir producto —' : 'Primero elige ramo'}</option>
+                  {productosCatalogo?.filter((p) => p.ramo === form.productoInteres).map((p) => (
+                    <option key={p.id} value={p.id}>{p.nombre}{p.comisionPct ? ` · comisión ${p.comisionPct}%` : ''}</option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            <Field label="Detalle de interés">
+              <textarea className="input" rows={2} value={form.detalleInteres || ''} onChange={(e) => setForm({ ...form, detalleInteres: e.target.value })} placeholder="Ej: Busca protección familiar, prima mensual estimada $1,500" />
+            </Field>
+          </div>
+
+          {/* Referidos */}
+          <div className="border-t border-slate-100 dark:border-slate-700 pt-3 mt-1">
+            <p className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400 mb-2">Referido por</p>
+            <Field label="¿Quién lo refirió? (opcional)">
+              <select className="input" value={form.referidoPorId || ''} onChange={(e) => setForm({ ...form, referidoPorId: e.target.value })}>
+                <option value="">Ninguno / captación directa</option>
+                {clientes?.filter((c) => c.id !== editId).map((c) => (
+                  <option key={c.id} value={c.id}>{c.nombre} {c.apellidoP} {c.apellidoM || ''}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+
+          <Field label="Notas"><textarea className="input" rows={2} value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} /></Field>
+          {err && <p className="text-sm text-red-600">{err}</p>}
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={() => setOpen(false)} className="btn-secondary">Cancelar</button>
+            <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Guardando…' : 'Guardar'}</button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={!!toArchive} onClose={() => setToArchive(null)} title="Archivar cliente">
+        {toArchive && (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-700 dark:text-slate-300">
+              ¿Archivar a <strong>{toArchive.nombre} {toArchive.apellidoP}</strong>? Dejará de aparecer
+              en tus listas, pero <strong>sus pólizas, citas y referidos se conservan</strong> y podrás
+              restaurarlo cuando quieras con «Ver archivados».
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setToArchive(null)} className="btn-secondary">Cancelar</button>
+              <button
+                type="button"
+                onClick={confirmarArchivar}
+                disabled={archiving}
+                className="btn-danger"
+              >
+                {archiving ? 'Archivando…' : 'Archivar cliente'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}

@@ -2,9 +2,13 @@ import { Router } from 'express';
 import { prisma } from '../prisma.js';
 import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
+import { permiteSeccion } from '../middleware/permisos.js';
+import { registrarActividad } from '../utils/actividad.js';
 
 const router = Router();
 router.use(authenticate);
+// Permiso de sección enforced en servidor (RBAC + excepciones, fail closed).
+router.use(permiteSeccion('clientes'));
 
 router.get('/', asyncHandler(async (req, res) => {
   const { estado, clienteOrigenId, asesorId } = req.query;
@@ -43,7 +47,12 @@ router.post('/', asyncHandler(async (req, res) => {
       notas: notas || null,
     },
   });
-  await prisma.actividad.create({ data: { asesorId, tipo: 'REFERIDO_CREADO', descripcion: `Nuevo referido desde ${origen.nombre} ${origen.apellidoP}` } });
+  await registrarActividad(asesorId, 'REFERIDO_CREADO', {
+    referidoId: referido.id,
+    clienteOrigenId,
+    clienteOrigen: `${origen.nombre} ${origen.apellidoP}`,
+    referido: nombreReferido || null,
+  });
   res.status(201).json(referido);
 }));
 

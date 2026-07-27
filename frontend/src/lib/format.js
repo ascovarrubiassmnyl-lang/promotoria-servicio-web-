@@ -60,6 +60,9 @@ export const FORMAS_PAGO = {
   UNICO: 'Pago único',
 };
 
+// Etapas reales del embudo, en orden. "Necesita seguimiento" NO es una etapa:
+// es la bandera Cliente.necesitaSeguimiento (independiente de la etapa). El
+// mapa de presentación (color/orden) vive en components/clientes/etapas.js.
 export const ESTADOS_CLIENTE = [
   'PROSPECTO',
   'CITA',
@@ -68,7 +71,6 @@ export const ESTADOS_CLIENTE = [
   'ENTREGA_POLIZA',
   'REFERIDOS',
   'POST_VENTA_SEGUIMIENTO',
-  'NECESITA_SEGUIMIENTO',
 ];
 
 export const ESTADOS_CLIENTE_LABEL = {
@@ -79,7 +81,7 @@ export const ESTADOS_CLIENTE_LABEL = {
   ENTREGA_POLIZA: 'Entrega de póliza',
   REFERIDOS: 'Referidos',
   POST_VENTA_SEGUIMIENTO: 'Post venta y seguimiento',
-  NECESITA_SEGUIMIENTO: 'Necesita seguimiento',
+  NECESITA_SEGUIMIENTO: 'Necesita seguimiento', // legacy: solo para mostrar datos viejos
 };
 
 export const ESTADOS_VENTA = ['PENDIENTE_PAGAR', 'FIRMADA', 'PAGADA', 'CANCELADA', 'APROBADA', 'RECHAZADA'];
