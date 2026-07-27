@@ -1,30 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from '../api/client.js';
-import { Card, CitaBadge, ClienteBadge, VentaBadge, EmptyState } from '../components/ui.jsx';
-import { mxn, num, fechaHora, hora, nombreMes } from '../lib/format.js';
+import { Card, CitaBadge, VentaBadge, EmptyState } from '../components/ui.jsx';
+import { mxn, fechaHora, hora, nombreMes } from '../lib/format.js';
 
-export function ClientesAsesor({ asesorId }) {
-  const { data } = useQuery({ queryKey: ['clientes-asesor', asesorId], queryFn: async () => (await api.get('/clientes', { params: { asesorId } })).data });
-  if (!data || data.length === 0) return <EmptyState message="Sin clientes" />;
-  return (
-    <Card>
-      <table className="w-full text-sm">
-        <thead><tr className="text-left text-xs uppercase text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700"><th className="py-2 pr-4">Cliente</th><th className="py-2 pr-4">Contacto</th><th className="py-2 pr-4">Estado</th><th className="py-2 pr-4">Creado</th></tr></thead>
-        <tbody>
-          {data.map((c) => (
-            <tr key={c.id} className="border-b border-slate-50">
-              <td className="py-2 pr-4 font-medium text-slate-700 dark:text-slate-300">{c.nombre} {c.apellidoP}</td>
-              <td className="py-2 pr-4 text-slate-600 dark:text-slate-300">{c.telefono || c.email || '—'}</td>
-              <td className="py-2 pr-4"><ClienteBadge estado={c.estado} /></td>
-              <td className="py-2 pr-4 text-slate-500 dark:text-slate-400">{fechaHora(c.creadoEn)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </Card>
-  );
-}
+// La vista de clientes por asesor vive en components/clientes/ClientesView.jsx
+// (contenedor compartido con scope asesorId, mismo patrón que PolizasView).
 
 export function CitasAsesor({ asesorId, vistaCalendario }) {
   const [mes, setMes] = useState(new Date());

@@ -1,12 +1,14 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, handleError } from '../api/client.js';
-import { TendenciaMes, VentasAsesor, ClientesAsesor, CitasAsesor } from '../components/VistasAsesor.jsx';
+import { TendenciaMes, VentasAsesor, CitasAsesor } from '../components/VistasAsesor.jsx';
 import { Card, Modal, Field, Badge, EmptyState } from '../components/ui.jsx';
+import ClientesView from '../components/clientes/ClientesView.jsx';
 import { mxn, num, fechaCorta } from '../lib/format.js';
 
 const ROLES = ['SUPERADMIN', 'ADMIN', 'ASESOR'];
 const rolColor = { SUPERADMIN: 'red', ADMIN: 'blue', ASESOR: 'slate' };
+const iniciales = (nombre = '') => nombre.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
 
 export default function Asesores() {
   const [tab, setTab] = useState('crm');
@@ -45,50 +47,80 @@ function CrmTab() {
 
   if (!selected) {
     return (
-      <Card>
+      <div className="card overflow-hidden">
         {ranking.length === 0 ? <EmptyState message="Sin asesores" /> : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr className="text-left text-xs uppercase text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
-                <th className="py-2 pr-4">Asesor</th><th className="py-2 pr-4 text-right">Clientes</th><th className="py-2 pr-4 text-right">Citas mes</th><th className="py-2 pr-4 text-right">Ventas mes</th><th className="py-2 pr-4 text-right">Prima mes</th><th></th>
-              </tr></thead>
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                  <th className="py-3 px-4 font-semibold">Asesor</th>
+                  <th className="py-3 px-4 font-semibold text-center">Clientes</th>
+                  <th className="py-3 px-4 font-semibold text-center">Citas mes</th>
+                  <th className="py-3 px-4 font-semibold text-center">Ventas mes</th>
+                  <th className="py-3 px-4 font-semibold text-right">Prima mes</th>
+                </tr>
+              </thead>
               <tbody>
                 {ranking.map((r) => (
-                  <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50 dark:hover:bg-slate-700/60">
-                    <td className="py-2 pr-4">
-                      <button onClick={() => setSelected(r)} className="font-medium text-brand-600 dark:text-brand-400 hover:underline">{r.nombre}</button>
-                      <p className="text-xs text-slate-400 dark:text-slate-500">{r.email}</p>
+                  <tr
+                    key={r.id}
+                    onClick={() => setSelected(r)}
+                    className="border-b border-slate-50 dark:border-slate-700/60 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/40 transition"
+                  >
+                    <td className="py-3 px-4">
+                      <div className="flex items-center gap-3">
+                        <div className="avatar">{iniciales(r.nombre)}</div>
+                        <div>
+                          <p className="font-semibold text-slate-800 dark:text-slate-100">{r.nombre}</p>
+                          <p className="text-xs text-slate-400 dark:text-slate-500">{r.email}</p>
+                        </div>
+                      </div>
                     </td>
-                    <td className="py-2 pr-4 text-right">{num(r.clientes)}</td>
-                    <td className="py-2 pr-4 text-right">{num(r.citas)}</td>
-                    <td className="py-2 pr-4 text-right">{num(r.ventas)}</td>
-                    <td className="py-2 pr-4 text-right font-semibold text-emerald-600">{mxn(r.prima)}</td>
-                    <td className="py-2 pr-4"><button onClick={() => setSelected(r)} className="btn-secondary text-xs">Ver CRM</button></td>
+                    <td className="py-3 px-4 text-center tabular-nums">{num(r.clientes)}</td>
+                    <td className="py-3 px-4 text-center tabular-nums">{num(r.citas)}</td>
+                    <td className="py-3 px-4 text-center tabular-nums">{num(r.ventas)}</td>
+                    <td className="py-3 px-4 text-right"><span className="money-earned">{mxn(r.prima)}</span></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-      </Card>
+      </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <button onClick={() => setSelected(null)} className="text-sm text-brand-600 dark:text-brand-400 hover:underline">← Volver</button>
-          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mt-1">CRM de {selected.nombre}</h3>
-          <p className="text-sm text-slate-500 dark:text-slate-400">{selected.email}</p>
+      <p className="text-sm text-slate-400 dark:text-slate-500">
+        <button onClick={() => setSelected(null)} className="text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 transition">CRM por asesor</button>
+        <span> / </span>
+        <span>{selected.nombre}</span>
+      </p>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="kpi kpi-accent">
+          <p className="kpi-label">Clientes</p>
+          <p className="kpi-val">{num(selected.clientes)}</p>
+          <p className="kpi-note">cartera activa</p>
         </div>
-        <div className="grid grid-cols-4 gap-2 text-xs">
-          <div className="text-center"><p className="text-slate-400 dark:text-slate-500">Clientes</p><p className="font-bold">{num(selected.clientes)}</p></div>
-          <div className="text-center"><p className="text-slate-400 dark:text-slate-500">Citas</p><p className="font-bold">{num(selected.citas)}</p></div>
-          <div className="text-center"><p className="text-slate-400 dark:text-slate-500">Ventas</p><p className="font-bold">{num(selected.ventas)}</p></div>
-          <div className="text-center"><p className="text-slate-400 dark:text-slate-500">Prima</p><p className="font-bold text-emerald-600">{mxn(selected.prima)}</p></div>
+        <div className="kpi">
+          <p className="kpi-label">Citas del mes</p>
+          <p className="kpi-val">{num(selected.citas)}</p>
+          <p className="kpi-note">agendadas</p>
+        </div>
+        <div className="kpi">
+          <p className="kpi-label">Ventas del mes</p>
+          <p className="kpi-val">{num(selected.ventas)}</p>
+          <p className="kpi-note">pólizas del periodo</p>
+        </div>
+        <div className="kpi kpi-green">
+          <p className="kpi-label">Prima del mes</p>
+          <p className="kpi-val">{mxn(selected.prima)}</p>
+          <p className="kpi-note">aprobada / pagada</p>
         </div>
       </div>
+
       <DetalleTabs asesor={selected} />
     </div>
   );
@@ -106,7 +138,19 @@ function DetalleTabs({ asesor }) {
           </button>
         ))}
       </div>
-      {tab === 'clientes' && <ClientesAsesor asesorId={asesor.id} />}
+      {tab === 'clientes' && (
+        <ClientesView
+          asesorId={asesor.id}
+          titulo={`Clientes de ${asesor.nombre}`}
+          subtitulo="vista de promotor · control total de la cartera"
+          banner={
+            <div className="scope-banner">
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>
+              <span>Estás gestionando los clientes de <strong>{asesor.nombre}</strong> como promotor: los clientes que crees aquí se asignan a este asesor.</span>
+            </div>
+          }
+        />
+      )}
       {tab === 'citas' && <CitasAsesor asesorId={asesor.id} />}
       {tab === 'calendario' && <CitasAsesor asesorId={asesor.id} vistaCalendario />}
       {tab === 'ventas' && <VentasAsesor asesorId={asesor.id} />}
