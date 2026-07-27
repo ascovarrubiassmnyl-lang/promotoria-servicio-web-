@@ -49,7 +49,7 @@ export default function Dashboard() {
       {/* Encabezado */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-800 dark:text-slate-100">Hola, {user?.nombre}</h2>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100 sm:text-3xl">Hola, {user?.nombre}</h2>
           <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
             {admin ? 'Promotoría' : 'Tu mes'}
             <span className="mx-2 text-slate-300 dark:text-slate-600">·</span>
@@ -98,7 +98,7 @@ function Hero({ data, admin, mes, anio, fraccion }) {
   const periodo = `${nombreMes(mes)} ${anio}`;
 
   return (
-    <section className="card grid items-center gap-8 p-7 sm:p-8 lg:grid-cols-[auto_1px_1fr] lg:gap-10">
+    <section className="card grid items-center gap-6 p-5 sm:gap-8 sm:p-8 lg:grid-cols-[auto_1px_1fr] lg:gap-10">
       <Anillo pct={sinMeta ? 0 : pct} clave={clave} fraccion={fraccion}>
         {sinMeta ? (
           <>
@@ -139,7 +139,7 @@ function Hero({ data, admin, mes, anio, fraccion }) {
             <>Vas por debajo del ritmo del mes. Al paso actual cerrarías en <B>{mxn(proj)}</B> — cerca del <B>{projPct}%</B> de la meta. Faltan <B>{mxn(metaPrima - data.primaAnualTotal)}</B> para llegar.</>
           )}
         </p>
-        <div className="flex flex-wrap gap-x-10 gap-y-4 pt-1">
+        <div className="grid grid-cols-2 gap-3 pt-1 sm:flex sm:flex-wrap sm:gap-x-10 sm:gap-y-4">
           <HeroStat k="Ventas" v={metaVentas ? `${num(data.ventasAprobadas)} / ${num(metaVentas)}` : num(data.ventasAprobadas)}
             d={metaVentas ? `${pctAvance(data.ventasAprobadas, metaVentas)}% de la meta` : 'pagadas o aprobadas'} />
           <HeroStat k="Comisión ganada" v={mxn(data.comisionTotal)} d="de ventas del mes" green />
@@ -157,9 +157,11 @@ function B({ children }) {
   return <b className="font-semibold tabular-nums text-slate-800 dark:text-slate-100">{children}</b>;
 }
 
+// En móvil cada stat es una tarjetita (borde + fondo tenue); en escritorio
+// (sm+) se aplana a texto suelto, como el rediseño original de escritorio.
 function HeroStat({ k, v, d, green = false }) {
   return (
-    <div>
+    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3 dark:border-slate-700/60 dark:bg-slate-900/30 sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0">
       <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{k}</p>
       <p className={`mt-1 text-[22px] font-bold tabular-nums tracking-tight ${green ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-100'}`}>{v}</p>
       <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{d}</p>
@@ -235,7 +237,7 @@ function Atencion({ atencion, admin }) {
   ].filter(Boolean);
 
   return (
-    <section className="card p-7">
+    <section className="card p-5 sm:p-7">
       <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Requiere tu atención</h3>
       <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">Lo que conviene mover esta semana</p>
       {items.length === 0 ? (
@@ -300,7 +302,7 @@ function Embudo({ funnel }) {
   });
 
   return (
-    <section className="card p-7">
+    <section className="card p-5 sm:p-7">
       <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Embudo del pipeline</h3>
       <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">Dónde avanza y dónde se cae la conversión</p>
       {total === 0 ? (
@@ -315,14 +317,14 @@ function Embudo({ funnel }) {
             {datos.map((d, i) => (
               <div key={d.value}>
                 {conversiones[i] && (
-                  <p className="py-0.5 pl-[132px] text-[11px] tabular-nums text-slate-400 dark:text-slate-500">
+                  <p className="py-0.5 pl-[104px] text-[11px] tabular-nums text-slate-400 dark:text-slate-500 sm:pl-[132px]">
                     <span className={conversiones[i].pct < 70 ? 'font-bold text-amber-600 dark:text-amber-400' : ''}>
                       {conversiones[i].de} → {conversiones[i].a}: {conversiones[i].pct}%
                     </span>
                   </p>
                 )}
                 <div className="flex items-center gap-4 py-1.5">
-                  <span className="w-[116px] shrink-0 truncate text-[13px] font-medium text-slate-500 dark:text-slate-400">{d.label}</span>
+                  <span className="w-[88px] shrink-0 truncate text-[13px] font-medium text-slate-500 dark:text-slate-400 sm:w-[116px]">{d.label}</span>
                   <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700/60">
                     <div className={`h-full rounded-full ${d.dot} transition-all duration-500 motion-reduce:transition-none`} style={{ width: `${Math.max((d.count / top) * 100, 4)}%` }} />
                   </div>
@@ -358,7 +360,7 @@ const ESTADOS_POLIZA_DOT = [
 function EstadoPolizas({ polizasMes, periodo }) {
   const totalMes = Object.values(polizasMes || {}).reduce((s, n) => s + n, 0);
   return (
-    <section className="card p-7">
+    <section className="card p-5 sm:p-7">
       <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Estado de pólizas</h3>
       <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">Pólizas registradas en {periodo}</p>
       {totalMes === 0 ? (
@@ -367,9 +369,13 @@ function EstadoPolizas({ polizasMes, periodo }) {
           <Link to="/ventas" className="font-semibold text-brand-600 hover:underline dark:text-brand-400">Registra la primera</Link>.
         </div>
       ) : (
-        <div className="mt-4 flex flex-wrap">
+        // Móvil: rejilla de tarjetitas; escritorio (sm+): franja con divisores.
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:gap-0">
           {ESTADOS_POLIZA_DOT.map(([estado, dot], i) => (
-            <div key={estado} className={`min-w-[120px] flex-1 px-5 py-1 ${i > 0 ? 'border-l border-slate-100 dark:border-slate-700/60' : 'pl-0'}`}>
+            <div
+              key={estado}
+              className={`rounded-xl border border-slate-100 p-3 dark:border-slate-700/60 sm:min-w-[120px] sm:flex-1 sm:rounded-none sm:border-0 sm:p-0 sm:px-5 sm:py-1 ${i > 0 ? 'sm:border-l sm:border-slate-100 dark:sm:border-slate-700/60' : 'sm:pl-0'}`}
+            >
               <p className="text-2xl font-bold tabular-nums tracking-tight text-slate-800 dark:text-slate-100">{num(polizasMes[estado] || 0)}</p>
               <p className="mt-1 flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500">
                 <span className={`h-[7px] w-[7px] rounded-full ${dot}`} />
@@ -387,7 +393,7 @@ function EstadoPolizas({ polizasMes, periodo }) {
 
 function Ranking({ ranking = [], fraccion }) {
   return (
-    <section className="card p-7">
+    <section className="card p-5 sm:p-7">
       <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Ranking de asesores</h3>
       <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">Por prima colocada este mes</p>
       {ranking.length === 0 ? (
@@ -440,7 +446,7 @@ function ReferidosBonos({ data, periodo }) {
     </div>
   );
   return (
-    <section className="card p-7">
+    <section className="card p-5 sm:p-7">
       <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Referidos y bonos</h3>
       <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{periodo}</p>
       <div className="mt-4 grid gap-x-10 sm:grid-cols-2">

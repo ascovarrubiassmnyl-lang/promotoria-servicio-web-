@@ -10,6 +10,13 @@
     @apply text-slate-100;
     background-color: #070a24;
   }
+  /* Foco de teclado visible en toda la app (los inputs ya tienen su propio
+     anillo de foco). Solo teclado: focus-visible, no en clic/touch. */
+  a:focus-visible,
+  button:focus-visible,
+  [tabindex]:focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-1 ring-offset-white dark:ring-offset-slate-900;
+  }
 }
 
 @layer components {

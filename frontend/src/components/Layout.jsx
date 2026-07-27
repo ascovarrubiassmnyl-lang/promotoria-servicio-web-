@@ -20,6 +20,8 @@ const IconMetas = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="cu
 const IconConfig = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>);
 const IconLogout = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>);
 const IconToggle = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>);
+const IconMas = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>);
+const IconClose = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>);
 const IconSun = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>);
 const IconMoon = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>);
 
@@ -30,6 +32,15 @@ const ICONS = {
 
 const STORAGE_KEY = 'crm:sidebar:colapsado';
 
+// Secciones que ocupan una pestaña propia en la barra inferior (móvil), en
+// orden. El resto de destinos permitidos caen en la hoja "Más".
+const PRIMARY_SECCIONES = ['dashboard', 'clientes', 'citas', 'ventas'];
+// Etiqueta corta para la barra inferior (el sidebar usa la larga).
+const NAV_CORTO = {
+  dashboard: 'Panel', clientes: 'Clientes', citas: 'Citas', ventas: 'Pólizas',
+  actividad: 'Actividad', metas: 'Metas', asesores: 'Asesores', configuracion: 'Ajustes',
+};
+
 export default function Layout() {
   const { user, logout, esAdmin, puede } = useAuth();
   const { tema, alternar } = useTheme();
@@ -39,6 +50,7 @@ export default function Layout() {
 
   const [conWebGL] = useState(soportaWebGL);
   const [colapsado, setColapsado] = useState(false);
+  const [menuAbierto, setMenuAbierto] = useState(false); // hoja "Más" (móvil)
   useEffect(() => {
     const v = localStorage.getItem(STORAGE_KEY);
     if (v === '1') setColapsado(true);
@@ -70,6 +82,14 @@ export default function Layout() {
   const links = allLinks.filter((l) => puede(l.seccion));
   const adminLinksFiltrados = esAdmin() ? adminLinks.filter((l) => puede(l.seccion)) : [];
 
+  // Navegación móvil (misma fuente que el sidebar, sin re-derivar permisos):
+  // las 4 secciones primarias son pestañas fijas y el resto va en la hoja "Más".
+  const navMovil = [...links, ...adminLinksFiltrados];
+  const tabsPrimarios = PRIMARY_SECCIONES
+    .map((s) => navMovil.find((l) => l.seccion === s))
+    .filter(Boolean);
+  const tabsMas = navMovil.filter((l) => !PRIMARY_SECCIONES.includes(l.seccion));
+
   const wClase = colapsado ? 'w-[68px]' : 'w-64';
   const linkClase = (isActive) =>
     `${isActive ? 'bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60'} ${
@@ -89,7 +109,7 @@ export default function Layout() {
       )}
 
       <aside
-        className={`${wClase} bg-white dark:bg-slate-900/70 dark:backdrop-blur-xl border-r border-slate-200 dark:border-slate-700/70 flex flex-col transition-all duration-200 shrink-0 h-screen relative z-10`}
+        className={`${wClase} bg-white dark:bg-slate-900/70 dark:backdrop-blur-xl border-r border-slate-200 dark:border-slate-700/70 hidden md:flex flex-col transition-all duration-200 shrink-0 h-screen relative z-10`}
       >
         {/* Logo + toggle */}
         <div className={`border-b border-slate-100 dark:border-slate-700 flex items-center h-16 ${colapsado ? 'justify-center px-2' : 'justify-between px-4'}`}>
@@ -200,11 +220,134 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className="flex-1 min-w-0 h-full overflow-y-auto overflow-x-hidden relative z-10">
-        <div className="max-w-7xl mx-auto p-6">
-          <Outlet />
+      {/* Columna derecha: barra superior (móvil) + contenido + barra inferior (móvil) */}
+      <div className="flex-1 min-w-0 h-full flex flex-col relative z-10">
+        {/* Barra superior compacta — solo móvil (el sidebar cubre escritorio) */}
+        <header className="md:hidden sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white/90 px-4 backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/70">
+          <img src={logoSrc} alt="Origen" className="h-7 w-auto object-contain" />
+          <button
+            onClick={alternar}
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700/60 transition"
+            aria-label={tema === 'dark' ? 'Activar modo claro' : 'Activar modo oscuro'}
+          >
+            {tema === 'dark' ? <IconSun className="w-5 h-5" /> : <IconMoon className="w-5 h-5" />}
+          </button>
+        </header>
+
+        <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
+          <div className="max-w-7xl mx-auto p-4 pb-8 sm:p-6 md:pb-6">
+            <Outlet />
+          </div>
+        </main>
+
+        {/* Barra de pestañas inferior — solo móvil, áreas táctiles ≥44px + safe-area */}
+        <nav
+          className="md:hidden shrink-0 flex border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/80 px-1 pt-1 pb-[env(safe-area-inset-bottom)]"
+          aria-label="Navegación principal"
+        >
+          {tabsPrimarios.map((l) => {
+            const Icon = ICONS[l.seccion] || IconDashboard;
+            return (
+              <NavLink
+                key={l.to}
+                to={l.to}
+                end={l.end}
+                className={({ isActive }) =>
+                  `flex flex-1 flex-col items-center justify-center gap-1 rounded-lg py-1.5 min-h-[52px] text-[11px] font-medium transition ${
+                    isActive
+                      ? 'text-brand-600 dark:text-brand-400'
+                      : 'text-slate-500 dark:text-slate-400'
+                  }`
+                }
+              >
+                <Icon className="w-6 h-6" />
+                <span>{NAV_CORTO[l.seccion] || l.label}</span>
+              </NavLink>
+            );
+          })}
+          <button
+            onClick={() => setMenuAbierto(true)}
+            className={`flex flex-1 flex-col items-center justify-center gap-1 rounded-lg py-1.5 min-h-[52px] text-[11px] font-medium transition ${
+              menuAbierto ? 'text-brand-600 dark:text-brand-400' : 'text-slate-500 dark:text-slate-400'
+            }`}
+            aria-haspopup="dialog"
+            aria-expanded={menuAbierto}
+          >
+            <IconMas className="w-6 h-6" />
+            <span>Más</span>
+          </button>
+        </nav>
+      </div>
+
+      {/* Hoja "Más" (móvil): resto de secciones + tema + usuario + cerrar sesión */}
+      {menuAbierto && (
+        <div className="md:hidden fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Más opciones">
+          <div
+            className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+            onClick={() => setMenuAbierto(false)}
+          />
+          <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-2xl border-t border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+            <div className="sticky top-0 flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
+              <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Más</span>
+              <button
+                onClick={() => setMenuAbierto(false)}
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700/60"
+                aria-label="Cerrar"
+              >
+                <IconClose className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-2">
+              {tabsMas.map((l) => {
+                const Icon = ICONS[l.seccion] || IconDashboard;
+                return (
+                  <NavLink
+                    key={l.to}
+                    to={l.to}
+                    onClick={() => setMenuAbierto(false)}
+                    className={({ isActive }) =>
+                      `flex items-center gap-3 rounded-lg px-3 min-h-[48px] text-sm font-medium transition ${
+                        isActive
+                          ? 'bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300'
+                          : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60'
+                      }`
+                    }
+                  >
+                    <Icon className="w-5 h-5 shrink-0" />
+                    <span>{l.label}</span>
+                  </NavLink>
+                );
+              })}
+
+              <div className="my-2 border-t border-slate-100 dark:border-slate-700" />
+
+              <button
+                onClick={() => { alternar(); }}
+                className="flex w-full items-center gap-3 rounded-lg px-3 min-h-[48px] text-sm font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60 transition"
+              >
+                {tema === 'dark' ? <IconSun className="w-5 h-5 shrink-0" /> : <IconMoon className="w-5 h-5 shrink-0" />}
+                <span>{tema === 'dark' ? 'Modo claro' : 'Modo oscuro'}</span>
+              </button>
+
+              {user && (
+                <div className="px-3 py-2">
+                  <p className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{user.nombre} {user.apellidoP}</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500">{user.rol}</p>
+                </div>
+              )}
+
+              <button
+                onClick={() => { setMenuAbierto(false); logout(); navigate('/login'); }}
+                className="flex w-full items-center gap-3 rounded-lg px-3 min-h-[48px] text-sm font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 transition"
+              >
+                <IconLogout className="w-5 h-5 shrink-0" />
+                <span>Cerrar sesión</span>
+              </button>
+            </div>
+          </div>
         </div>
-      </main>
+      )}
     </div>
   );
 }
