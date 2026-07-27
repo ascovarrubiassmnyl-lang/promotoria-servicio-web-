@@ -132,14 +132,31 @@ export default function CalendarioView() {
   const abrirReagendar = (c) => { setCitaEdit(c); setPreFecha(null); setModalOpen(true); };
 
   // ---------- Celdas / chips ----------
-  const ChipCita = ({ c }) => {
+  // En la vista Mes conviven dos presentaciones por breakpoint (decisión del
+  // usuario 2026-07-27): en escritorio (md+) la celda usa la línea discreta del
+  // calendario original (punto por canal + hora + cliente, sin fondo); el chip
+  // con fondo de color es solo para móvil. No duplicar el calendario por rol
+  // ni por dispositivo: es el mismo componente con clases responsivas.
+  const ChipCita = ({ c, className = '' }) => {
     const canal = infoCanal(c.tipo);
     const cancelada = c.estado === 'CANCELADA';
     return (
-      <div className={`flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium truncate ${canal.chip} ${cancelada ? 'line-through opacity-50' : ''}`}>
+      <div className={`flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium truncate ${canal.chip} ${cancelada ? 'line-through opacity-50' : ''} ${className}`}>
         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${canal.dot}`} />
         <span className="tabular-nums shrink-0">{hora(c.fechaHoraInicio)}</span>
         <span className="truncate">{c.titulo}</span>
+      </div>
+    );
+  };
+
+  const LineaCita = ({ c, className = '' }) => {
+    const canal = infoCanal(c.tipo);
+    const cancelada = c.estado === 'CANCELADA';
+    return (
+      <div className={`items-center gap-1 text-[10px] text-slate-600 dark:text-slate-300 ${cancelada ? 'line-through opacity-50' : ''} ${className}`}>
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${canal.dot}`} />
+        <span className="tabular-nums shrink-0">{hora(c.fechaHoraInicio)}</span>
+        <span className="truncate">{c.cliente?.nombre}</span>
       </div>
     );
   };
@@ -161,7 +178,7 @@ export default function CalendarioView() {
       </div>
       <div className="grid grid-cols-7 gap-1">
         {gridMes.map((d, i) => {
-          if (!d) return <div key={i} className="min-h-[88px] rounded-lg bg-slate-50/60 dark:bg-slate-800/40" />;
+          if (!d) return <div key={i} className="min-h-[88px] rounded-lg bg-slate-50/60 dark:bg-slate-800/40 md:min-h-[80px] md:bg-transparent dark:md:bg-transparent" />;
           const items = porDia[dayKey(d)] || [];
           const sel = selectedDay && selectedDay.toDateString() === d.toDateString();
           return (
@@ -169,13 +186,15 @@ export default function CalendarioView() {
               key={i}
               onClick={() => setSelectedDay(d)}
               onDoubleClick={(e) => { e.preventDefault(); const dt = new Date(d); dt.setHours(0, 0, 0, 0); abrirAgendar(dt); }}
-              className={`min-h-[88px] rounded-lg border p-1.5 text-left transition ${sel ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/30' : 'border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/60'}`}
+              className={`min-h-[88px] rounded-lg border p-1.5 text-left transition md:min-h-[80px] ${sel ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/30' : 'border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/60'}`}
               title="Doble clic para agendar"
             >
-              <div className={`text-xs font-semibold ${esHoy(d) ? 'w-5 h-5 rounded-full bg-brand-600 text-white flex items-center justify-center' : 'text-slate-600 dark:text-slate-300'}`}>{d.getDate()}</div>
+              <div className={`text-xs font-semibold md:font-normal ${esHoy(d) ? 'w-5 h-5 rounded-full bg-brand-600 text-white flex items-center justify-center' : 'text-slate-600 dark:text-slate-300'}`}>{d.getDate()}</div>
               <div className="mt-1 space-y-0.5">
-                {items.slice(0, 2).map((c) => <ChipCita key={c.id} c={c} />)}
-                {items.length > 2 && <p className="text-[10px] text-slate-400 dark:text-slate-500 pl-1">+{items.length - 2} más</p>}
+                {items.slice(0, 2).map((c) => <ChipCita key={c.id} c={c} className="md:hidden" />)}
+                {items.length > 2 && <p className="text-[10px] text-slate-400 dark:text-slate-500 pl-1 md:hidden">+{items.length - 2} más</p>}
+                {items.slice(0, 3).map((c) => <LineaCita key={c.id} c={c} className="hidden md:flex" />)}
+                {items.length > 3 && <p className="hidden text-[10px] text-slate-400 dark:text-slate-500 md:block">+{items.length - 3} más</p>}
               </div>
             </button>
           );
