@@ -3,42 +3,38 @@ import { promises as dns } from 'node:dns';
 
 // Envío de correo de invitaciones de alta. Dos canales, en este orden:
 //
-// 1. Brevo (API HTTPS, api.brevo.com) si hay BREVO_API_KEY — es el canal de
-//    producción: Railway bloquea los puertos SMTP salientes (25/465/587) fuera
-//    del plan Pro, así que el correo tiene que salir por 443. El remitente
-//    (MAIL_FROM o SMTP_FROM) debe estar verificado en la cuenta de Brevo.
+// 1. Gmail API (HTTPS, gmail.googleapis.com) si hay GMAIL_CLIENT_ID +
+//    GMAIL_CLIENT_SECRET + GMAIL_REFRESH_TOKEN — es el canal de producción:
+//    Railway bloquea los puertos SMTP salientes (25/465/587) fuera del plan
+//    Pro, así que el correo tiene que salir por 443. El refresh token se
+//    genera una sola vez con `backend/scripts/gmail-refresh-token.mjs`
+//    (scope gmail.send); Gmail envía siempre como la cuenta autenticada.
 // 2. SMTP clásico (SMTP_HOST/SMTP_USER/SMTP_PASS) como fallback para entornos
 //    sin ese bloqueo.
 //
 // Igual que web-push: sin credenciales se deshabilita solo con un warning —
 // nunca rompe la creación del usuario ni la generación del link de invitación
 // (que siempre se puede copiar y compartir a mano).
-let modo = null; // 'brevo' | 'smtp' | null
+let modo = null; // 'gmail' | 'smtp' | null
 let smtp = null;
 
 export function initMailer() {
-  const { BREVO_API_KEY, SMTP_HOST, SMTP_USER, SMTP_PASS } = process.env;
+  const { GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, SMTP_HOST, SMTP_USER, SMTP_PASS } = process.env;
 
-  if (BREVO_API_KEY) {
-    modo = 'brevo';
-    console.log('[mailer] Configurado OK (Brevo API)');
-    // Self-check no bloqueante: valida la API key al arrancar para que los
-    // logs digan si el canal de correo realmente funciona sin esperar a la
-    // siguiente invitación.
-    fetch('https://api.brevo.com/v3/account', {
-      headers: { 'api-key': BREVO_API_KEY },
-      signal: AbortSignal.timeout(8000),
-    })
-      .then((r) => {
-        if (r.ok) console.log('[mailer] Brevo verificado');
-        else console.warn(`[mailer] verificación Brevo falló: HTTP ${r.status} (¿API key inválida?)`);
-      })
-      .catch((e) => console.warn('[mailer] verificación Brevo falló:', e.message));
+  if (GMAIL_CLIENT_ID && GMAIL_CLIENT_SECRET && GMAIL_REFRESH_TOKEN) {
+    modo = 'gmail';
+    console.log('[mailer] Configurado OK (Gmail API)');
+    // Self-check no bloqueante: refresca el access token al arrancar para que
+    // los logs digan si las credenciales OAuth realmente funcionan sin
+    // esperar a la siguiente invitación.
+    tokenGmail()
+      .then(() => console.log('[mailer] Gmail API verificada'))
+      .catch((e) => console.warn('[mailer] verificación Gmail falló:', e.message));
     return true;
   }
 
   if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
-    console.warn('[mailer] Falta BREVO_API_KEY o SMTP_HOST/SMTP_USER/SMTP_PASS en .env — envío de correo deshabilitado');
+    console.warn('[mailer] Faltan GMAIL_CLIENT_ID/GMAIL_CLIENT_SECRET/GMAIL_REFRESH_TOKEN (o SMTP_*) en .env — envío de correo deshabilitado');
     return false;
   }
   modo = 'smtp';
@@ -57,12 +53,56 @@ export function initMailer() {
   return true;
 }
 
-// Remitente: MAIL_FROM/SMTP_FROM admite "Nombre <correo>" o el correo pelón.
-function remitente() {
-  const raw = process.env.MAIL_FROM || process.env.SMTP_FROM || process.env.SMTP_USER || '';
-  const m = raw.match(/^\s*(.*?)\s*<(.+)>\s*$/);
-  if (m) return { name: m[1] || 'Origen', email: m[2] };
-  return { name: 'Origen', email: raw };
+// Access token de Gmail con caché: los que emite Google duran ~1h, se renueva
+// con 60s de colchón para no enviar con uno a punto de vencer.
+let _token = null; // { valor, vence }
+async function tokenGmail() {
+  if (_token && Date.now() < _token.vence) return _token.valor;
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: process.env.GMAIL_CLIENT_ID,
+      client_secret: process.env.GMAIL_CLIENT_SECRET,
+      refresh_token: process.env.GMAIL_REFRESH_TOKEN,
+      grant_type: 'refresh_token',
+    }),
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) {
+    const detalle = (await res.text().catch(() => '')).slice(0, 300);
+    throw new Error(`OAuth Google HTTP ${res.status}: ${detalle}`);
+  }
+  const { access_token, expires_in } = await res.json();
+  _token = { valor: access_token, vence: Date.now() + (expires_in - 60) * 1000 };
+  return access_token;
+}
+
+async function enviarGmail({ to, subject, html }) {
+  const token = await tokenGmail();
+  // Mensaje RFC 822 completo, base64url. Gmail reescribe el From a la cuenta
+  // autenticada (o a un alias verificado de esa cuenta), así que MAIL_FROM
+  // solo aporta el nombre visible.
+  const from = process.env.MAIL_FROM || 'Origen';
+  const mime = [
+    `From: ${from}`,
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=utf-8',
+    '',
+    html,
+  ].join('\r\n');
+  const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ raw: Buffer.from(mime, 'utf8').toString('base64url') }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) {
+    const detalle = (await res.text().catch(() => '')).slice(0, 300);
+    throw new Error(`Gmail HTTP ${res.status}: ${detalle}`);
+  }
 }
 
 // Railway no tiene salida IPv6 y el resolver puede devolver la dirección AAAA
@@ -92,28 +132,6 @@ async function crearTransporte() {
   });
 }
 
-async function enviarBrevo({ to, nombre, subject, html }) {
-  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
-    method: 'POST',
-    headers: {
-      'api-key': process.env.BREVO_API_KEY,
-      'content-type': 'application/json',
-      accept: 'application/json',
-    },
-    body: JSON.stringify({
-      sender: remitente(),
-      to: [{ email: to, name: nombre }],
-      subject,
-      htmlContent: html,
-    }),
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!res.ok) {
-    const detalle = (await res.text().catch(() => '')).slice(0, 300);
-    throw new Error(`Brevo HTTP ${res.status}: ${detalle}`);
-  }
-}
-
 export async function enviarInvitacion({ email, nombre, link, expiraEn }) {
   if (!modo) return false;
   const vence = new Date(expiraEn).toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' });
@@ -128,8 +146,8 @@ export async function enviarInvitacion({ email, nombre, link, expiraEn }) {
         <p style="font-size: 13px; color: #64748b;">Este enlace vence el ${vence}. Si no esperabas este correo, ignóralo.</p>
       </div>
     `;
-  if (modo === 'brevo') {
-    await enviarBrevo({ to: email, nombre, subject, html });
+  if (modo === 'gmail') {
+    await enviarGmail({ to: email, subject, html });
     return true;
   }
   const transporter = await crearTransporte();
