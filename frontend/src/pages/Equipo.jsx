@@ -5,6 +5,7 @@ import { api } from '../api/client.js';
 import { EmptyState } from '../components/ui.jsx';
 import { mxn } from '../lib/format.js';
 import PolizasView from '../components/polizas/PolizasView.jsx';
+import ActividadView from '../components/actividad/ActividadView.jsx';
 
 const iniciales = (a) => `${a.nombre?.[0] || ''}${a.apellidoP?.[0] || ''}`.toUpperCase();
 const nombreCompleto = (a) => `${a.nombre} ${a.apellidoP}${a.apellidoM ? ` ${a.apellidoM}` : ''}`;
@@ -132,33 +133,66 @@ export default function Equipo() {
   );
 }
 
-// Cartera de un asesor concreto, gestionada por el promotor con control total:
-// puede crear (asignada a ese asesor), editar, eliminar, registrar pagos y
-// aprobar/rechazar. El banner de alcance indica de quién es la cartera.
+// Perfil de un asesor concreto para el promotor, con dos pestañas:
+//  - Pólizas: control total de la cartera (crear asignada a ese asesor,
+//    editar, eliminar, registrar pagos y aprobar/rechazar).
+//  - Actividad: línea de tiempo del asesor en modo consulta (mismo
+//    ActivityTimeline que usa el propio asesor).
 export function EquipoAsesor() {
   const { asesorId } = useParams();
+  const [tab, setTab] = useState('polizas');
   const { data: resumen } = useResumenEquipo();
   const asesor = resumen?.find((x) => x.asesor.id === asesorId)?.asesor;
   const nombre = asesor ? nombreCompleto(asesor) : 'Asesor';
 
+  const tabs = [
+    { id: 'polizas', label: 'Pólizas' },
+    { id: 'actividad', label: 'Actividad' },
+  ];
+
   return (
-    <PolizasView
-      asesorId={asesorId}
-      titulo={`Pólizas de ${nombre}`}
-      subtitulo="Vista de promotor · control total de la cartera"
-      breadcrumbs={
-        <p className="text-sm text-slate-400 dark:text-slate-500">
-          <Link to="/equipo" className="text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 transition">Equipo</Link>
-          <span> / </span>
-          <span>{nombre}</span>
-        </p>
-      }
-      banner={
-        <div className="scope-banner">
-          <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>
-          <span>Estás gestionando la cartera de <strong>{nombre}</strong> como promotor: las pólizas que crees aquí se asignan a este asesor.</span>
-        </div>
-      }
-    />
+    <div className="space-y-4">
+      <p className="text-sm text-slate-400 dark:text-slate-500">
+        <Link to="/equipo" className="text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 transition">Equipo</Link>
+        <span> / </span>
+        <span>{nombre}</span>
+      </p>
+      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-700">
+        {tabs.map((t) => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === t.id ? 'border-brand-600 text-brand-600 dark:text-brand-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'polizas' && (
+        <PolizasView
+          asesorId={asesorId}
+          titulo={`Pólizas de ${nombre}`}
+          subtitulo="Vista de promotor · control total de la cartera"
+          banner={
+            <div className="scope-banner">
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>
+              <span>Estás gestionando la cartera de <strong>{nombre}</strong> como promotor: las pólizas que crees aquí se asignan a este asesor.</span>
+            </div>
+          }
+        />
+      )}
+
+      {tab === 'actividad' && (
+        <ActividadView
+          asesorId={asesorId}
+          titulo={`Actividad de ${nombre}`}
+          scopeLabel="Consulta · promotor"
+          banner={
+            <div className="scope-banner">
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>
+              <span>Estás viendo la actividad de <strong>{nombre}</strong> como promotor (solo consulta).</span>
+            </div>
+          }
+        />
+      )}
+    </div>
   );
 }

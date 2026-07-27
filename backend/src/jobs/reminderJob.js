@@ -1,5 +1,6 @@
 import { prisma } from '../prisma.js';
 import { initWebPush, notificarRecordatorio } from '../services/push.js';
+import { registrarActividad } from '../utils/actividad.js';
 
 const INTERVALO_MS = 60 * 1000;
 let corriendo = false;
@@ -85,12 +86,10 @@ async function procesarRecordatoriosVencidos() {
           });
           if (venta) {
             await generarSiguienteRecordatorioPago(venta, nota.fechaAviso || ahora);
-            await prisma.actividad.create({
-              data: {
-                asesorId: venta.asesorId,
-                tipo: 'PAGO_RECORDADO',
-                descripcion: `Recordatorio de pago enviado para póliza ${venta.producto}.`,
-              },
+            await registrarActividad(venta.asesorId, 'PAGO_RECORDADO', {
+              ventaId: venta.id,
+              cliente: venta.cliente ? `${venta.cliente.nombre} ${venta.cliente.apellidoP}` : null,
+              producto: venta.producto,
             }).catch(() => {});
           }
         }

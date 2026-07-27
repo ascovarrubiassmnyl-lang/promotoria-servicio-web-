@@ -2,9 +2,13 @@ import { Router } from 'express';
 import { prisma } from '../prisma.js';
 import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
+import { permiteSeccion } from '../middleware/permisos.js';
+import { registrarActividad } from '../utils/actividad.js';
 
 const router = Router();
 router.use(authenticate);
+// Permiso de sección enforced en servidor (RBAC + excepciones, fail closed).
+router.use(permiteSeccion('ventas'));
 
 // Crea (o regenera) el próximo recordatorio de pago para una venta.
 // Si ya existe un RECORDATORIO_PAGO pendiente (no completado, no enviado) para esta venta,
@@ -191,7 +195,12 @@ router.post('/', asyncHandler(async (req, res) => {
   });
   // Sincroniza recordatorio de pago
   await sincronizarRecordatorioPago(venta);
-  await prisma.actividad.create({ data: { asesorId, tipo: 'POLIZA_CREADA', descripcion: `Póliza creada: ${producto} (${ramo}) prima $${primaAnual}` } });
+  await registrarActividad(asesorId, 'POLIZA_CREADA', {
+    ventaId: venta.id,
+    clienteId: venta.cliente?.id || clienteId,
+    cliente: venta.cliente ? `${venta.cliente.nombre} ${venta.cliente.apellidoP}` : null,
+    producto, ramo, prima: +primaAnual,
+  });
   res.status(201).json(venta);
 }));
 
@@ -297,7 +306,13 @@ router.post('/:id/cobroconfirmado', asyncHandler(async (req, res) => {
   await prisma.venta.update({ where: { id }, data: { fechaProximoPago: proxima } });
   const ventaConCliente = await prisma.venta.findUnique({ where: { id }, include: { cliente: { select: { nombre: true, apellidoP: true } } } });
   await sincronizarRecordatorioPago(ventaConCliente);
-  await prisma.actividad.create({ data: { asesorId: venta.asesorId, tipo: 'PAGO_CONFIRMADO', descripcion: `Pago confirmado de póliza ${venta.producto}; próximo cobro ${proxima.toISOString().slice(0,10)}` } });
+  await registrarActividad(venta.asesorId, 'PAGO_CONFIRMADO', {
+    ventaId: venta.id,
+    clienteId: venta.clienteId,
+    cliente: ventaConCliente?.cliente ? `${ventaConCliente.cliente.nombre} ${ventaConCliente.cliente.apellidoP}` : null,
+    producto: venta.producto,
+    proximoCobro: proxima.toISOString().slice(0, 10),
+  });
   res.json({ ok: true, siguienteFecha: proxima });
 }));
 

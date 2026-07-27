@@ -2,16 +2,22 @@ import { Router } from 'express';
 import { prisma } from '../prisma.js';
 import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
+import { permiteSeccion } from '../middleware/permisos.js';
+import { registrarActividad } from '../utils/actividad.js';
 
 const router = Router();
 router.use(authenticate);
+// Permiso de sección enforced en servidor (RBAC + excepciones, fail closed).
+router.use(permiteSeccion('actividad'));
 
 router.get('/', asyncHandler(async (req, res) => {
-  const { asesorId, desde, hasta, limit, tipo } = req.query;
+  const { asesorId, desde, hasta, limit, tipo, clienteId } = req.query;
   const where = {};
   if (req.user.rol === 'ASESOR') where.asesorId = req.user.id;
   else if (asesorId) where.asesorId = asesorId;
   if (tipo) where.tipo = tipo;
+  // Actividad de un cliente concreto (expediente): filtra por metadata.clienteId
+  if (clienteId) where.metadata = { path: ['clienteId'], equals: clienteId };
   if (desde || hasta) {
     where.creadoEn = {};
     if (desde) where.creadoEn.gte = new Date(desde);
@@ -34,13 +40,10 @@ router.post('/llamada', asyncHandler(async (req, res) => {
   if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
   if (req.user.rol === 'ASESOR' && cliente.asesorId !== req.user.id) return res.status(403).json({ error: 'Sin acceso a este cliente' });
   const asesorId = cliente.asesorId || req.user.id;
-  const actividad = await prisma.actividad.create({
-    data: {
-      asesorId,
-      tipo: 'LLAMADA',
-      descripcion: descripcion || `Llamada a ${cliente.nombre} ${cliente.apellidoP}`,
-      metadata: { clienteId },
-    },
+  const actividad = await registrarActividad(asesorId, 'LLAMADA', {
+    clienteId,
+    cliente: `${cliente.nombre} ${cliente.apellidoP}`,
+    nota: descripcion || null,
   });
   await prisma.cliente.update({
     where: { id: clienteId },
