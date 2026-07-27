@@ -198,12 +198,16 @@ function EquipoTab() {
   const submit = async (e) => {
     e.preventDefault(); setSaving(true); setErr('');
     try {
+      let data;
       if (editing) {
-        await api.patch(`/usuarios/${editing.id}`, form);
+        ({ data } = await api.patch(`/usuarios/${editing.id}`, form));
       } else {
-        const { data } = await api.post('/usuarios', form);
-        if (data.invitacion) setInvitacion({ nombre: data.nombre, email: data.email, ...data.invitacion });
+        ({ data } = await api.post('/usuarios', form));
       }
+      // Si el usuario queda inactivo (recién creado, o editado sin haberse
+      // activado todavía) siempre hay una invitación que mostrar — no solo
+      // al crear. El servidor decide si reusa la vigente o manda una nueva.
+      if (data.invitacion) setInvitacion({ nombre: data.nombre, email: data.email, ...data.invitacion });
       setOpen(false);
       qc.invalidateQueries(['usuarios']);
     } catch (e2) { setErr(handleError(e2)); } finally { setSaving(false); }
@@ -308,10 +312,26 @@ function EquipoTab() {
       <Modal open={!!invitacion} onClose={() => setInvitacion(null)} title="Link de invitación">
         {invitacion && (
           <div className="space-y-3">
+            {invitacion.correoEnviado === true && (
+              <p className="rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
+                ✓ Se envió un correo a <b>{invitacion.email}</b> con este link.
+              </p>
+            )}
+            {invitacion.correoEnviado === false && (
+              <p className="rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+                ⚠ No se pudo enviar el correo automático a {invitacion.email} (revisa la configuración SMTP en el
+                servidor). Comparte este link a mano.
+              </p>
+            )}
+            {invitacion.correoEnviado === null && (
+              <p className="rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/40 px-3 py-2 text-sm text-slate-600 dark:text-slate-300">
+                Ya existe una invitación vigente para <b>{invitacion.email}</b> (no se volvió a mandar el correo).
+              </p>
+            )}
             <p className="text-sm text-slate-600 dark:text-slate-300">
-              También se intentó enviar por correo a <b>{invitacion.email}</b>. Por si no llega (o para compartirlo
-              tú mismo por WhatsApp), copia este link: solo lo activa <b>{invitacion.nombre}</b> confirmando con esa
-              cuenta de Google, donde crea su propia contraseña. Vence el {fechaCorta(invitacion.expiraEn)}.
+              Por si no llega el correo (o para compartirlo tú mismo por WhatsApp), copia este link: solo lo activa{' '}
+              <b>{invitacion.nombre}</b> confirmando con esa cuenta de Google, donde crea su propia contraseña.
+              Vence el {fechaCorta(invitacion.expiraEn)}.
             </p>
             <div className="flex gap-2">
               <input className="input flex-1 font-mono text-xs" readOnly value={linkInvitacion(invitacion.token)} onFocus={(e) => e.target.select()} />

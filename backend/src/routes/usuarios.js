@@ -20,6 +20,37 @@ const nuevaInvitacion = () => ({
 // desarrollo cae al puerto de Vite. Se usa para armar el link del correo.
 const origenApp = (req) => process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
 
+// Devuelve la invitación vigente de un usuario inactivo, o crea una nueva (y
+// manda el correo) si no había una, venció o ya se usó. `forzarNueva` es para
+// la acción explícita "Invitar": ahí siempre se reemplaza, aunque la vigente
+// siga viva. correoEnviado: true/false si se intentó mandar un correo nuevo,
+// null si se reusó una invitación vigente (para no espamear en cada edición
+// menor de un usuario que sigue pendiente de activar).
+async function obtenerOCrearInvitacion(usuario, req, { forzarNueva = false } = {}) {
+  const actual = forzarNueva ? null : await prisma.invitacionUsuario.findUnique({ where: { usuarioId: usuario.id } });
+  const vigente = actual && !actual.usadaEn && actual.expiraEn > new Date();
+  if (vigente) return { token: actual.token, expiraEn: actual.expiraEn, correoEnviado: null };
+
+  const { token, expiraEn } = nuevaInvitacion();
+  await prisma.invitacionUsuario.upsert({
+    where: { usuarioId: usuario.id },
+    update: { token, expiraEn, usadaEn: null, creadoPorId: req.user.id },
+    create: { usuarioId: usuario.id, token, expiraEn, creadoPorId: req.user.id },
+  });
+  await logPermiso(req.user, 'INVITACION_CREADA', {
+    usuarioId: usuario.id,
+    usuarioNombre: `${usuario.nombre} ${usuario.apellidoP || ''}`.trim(),
+  });
+
+  let correoEnviado = false;
+  try {
+    correoEnviado = await enviarInvitacion({ email: usuario.email, nombre: usuario.nombre, link: `${origenApp(req)}/invitacion/${token}`, expiraEn });
+  } catch (e) {
+    console.error('[mailer] no se pudo enviar la invitación:', e.message);
+  }
+  return { token, expiraEn, correoEnviado };
+}
+
 // El CRUD de usuarios pertenece a la sección "Asesores" (permiso enforced en
 // servidor, además del rol). /asesores y /promotores quedan fuera: son
 // selectores transversales que usan otras secciones (filtros, acompañamiento).
@@ -93,16 +124,13 @@ router.post('/', esAdmin, permiteSeccion('asesores'), asyncHandler(async (req, r
     rol: rolFinal,
   });
 
-  const { token, expiraEn } = nuevaInvitacion();
-  await prisma.invitacionUsuario.create({ data: { usuarioId: usuario.id, token, expiraEn, creadoPorId: req.user.id } });
-
   // El correo es "mejor esfuerzo": si falla o no hay SMTP configurado, el
   // recuadro con el link para copiar/compartir a mano sigue apareciendo igual
-  // (no bloquea la respuesta ni la creación del usuario).
-  enviarInvitacion({ email: usuario.email, nombre: usuario.nombre, link: `${origenApp(req)}/invitacion/${token}`, expiraEn })
-    .catch((e) => console.error('[mailer] no se pudo enviar la invitación:', e.message));
+  // (no bloquea la respuesta ni la creación del usuario) — pero sí se espera
+  // el intento para poder informar en el panel si realmente se envió.
+  const invitacion = await obtenerOCrearInvitacion(usuario, req, { forzarNueva: true });
 
-  res.status(201).json({ ...usuario, invitacion: { token, expiraEn } });
+  res.status(201).json({ ...usuario, invitacion });
 }));
 
 // Genera (o reemplaza, si el anterior venció o no llegó a compartirse) el
@@ -112,21 +140,8 @@ router.post('/:id/invitacion', esAdmin, permiteSeccion('asesores'), asyncHandler
   if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado' });
   if (usuario.activo) return res.status(400).json({ error: 'El usuario ya está activo' });
 
-  const { token, expiraEn } = nuevaInvitacion();
-  await prisma.invitacionUsuario.upsert({
-    where: { usuarioId: usuario.id },
-    update: { token, expiraEn, usadaEn: null, creadoPorId: req.user.id },
-    create: { usuarioId: usuario.id, token, expiraEn, creadoPorId: req.user.id },
-  });
-  await logPermiso(req.user, 'INVITACION_CREADA', {
-    usuarioId: usuario.id,
-    usuarioNombre: `${usuario.nombre} ${usuario.apellidoP || ''}`.trim(),
-  });
-
-  enviarInvitacion({ email: usuario.email, nombre: usuario.nombre, link: `${origenApp(req)}/invitacion/${token}`, expiraEn })
-    .catch((e) => console.error('[mailer] no se pudo enviar la invitación:', e.message));
-
-  res.json({ token, expiraEn });
+  const invitacion = await obtenerOCrearInvitacion(usuario, req, { forzarNueva: true });
+  res.json(invitacion);
 }));
 
 router.patch('/:id', esAdmin, permiteSeccion('asesores'), asyncHandler(async (req, res) => {
@@ -175,7 +190,15 @@ router.patch('/:id', esAdmin, permiteSeccion('asesores'), asyncHandler(async (re
       ahora: usuario.rol,
     });
   }
-  res.json(usuario);
+
+  // Si tras guardar el usuario sigue (o queda) inactivo, siempre hay que
+  // poder mostrar su invitación en el panel — no solo la primera vez que se
+  // crea. Reusa la vigente si existe (no re-manda correo en cada edición
+  // menor); si venció, se usó o nunca se creó, genera una nueva y sí manda
+  // correo. Antes esto solo pasaba en POST /, así que editar un usuario
+  // inactivo (p. ej. para corregir un dato) dejaba sin link/aviso visibles.
+  const invitacion = usuario.activo ? null : await obtenerOCrearInvitacion(usuario, req);
+  res.json({ ...usuario, invitacion });
 }));
 
 // Borrado permanente (no es el archivado/soft-delete de Cliente): la fila del
