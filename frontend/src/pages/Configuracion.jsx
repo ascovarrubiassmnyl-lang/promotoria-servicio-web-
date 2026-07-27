@@ -1,40 +1,28 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { api, handleError } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useNotif } from '../context/NotifContext.jsx';
-import { Card, Badge, EmptyState } from '../components/ui.jsx';
+import { Card, EmptyState } from '../components/ui.jsx';
+import { SECCIONES, SECCIONES_SENSIBLES, ROLES_LABEL, infoSeccion } from '../components/configuracion/secciones.js';
 
-// Secciones controlables por permiso. Se muestran SI:
-//   • El rol permitiría verla (admins ven casi todo, asesores ven sus secciones)
-//   • AND (permisos[seccion] !== false)
-const SECCIONES = [
-  { id: 'dashboard', label: 'Dashboard', desc: 'Panel principal con métricas' },
-  { id: 'clientes', label: 'Clientes', desc: 'Listado y ficha de clientes' },
-  { id: 'citas', label: 'Citas / Calendario', desc: 'Agenda personal o general' },
-  { id: 'ventas', label: 'Ventas', desc: 'Polizas vendidas y comisiones' },
-  { id: 'actividad', label: 'Actividad', desc: 'Bitácora de acciones' },
-  { id: 'metas', label: 'Metas', desc: 'Targets mensuales' },
-  { id: 'asesores', label: 'Asesores', desc: 'Gestión del equipo (solo admin/promotor)' },
-  { id: 'configuracion', label: 'Configuración', desc: 'Permisos del sistema (solo admin/promotor)' },
-];
+// Configuración = plano de control de acceso (RBAC por rol):
+//   1) "Roles y accesos": política por rol, el único control de acceso.
+//   2) Notificaciones push (panel existente, se conserva).
+//   3) "Registro de cambios": bitácora de quién cambió qué y sobre quién.
+// La edición es SOLO Súper Admin; el servidor la enforcea (403) además de la UI.
 
 export default function Configuracion() {
-  const { esAdmin, esSuperadmin, user } = useAuth();
-  const qc = useQueryClient();
-  const [tab, setTab] = useState('permisos');
-
-  const { data: usuarios } = useQuery({
-    queryKey: ['usuarios', 'config'],
-    queryFn: async () => (await api.get('/usuarios')).data,
-  });
+  const { esSuperadmin, puede } = useAuth();
+  const [tab, setTab] = useState('roles');
 
   const tabs = [
-    { id: 'permisos', label: 'Permisos por usuario' },
-    { id: 'notificaciones', label: 'Notificaciones push' },
+    { id: 'roles', label: 'Roles y accesos' },
+    { id: 'notificaciones', label: 'Notificaciones' },
+    { id: 'bitacora', label: 'Registro de cambios' },
   ];
 
-  if (!esAdmin()) {
+  if (!puede('configuracion')) {
     return <div className="p-10 text-center text-slate-400">Sin acceso a configuración</div>;
   }
 
@@ -43,106 +31,149 @@ export default function Configuracion() {
       <div>
         <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Configuración</h2>
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          {esSuperadmin() ? 'Como Súper Administrador puedes controlar accesos y notificaciones.' : 'Como Promotor puedes controlar accesos de tus asesores.'}
+          {esSuperadmin()
+            ? 'Como Súper Administrador controlas el acceso de cada rol y las notificaciones.'
+            : 'Consulta de accesos y notificaciones. Solo un Súper Administrador puede editar permisos.'}
         </p>
       </div>
 
-      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-700">
+      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-700 overflow-x-auto">
         {tabs.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === t.id ? 'border-brand-600 text-brand-600 dark:text-brand-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap ${tab === t.id ? 'border-brand-600 text-brand-600 dark:text-brand-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
             {t.label}
           </button>
         ))}
       </div>
 
-      {tab === 'permisos' && (
-        <PermisosTab usuarios={usuarios || []} qc={qc} esSuperadmin={esSuperadmin()} yoId={user?.id} />
-      )}
+      {tab === 'roles' && <RolesTab esSuperadmin={esSuperadmin()} />}
       {tab === 'notificaciones' && <NotificacionesTab />}
+      {tab === 'bitacora' && <BitacoraTab />}
     </div>
   );
 }
 
-function PermisosTab({ usuarios, qc, esSuperadmin, yoId }) {
-  const [savingId, setSavingId] = useState(null);
+// ---------- Pestaña 1: política por rol ----------
 
-  const togglePermiso = async (usuario, seccionId, valorActual) => {
-    setSavingId(usuario.id);
-    const permsActual = usuario.permisos && typeof usuario.permisos === 'object' && !Array.isArray(usuario.permisos) ? usuario.permisos : {};
-    const nuevo = { ...permsActual };
-    // Si valorActual es false → pasa a true (eliminar override, heredar). Si true → false.
-    if (valorActual === false) delete nuevo[seccionId];
-    else nuevo[seccionId] = false;
+function Toggle({ on, locked, onClick, title }) {
+  return (
+    <button
+      type="button"
+      disabled={locked}
+      onClick={onClick}
+      title={title}
+      aria-pressed={on}
+      className={`relative inline-flex h-[22px] w-10 shrink-0 rounded-full transition-colors ${on ? 'bg-emerald-500' : 'bg-slate-200 dark:bg-slate-600'} ${locked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+    >
+      <span className={`absolute top-[2px] h-[18px] w-[18px] rounded-full bg-white shadow transition-all ${on ? 'left-[20px]' : 'left-[2px]'}`} />
+    </button>
+  );
+}
+
+function RolesTab({ esSuperadmin }) {
+  const qc = useQueryClient();
+  const [saving, setSaving] = useState(false);
+
+  const { data } = useQuery({
+    queryKey: ['config-politicas'],
+    queryFn: async () => (await api.get('/configuracion/politicas')).data,
+  });
+  const { data: usuarios } = useQuery({
+    queryKey: ['config-usuarios'],
+    queryFn: async () => (await api.get('/configuracion/usuarios')).data,
+  });
+
+  const conteo = useMemo(() => {
+    const c = { ASESOR: 0, ADMIN: 0, SUPERADMIN: 0 };
+    (usuarios || []).forEach((u) => { if (u.activo) c[u.rol] = (c[u.rol] || 0) + 1; });
+    return c;
+  }, [usuarios]);
+
+  const cambiar = async (rol, seccion, permitido) => {
+    const info = infoSeccion(seccion);
+    if (SECCIONES_SENSIBLES.includes(seccion)) {
+      const ok = window.confirm(`${permitido ? 'Dar' : 'Quitar'} acceso a "${info.label}" para TODOS los usuarios con rol ${ROLES_LABEL[rol]}. ¿Confirmas?`);
+      if (!ok) return;
+    }
+    setSaving(true);
     try {
-      await api.patch(`/usuarios/${usuario.id}`, { permisos: Object.keys(nuevo).length ? nuevo : null });
-      qc.invalidateQueries(['usuarios']);
+      await api.patch(`/configuracion/politicas/${rol}`, { seccion, permitido });
+      qc.invalidateQueries(['config-politicas']);
+      qc.invalidateQueries(['config-bitacora']);
     } catch (e) {
       alert(handleError(e));
     } finally {
-      setSavingId(null);
+      setSaving(false);
     }
   };
 
-  if (!usuarios || usuarios.length === 0) return <Card><EmptyState message="Sin usuarios" /></Card>;
+  const politicas = data?.politicas;
 
   return (
-    <Card>
-      <div className="mb-3 text-sm text-slate-600 dark:text-slate-300">
-        Casilla <span className="font-semibold">marcada</span> = acceso habilitado (o sin override, hereda del rol).
-        Casilla <span className="font-semibold">desmarcada</span> = explícitamente bloqueado para esta persona.
+    <div className="space-y-4">
+      <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+        <span aria-hidden className="mt-0.5">⚠️</span>
+        <p>
+          Define aquí qué ve cada <b>rol</b>: cambiarlo afecta a todos los usuarios con ese rol.
+          Para dar acceso de administración a una persona, cámbiale el rol en Asesores.
+        </p>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs uppercase text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
-              <th className="py-2 pr-4 sticky left-0 bg-white dark:bg-slate-800">Usuario / Sección</th>
-              {SECCIONES.map((s) => <th key={s.id} className="py-2 px-2 text-center" title={s.desc}>{s.label}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {usuarios.map((u) => {
-              const perms = u.permisos && typeof u.permisos === 'object' && !Array.isArray(u.permisos) ? u.permisos : {};
-              const esAdminU = u.rol === 'ADMIN' || u.rol === 'SUPERADMIN';
-              const yo = u.id === yoId;
-              return (
-                <tr key={u.id} className="border-b border-slate-50 hover:bg-slate-50 dark:hover:bg-slate-700/60 align-middle">
-                  <td className="py-2 pr-4 sticky left-0 bg-white dark:bg-slate-800">
-                    <p className="font-medium text-slate-700 dark:text-slate-300">{u.nombre} {u.apellidoP} {yo ? '(tú)' : ''}</p>
-                    <div className="flex items-center gap-1.5">
-                      <Badge color={u.rol === 'SUPERADMIN' ? 'red' : u.rol === 'ADMIN' ? 'blue' : 'slate'}>{u.rol}</Badge>
-                      {!u.activo && <Badge color="red">inactivo</Badge>}
-                    </div>
-                  </td>
-                  {SECCIONES.map((s) => {
-                    // Reglas: asesores/configuracion y metas requieren admin salvo deshabilitar.
-                    // Bloqueado por override explícito → desmarcado.
-                    const override = perms[s.id];
-                    const checked = override !== false;
-                    const soloAdmin = s.id === 'asesores' || s.id === 'configuracion';
-                    const readonlyRol = !esSuperadmin && u.rol === 'SUPERADMIN'; // no se puede tocar un superadmin
-                    return (
-                      <td key={s.id} className="py-2 px-2 text-center">
-                        <input
-                          type="checkbox"
-                          disabled={!!savingId || readonlyRol}
-                          checked={checked}
-                          onChange={() => togglePermiso(u, s.id, override)}
-                          title={soloAdmin && !esAdminU ? 'Disponible solo para admins' : (override === false ? 'Bloqueado (override)' : 'Heredado del rol')}
-                        />
-                      </td>
-                    );
-                  })}
+
+      <Card
+        title="Acceso por rol"
+        subtitle="El acceso de cada persona parte de su rol. El servidor valida cada permiso: sin política, el acceso se niega."
+      >
+        {!politicas ? <EmptyState message="Cargando políticas…" /> : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs uppercase text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                  <th className="py-2 pr-4 text-left">Rol</th>
+                  {SECCIONES.map((s) => <th key={s.id} className="py-2 px-2 text-center" title={s.desc}>{s.label}</th>)}
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {!esSuperadmin && <p className="mt-3 text-xs text-slate-400">Nota: solo un Súper Administrador puede editar permisos de cuentas Administrador/Súper Admin.</p>}
-    </Card>
+              </thead>
+              <tbody>
+                {['ASESOR', 'ADMIN', 'SUPERADMIN'].map((rol) => {
+                  const bloqueado = rol === 'SUPERADMIN';
+                  return (
+                    <tr key={rol} className="border-b border-slate-50 dark:border-slate-700/60">
+                      <td className="py-3 pr-4">
+                        <p className="font-semibold text-slate-700 dark:text-slate-200">{ROLES_LABEL[rol]}</p>
+                        <p className="text-xs text-slate-400">
+                          {conteo[rol]} usuario(s) activo(s){bloqueado ? ' · acceso total, no editable' : ''}
+                        </p>
+                      </td>
+                      {SECCIONES.map((s) => {
+                        // Piso de rol: las secciones de administración no se
+                        // conceden al rol Asesor (el servidor también lo niega).
+                        const pisoAsesor = rol === 'ASESOR' && s.soloAdmin;
+                        return (
+                          <td key={s.id} className="py-3 px-2 text-center">
+                            <Toggle
+                              on={politicas[rol]?.[s.id] === true}
+                              locked={bloqueado || pisoAsesor || !esSuperadmin || saving}
+                              title={bloqueado ? 'El rol Súper Admin siempre tiene acceso total'
+                                : pisoAsesor ? `${s.label}: sección de administración, requiere rol Admin`
+                                : !esSuperadmin ? 'Solo un Súper Administrador puede editar' : s.desc}
+                              onClick={() => cambiar(rol, s.id, !(politicas[rol]?.[s.id] === true))}
+                            />
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {!esSuperadmin && <p className="mt-3 text-xs text-slate-400">Solo un Súper Administrador puede editar el acceso por rol.</p>}
+      </Card>
+    </div>
   );
 }
+
+// ---------- Pestaña 2: notificaciones push (panel existente, se conserva) ----------
 
 function NotificacionesTab() {
   const { status, subscription, error, subscribeUser, unsubscribeUser, sendTest } = useNotif();
@@ -154,6 +185,8 @@ function NotificacionesTab() {
   const revoke = async () => { setBusy(true); setMsg(''); const ok = await unsubscribeUser(); setMsg(ok ? 'Des-suscrito' : 'Error al desuscribir'); setBusy(false); };
   const test = async () => { setBusy(true); setMsg(''); const ok = await sendTest(); setMsg(ok ? 'Prueba enviada — revisa el navegador' : (error || 'No se pudo enviar')); setBusy(false); };
 
+  const activa = !!subscription;
+
   return (
     <Card>
       <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">Notificaciones push del navegador</h3>
@@ -164,13 +197,20 @@ function NotificacionesTab() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
         <Estado label="Soporte" valor={status === 'unsupported' ? 'No soportado' : 'Soportado'} color={status === 'unsupported' ? 'red' : 'green'} />
         <Estado label="Permiso" valor={status === 'granted' ? 'Concedido' : status === 'denied' ? 'Bloqueado' : 'Pendiente'} color={status === 'granted' ? 'green' : status === 'denied' ? 'red' : 'amber'} />
-        <Estado label="Suscripción" valor={subscription ? 'Activa' : 'Inactiva'} color={subscription ? 'green' : 'slate'} />
+        <Estado label="Suscripción" valor={activa ? 'Activa' : 'Inactiva'} color={activa ? 'green' : 'slate'} />
       </div>
 
+      {/* Los botones reflejan el estado real: con suscripción activa se ofrece
+          probar/desactivar; sin ella, solo activar. */}
       <div className="flex flex-wrap gap-2">
-        <button onClick={grant} disabled={busy || status === 'unsupported' || status === 'denied'} className="btn-primary">Activar notificaciones</button>
-        <button onClick={test} disabled={busy || !subscription} className="btn-secondary">Enviar prueba</button>
-        <button onClick={revoke} disabled={busy || !subscription} className="btn-secondary">Desactivar</button>
+        {activa ? (
+          <>
+            <button onClick={test} disabled={busy} className="btn-secondary">Enviar prueba</button>
+            <button onClick={revoke} disabled={busy} className="btn-secondary">Desactivar</button>
+          </>
+        ) : (
+          <button onClick={grant} disabled={busy || status === 'unsupported' || status === 'denied'} className="btn-primary">Activar notificaciones</button>
+        )}
       </div>
 
       {msg && <p className="mt-3 text-sm text-slate-700 dark:text-slate-300">{msg}</p>}
@@ -200,5 +240,85 @@ function Estado({ label, valor, color }) {
       <p className="text-xs uppercase text-slate-500 dark:text-slate-400">{label}</p>
       <span className={`inline-block mt-1 px-2 py-0.5 rounded text-xs font-medium ${colors[color]}`}>{valor}</span>
     </div>
+  );
+}
+
+// ---------- Pestaña 3: bitácora ----------
+
+function textoLog(l) {
+  const d = l.detalle || {};
+  const sec = d.seccion ? infoSeccion(d.seccion).label : '';
+  switch (l.accion) {
+    case 'ROL_POLITICA':
+      return <>{d.ahora ? 'permitió' : 'bloqueó'} <b>{sec}</b> para el rol <b>{ROLES_LABEL[d.rol] || d.rol}</b></>;
+    case 'EXCEPCION_USUARIO':
+      if (d.ahora === null) return <>restableció <b>{sec}</b> de <b>{d.usuarioNombre}</b> (vuelve a heredar del rol)</>;
+      return <>{d.ahora ? 'permitió' : 'bloqueó'} <b>{sec}</b> {d.ahora ? 'a' : 'para'} <b>{d.usuarioNombre}</b> (excepción)</>;
+    case 'ROL_USUARIO':
+      return <>cambió el rol de <b>{d.usuarioNombre}</b>: {ROLES_LABEL[d.antes] || d.antes} → <b>{ROLES_LABEL[d.ahora] || d.ahora}</b></>;
+    case 'USUARIO_CREADO':
+      return <>creó al usuario <b>{d.usuarioNombre}</b> con rol <b>{ROLES_LABEL[d.rol] || d.rol}</b></>;
+    default:
+      return <>{l.accion}</>;
+  }
+}
+
+function cuando(iso) {
+  const d = new Date(iso);
+  const hoy = new Date();
+  const ayer = new Date(hoy);
+  ayer.setDate(hoy.getDate() - 1);
+  const dia = d.toDateString() === hoy.toDateString() ? 'Hoy'
+    : d.toDateString() === ayer.toDateString() ? 'Ayer'
+    : d.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
+  return `${dia}, ${d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+function BitacoraTab() {
+  const { data: logs } = useQuery({
+    queryKey: ['config-bitacora'],
+    queryFn: async () => (await api.get('/configuracion/bitacora')).data,
+  });
+
+  const exportar = () => {
+    const filas = (logs || []).map((l) => [
+      new Date(l.creadoEn).toISOString(),
+      l.actorNombre,
+      l.accion,
+      JSON.stringify(l.detalle),
+    ]);
+    const csv = ['fecha,actor,accion,detalle', ...filas.map((f) => f.map((c) => `"${String(c).replaceAll('"', '""')}"`).join(','))].join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'bitacora-permisos.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <Card
+      title="Registro de cambios de permisos"
+      subtitle="Quién cambió qué acceso, cuándo y sobre quién. Indispensable en control de acceso."
+      actions={<button className="btn-secondary" onClick={exportar} disabled={!logs?.length}>Exportar</button>}
+    >
+      {!logs ? <EmptyState message="Cargando bitácora…" /> : logs.length === 0 ? (
+        <EmptyState message="Aún no hay cambios registrados" />
+      ) : (
+        <ul className="divide-y divide-slate-100 dark:divide-slate-700/60">
+          {logs.map((l) => (
+            <li key={l.id} className="flex gap-3 py-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300">
+                <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm text-slate-700 dark:text-slate-200"><b>{l.actorNombre}</b> {textoLog(l)}</p>
+                <p className="text-xs text-slate-400">{cuando(l.creadoEn)}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }

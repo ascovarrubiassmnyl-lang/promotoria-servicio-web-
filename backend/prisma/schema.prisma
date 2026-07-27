@@ -95,8 +95,8 @@ model Usuario {
   rol           RolUsuario @default(ASESOR)
   activo        Boolean    @default(true)
   fotoUrl       String?
-  // Permisos por sección (override del rol). null/ausente = usar default del rol.
-  // Ej: { "clientes": false, "ventas": false } oculta esas secciones a un ASESOR concreto.
+  // LEGACY, sin uso: las excepciones por usuario se eliminaron (el acceso es
+  // solo por rol, ver PoliticaRol). Nadie lee ni escribe este campo.
   permisos      Json?
   creadoEn      DateTime   @default(now())
   actualizadoEn DateTime   @updatedAt
@@ -113,6 +113,35 @@ model Usuario {
   referidos       Referido[]
   bonos           Bono[]
   documentos      DocumentoCliente[]
+  permisoLogs     PermisoLog[]
+}
+
+// Acceso base por rol a cada sección (RBAC). `accesos` es Json {seccion: boolean}.
+// Fuente de verdad del control de acceso: el acceso efectivo de un usuario es
+// su override (Usuario.permisos[seccion]) si existe, si no el del rol, y si no
+// hay política se DENIEGA (fail closed). SUPERADMIN no se consulta aquí:
+// siempre tiene acceso total (hardcodeado en middleware/permisos.js, anti-lockout).
+model PoliticaRol {
+  id            String     @id @default(cuid())
+  rol           RolUsuario @unique
+  accesos       Json
+  actualizadoEn DateTime   @updatedAt
+}
+
+// Bitácora de cambios de control de acceso: quién cambió qué, cuándo y sobre quién.
+// accion: ROL_POLITICA | EXCEPCION_USUARIO | ROL_USUARIO | USUARIO_CREADO.
+// detalle: { rol?, seccion?, usuarioId?, usuarioNombre?, antes?, ahora? }.
+// actorNombre se guarda desnormalizado para que el registro sobreviva bajas.
+model PermisoLog {
+  id          String   @id @default(cuid())
+  actorId     String?
+  actor       Usuario? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorNombre String
+  accion      String
+  detalle     Json
+  creadoEn    DateTime @default(now())
+
+  @@index([creadoEn])
 }
 
 // Suscripción Web Push de un usuario (un usuario puede tener varias: móvil, escritorio).
@@ -145,8 +174,15 @@ model Cliente {
   rfc             String?
   direccion       String?
   estado          EstadoCliente @default(PROSPECTO)
+  // Bandera independiente de la etapa: un cliente puede estar en cualquier
+  // etapa Y necesitar seguimiento a la vez. (El valor NECESITA_SEGUIMIENTO del
+  // enum es legacy: se migró a esta bandera y ya no debe usarse como etapa.)
+  necesitaSeguimiento Boolean   @default(false)
   notas           String?
   fuente          String?
+  // Borrado lógico: DELETE /api/clientes/:id archiva (setea esta fecha) en vez
+  // de borrar; pólizas, citas y referidos se conservan. null = cliente activo.
+  archivadoEn     DateTime?
   creadoEn        DateTime      @default(now())
   actualizadoEn   DateTime      @updatedAt
 
@@ -259,29 +295,60 @@ model Venta {
   @@index([estado])
 }
 
+// Eventos de actividad estructurados: tipo canónico (ver TIPOS_ACTIVIDAD en
+// src/utils/actividad.js) + metadata con los datos del evento. El texto visible
+// se arma en el frontend; descripcion solo queda como fallback de eventos
+// históricos que se guardaron ya renderizados.
 model Actividad {
   id          String   @id @default(cuid())
   asesorId    String
   asesor      Usuario  @relation(fields: [asesorId], references: [id], onDelete: Cascade)
   tipo        String
-  descripcion String
+  descripcion String?
   metadata    Json?
   creadoEn    DateTime @default(now())
 
   @@index([asesorId, creadoEn])
 }
 
+// Meta individual por asesor y mes, en 6 métricas. Los actuales se calculan
+// en el backend (GET /targets/resumen) contra los registros del periodo:
+// ventas APROBADA/PAGADA (misma definición de "ganado" que Pólizas), citas
+// COMPLETADA, clientes creados (no archivados), referidos y actividades LLAMADA.
 model Target {
-  id             String   @id @default(cuid())
-  asesorId       String
-  asesor         Usuario  @relation(fields: [asesorId], references: [id], onDelete: Cascade)
-  mes            Int
-  anio           Int
-  metaVentasNum  Int?
-  metaPrimaMonto Float?
-  creadoEn       DateTime @default(now())
+  id                String   @id @default(cuid())
+  asesorId          String
+  asesor            Usuario  @relation(fields: [asesorId], references: [id], onDelete: Cascade)
+  mes               Int
+  anio              Int
+  metaVentasNum     Int?
+  metaPrimaMonto    Float?
+  metaCitasNum      Int? // citas COMPLETADA del mes
+  metaProspectosNum Int? // clientes nuevos creados en el mes
+  metaReferidosNum  Int? // referidos registrados en el mes
+  metaLlamadasNum   Int? // actividades tipo LLAMADA del mes
+  creadoEn          DateTime @default(now())
 
   @@unique([asesorId, mes, anio])
+}
+
+// Meta de promotoría (objetivo agregado de todo el equipo) por mes/año.
+// Las metas individuales (Target) se reconcilian contra esta: la UI muestra
+// la diferencia entre la suma de individuales y la meta de equipo.
+model TargetEquipo {
+  id                String   @id @default(cuid())
+  mes               Int
+  anio              Int
+  metaVentasNum     Int?
+  metaPrimaMonto    Float?
+  metaCitasNum      Int?
+  metaProspectosNum Int?
+  metaReferidosNum  Int?
+  metaLlamadasNum   Int?
+  creadoEn          DateTime @default(now())
+  actualizadoEn     DateTime @updatedAt
+
+  @@unique([mes, anio])
 }
 
 // Notas + Recordatorios unificados. Los recordatorios tienen fechaAviso

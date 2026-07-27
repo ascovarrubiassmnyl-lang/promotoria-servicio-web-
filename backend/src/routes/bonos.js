@@ -2,9 +2,12 @@ import { Router } from 'express';
 import { prisma } from '../prisma.js';
 import { authenticate, esAdmin } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
+import { permiteSeccion } from '../middleware/permisos.js';
 
 const router = Router();
 router.use(authenticate);
+// Permiso de sección enforced en servidor (RBAC + excepciones, fail closed).
+router.use(permiteSeccion('ventas'));
 
 router.get('/', asyncHandler(async (req, res) => {
   const { asesorId, mes, anio, estado } = req.query;

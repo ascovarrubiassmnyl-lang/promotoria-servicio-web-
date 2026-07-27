@@ -10,7 +10,7 @@ export async function authenticate(req, res, next) {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     const usuario = await prisma.usuario.findUnique({
       where: { id: payload.sub },
-      select: { id: true, nombre: true, apellidoP: true, email: true, rol: true, activo: true, permisos: true },
+      select: { id: true, nombre: true, apellidoP: true, email: true, rol: true, activo: true },
     });
     if (!usuario || !usuario.activo) return res.status(401).json({ error: 'Usuario inválido o inactivo' });
 
