@@ -35,6 +35,10 @@ export function usePushNotifications({ enabled = true } = {}) {
         let sub = await reg.pushManager.getSubscription();
         if (sub) {
           setSubscription(sub);
+          // Asegura que el backend conozca esta suscripción (idempotente): en
+          // recargas getSubscription la reencuentra localmente, pero el backend
+          // podría no tenerla guardada y entonces /push/test no enviaría nada.
+          try { await api.post('/push/subscribe', sub.toJSON()); } catch {}
           return;
         }
         // No forzar suscripción automática; pedir después con subscribeUser()
@@ -89,7 +93,13 @@ export function usePushNotifications({ enabled = true } = {}) {
 
   async function sendTest() {
     try {
-      await api.post('/push/test');
+      const { data } = await api.post('/push/test');
+      // El backend responde {enviadas, eliminadas}: si no envió ninguna, la
+      // suscripción no está registrada en el servidor — no mentir con éxito.
+      if (data && typeof data.enviadas === 'number' && data.enviadas === 0) {
+        setError('No hay suscripción activa en el servidor. Desactiva y vuelve a activar las notificaciones.');
+        return false;
+      }
       return true;
     } catch (err) {
       setError(err?.response?.data?.error || 'No se pudo enviar prueba');

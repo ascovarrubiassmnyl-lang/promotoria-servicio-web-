@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useCallback } from 'react';
+import { createContext, useContext, useEffect, useRef } from 'react';
 import { useAuth } from './AuthContext.jsx';
 import { usePushNotifications } from '../hooks/usePushNotifications.js';
 
@@ -9,18 +9,21 @@ const NotifContext = createContext(null);
 export function NotifProvider({ children }) {
   const { user } = useAuth();
   const push = usePushNotifications({ enabled: !!user });
+  const { subscription, subscribeUser } = push;
+  // Corre el auto-suscribe UNA sola vez por sesión: si no, el efecto se
+  // dispararía en cada render y volvería a suscribir justo después de que el
+  // usuario pulsa "Desactivar" (lo re-activaba al instante).
+  const autoHecho = useRef(false);
 
-  // Al montar con usuario logueado y permiso ya concedido, intenta re-suscribir.
-  const autoSubscribe = useCallback(async () => {
-    if (!user) return;
+  useEffect(() => {
+    if (!user) { autoHecho.current = false; return; }
+    if (autoHecho.current) return;
     if (!('Notification' in window)) return;
     if (Notification.permission !== 'granted') return;
-    // solo si no hay suscripción todavía
-    if (push.subscription) return;
-    await push.subscribeUser();
-  }, [user, push]);
-
-  useEffect(() => { autoSubscribe(); }, [autoSubscribe]);
+    autoHecho.current = true;
+    // Con suscripción ya presente el hook la persiste solo; si no, la crea.
+    if (!subscription) subscribeUser();
+  }, [user, subscription, subscribeUser]);
 
   return <NotifContext.Provider value={push}>{children}</NotifContext.Provider>;
 }

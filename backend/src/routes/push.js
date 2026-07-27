@@ -33,8 +33,8 @@ router.post('/unsubscribe', asyncHandler(async (req, res) => {
 router.post('/test', asyncHandler(async (req, res) => {
   const { sendPushToUser } = await import('../services/push.js');
   const r = await sendPushToUser(req.user.id, {
-    title: 'Prueba · Origen Promotoría',
-    body: 'Si ves esto, las notificaciones push funcionan ✓',
+    title: 'Notificaciones funcionando',
+    body: 'Notificaciones funcionando ✓ · Origen Promotoría',
     tag: 'test-push',
   });
   res.json(r);
