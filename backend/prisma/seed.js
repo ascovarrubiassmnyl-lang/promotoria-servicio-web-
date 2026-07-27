@@ -4,6 +4,39 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
+  console.log('Seed: políticas de acceso por rol (RBAC)...');
+  // Acceso base por rol; SUPERADMIN no lleva fila (acceso total hardcodeado).
+  const politicasSeed = {
+    ASESOR: { dashboard: true, clientes: true, citas: true, ventas: true, actividad: true, metas: true, asesores: false, configuracion: false },
+    ADMIN: { dashboard: true, clientes: true, citas: true, ventas: true, actividad: true, metas: true, asesores: true, configuracion: true },
+  };
+  for (const [rol, accesos] of Object.entries(politicasSeed)) {
+    await prisma.politicaRol.upsert({ where: { rol }, update: {}, create: { rol, accesos } });
+  }
+
+  // Las cuentas y datos demo (contraseñas conocidas) son solo para desarrollo:
+  // en producción el seed solo crea políticas RBAC y el super admin real,
+  // tomado de variables de entorno (nunca hardcodeado). Es create-only: en
+  // redeploys no toca la cuenta existente (no resetea contraseña ni rol).
+  if (process.env.NODE_ENV === 'production') {
+    const email = (process.env.SUPERADMIN_EMAIL || '').trim().toLowerCase();
+    const password = process.env.SUPERADMIN_PASSWORD || '';
+    if (!email || password.length < 8) {
+      console.log('Seed: producción — define SUPERADMIN_EMAIL y SUPERADMIN_PASSWORD (mínimo 8 caracteres) para crear el super admin.');
+      return;
+    }
+    const existente = await prisma.usuario.findUnique({ where: { email } });
+    if (existente) {
+      console.log(`Seed: producción — el super admin ${email} ya existe, sin cambios.`);
+      return;
+    }
+    await prisma.usuario.create({
+      data: { nombre: 'Super', apellidoP: 'Admin', email, password: await bcrypt.hash(password, 10), rol: 'SUPERADMIN' },
+    });
+    console.log(`Seed: producción — super admin creado (${email}). No se crean datos demo.`);
+    return;
+  }
+
   console.log('Seed: creando usuarios...');
   const superadmin = await prisma.usuario.upsert({
     where: { email: 'superadmin@demo.com' },
@@ -74,7 +107,8 @@ async function main() {
     { asesorId: asesor1.id, nombre: 'Roberto',   apellidoP: 'Cruz',    telefono: '5551111121', email: 'roberto@example.com',   estado: 'CITA',      fuente: 'LinkedIn' },
   { asesorId: asesor2.id, nombre: 'Luis',      apellidoP: 'Martínez', telefono: '5551111113', email: 'luis@example.com',      estado: 'ENTREGA_POLIZA', fuente: 'Walk-in', productoComprado: 'ACUMULACION', productoNombre: 'NY Life Accumulator Plus', formaPago: 'ANUAL', primaMonto: 50000, fechaRenovacion: new Date(new Date().getFullYear() + 1, new Date().getMonth(), new Date().getDate()) },
     { asesorId: asesor2.id, nombre: 'Patricia', apellidoP: 'Vega',    telefono: '5551111114', email: 'patricia@example.com',  estado: 'POST_VENTA_SEGUIMIENTO', fuente: 'LinkedIn', productoComprado: 'RETIRO', productoNombre: 'NY Life Retirement Builder', formaPago: 'MENSUAL', primaMonto: 18000 },
-    { asesorId: asesor2.id, nombre: 'Gabriela', apellidoP: 'Ruiz',    telefono: '5551111115', email: 'gabriela@example.com',  estado: 'NECESITA_SEGUIMIENTO', fuente: 'Instagram', productoInteres: 'PROTECCION', detalleInteres: 'Le cotizaron protection familiar pero no respondió' },
+    // "Necesita seguimiento" es bandera, no etapa: etapa real + flag aparte
+    { asesorId: asesor2.id, nombre: 'Gabriela', apellidoP: 'Ruiz',    telefono: '5551111115', email: 'gabriela@example.com',  estado: 'PROSPECTO', necesitaSeguimiento: true, fuente: 'Instagram', productoInteres: 'PROTECCION', detalleInteres: 'Le cotizaron protection familiar pero no respondió' },
   ];
   const clientes = [];
   for (const c of clientesData) {
@@ -220,11 +254,13 @@ async function main() {
   }
 
   console.log('Seed: actividad (otros)...');
-  const tipos = ['CLIENTE_CREADO', 'CITA_CREADA', 'VENTA_CREADA', 'NOTA_CREADA', 'RECORDATORIO_CREADO'];
+  // Solo tipos canónicos (ver src/utils/actividad.js). Estos eventos simulan
+  // históricos pre-normalización: guardan descripcion como fallback.
+  const tipos = ['CLIENTE_CREADO', 'CITA_CREADA', 'POLIZA_CREADA', 'NOTA_CREADA', 'RECORDATORIO_CREADO'];
   const descripciones = {
     CLIENTE_CREADO: ['Creó el cliente Carlos Ramírez', 'Creó el cliente Ana Torres', 'Cliente agregado vía referido'],
     CITA_CREADA: ['Agendó primera llamada con Carlos', 'Cotización GMM programada', 'Cita de seguimiento con Patricia'],
-    VENTA_CREADA: ['Venta registrada: retiro (NY Life Retirement Builder)', 'Nueva solicitud GMM Familiar'],
+    POLIZA_CREADA: ['Venta registrada: retiro (NY Life Retirement Builder)', 'Nueva solicitud GMM Familiar'],
     NOTA_CREADA: ['Agregó nota en ficha de Carlos', 'Nota de seguimiento en cliente Luis'],
     RECORDATORIO_CREADO: ['Recordatorio: llamar mañana a Carlos', 'Recordatorio: revisar renovación de Patricia'],
   };

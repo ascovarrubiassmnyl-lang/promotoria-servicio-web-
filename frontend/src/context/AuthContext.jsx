@@ -30,6 +30,16 @@ export function AuthProvider({ children }) {
     return data.usuario;
   };
 
+  // credential = ID token del botón de Google (GIS); el backend lo verifica
+  // y responde igual que /login. Si la cuenta es nueva o está inactiva, el
+  // backend responde 403 con {pendiente: true} y aquí solo se propaga.
+  const loginConGoogle = async (credential) => {
+    const { data } = await api.post('/auth/google', { credential });
+    localStorage.setItem('token', data.token);
+    setUser(data.usuario);
+    return data.usuario;
+  };
+
   const logout = () => {
     localStorage.removeItem('token');
     setUser(null);
@@ -38,22 +48,18 @@ export function AuthProvider({ children }) {
   const esAdmin = () => user?.rol === 'ADMIN' || user?.rol === 'SUPERADMIN';
   const esSuperadmin = () => user?.rol === 'SUPERADMIN';
 
-  // Permisos por sección. Devuelve true si el usuario puede ver la sección.
-  // Reglas por rol (default si no hay override):
-  //   dashboard, clientes, citas, ventas, actividad → todos
-  //   asesores, configuracion, metas → solo ADMIN/SUPERADMIN
-  // Override: user.permisos[seccion] === false bloquea explícitamente.
+  // Permisos por sección. `user.accesos` viene calculado del servidor en
+  // /auth/login y /auth/me (excepción del usuario → política del rol →
+  // denegar). El frontend NO re-deriva reglas: consume el mapa y falla
+  // cerrado si no está. SUPERADMIN siempre tiene acceso total (anti-lockout).
   const puede = (seccion) => {
     if (!user) return false;
-    const perms = user.permisos && typeof user.permisos === 'object' && !Array.isArray(user.permisos) ? user.permisos : {};
-    if (perms[seccion] === false) return false;
-    const adminOnly = ['asesores', 'configuracion', 'metas'];
-    if (adminOnly.includes(seccion) && !esAdmin()) return false;
-    return true;
+    if (user.rol === 'SUPERADMIN') return true;
+    return user.accesos?.[seccion] === true;
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refresh, esAdmin, esSuperadmin, puede }}>
+    <AuthContext.Provider value={{ user, loading, login, loginConGoogle, logout, refresh, esAdmin, esSuperadmin, puede }}>
       {children}
     </AuthContext.Provider>
   );

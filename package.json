@@ -1,0 +1,13 @@
+{
+  "name": "crm-promotoria",
+  "private": true,
+  "version": "1.0.0",
+  "description": "CRM promotoría SMNYL — monorepo (backend Express+Prisma, frontend React+Vite). En Railway se despliega como UN solo servicio: el build compila el frontend y el backend lo sirve como estáticos.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm ci --prefix backend && npm ci --prefix frontend && npm run build --prefix frontend",
+    "start": "npm run start:prod --prefix backend"
+  }
+}

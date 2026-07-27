@@ -1,4 +1,7 @@
 import 'dotenv/config';
+import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
@@ -16,6 +19,7 @@ import productosCatalogoRoutes from './routes/productosCatalogo.js';
 import referidosRoutes from './routes/referidos.js';
 import bonosRoutes from './routes/bonos.js';
 import documentosRoutes from './routes/documentos.js';
+import configuracionRoutes from './routes/configuracion.js';
 import { startReminderJob } from './jobs/reminderJob.js';
 import { errorHandler, notFound } from './middleware/error.js';
 
@@ -44,6 +48,19 @@ app.use('/api/productos-catalogo', productosCatalogoRoutes);
 app.use('/api/referidos', referidosRoutes);
 app.use('/api/bonos', bonosRoutes);
 app.use('/api/documentos', documentosRoutes);
+app.use('/api/configuracion', configuracionRoutes);
+
+// Producción (Railway, un solo servicio): Express sirve el build de Vite.
+// Estáticos + fallback SPA para las rutas de React Router; /api/* nunca cae
+// aquí (se registró antes) y en desarrollo el frontend lo sirve Vite (5173).
+const distDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../frontend/dist');
+if (process.env.NODE_ENV === 'production' && fs.existsSync(distDir)) {
+  app.use(express.static(distDir));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next();
+    res.sendFile(path.join(distDir, 'index.html'));
+  });
+}
 
 app.use(notFound);
 app.use(errorHandler);

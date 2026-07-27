@@ -1,6 +1,9 @@
 import axios from 'axios';
 
-const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+// En producción (Railway, un solo servicio) la API vive en el mismo origen
+// que el frontend, así que el default es la ruta relativa /api; en desarrollo
+// Vite corre aparte del backend y el default apunta al puerto 4000.
+const baseURL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:4000/api' : '/api');
 
 export const api = axios.create({ baseURL, timeout: 15000 });
 
