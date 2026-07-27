@@ -5,6 +5,8 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { Card, Modal, CitaBadge, EmptyState, MenuAcciones } from '../ui.jsx';
 import { CANALES, ESTADOS_CITA, CITA_VIVA, infoCanal } from './tipos.js';
 import CitaFormModal from './CitaFormModal.jsx';
+import CalendarioMovil from './CalendarioMovil.jsx';
+import useIsMobile from '../../hooks/useIsMobile.js';
 import { hora, nombreMes, fechaCorta } from '../../lib/format.js';
 
 const DIAS_SEM = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
@@ -24,7 +26,14 @@ const keyDeCita = (c) => dayKey(new Date(c.fechaHoraInicio));
 // Calendario compartido por ambos roles (mismo patrón que PolizasView/ActividadView):
 // el asesor ve solo su agenda (la API fuerza asesorId); el promotor ve al equipo
 // con filtro por asesor y sus propios acompañamientos.
+// En móvil (< md) se monta un árbol distinto (CalendarioMovil: Día/Agenda/Mes con
+// timeline de una columna); el markup de escritorio de abajo no se toca.
 export default function CalendarioView() {
+  const esMovil = useIsMobile();
+  return esMovil ? <CalendarioMovil /> : <CalendarioEscritorio />;
+}
+
+function CalendarioEscritorio() {
   const { esAdmin, user } = useAuth();
   const qc = useQueryClient();
   const hoy = new Date();
