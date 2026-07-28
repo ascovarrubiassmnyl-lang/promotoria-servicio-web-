@@ -44,9 +44,22 @@ enum TipoCita {
 // Modalidad de la cita:
 //  ACOMPANAMIENTO = cita compartida asesor+promotor (el promotor acompaña al asesor).
 //  CITA_UNICA     = cita normal del asesor, sin promotor presente.
+//  ENTREGA_POLIZA = cita para entregar la póliza emitida al cliente.
 enum ModalidadCita {
   CITA_UNICA
   ACOMPANAMIENTO
+  ENTREGA_POLIZA
+}
+
+// Clasificación de la agenda por lo que aporta al negocio (metodología de la
+// promotoría): el COLOR del evento en el calendario sale de aquí, no del canal.
+//  PRODUCTIVA = genera dinero (cita de venta, cierre, entrega)      → verde
+//  GESTION    = trabajo que no genera dinero directo (seguimiento)  → amarillo
+//  PERSONAL   = asunto personal del asesor (bloquea agenda)         → rojo
+enum ClasificacionCita {
+  PRODUCTIVA
+  GESTION
+  PERSONAL
 }
 
 // Estado del ciclo de una venta en el pipeline financiero
@@ -115,6 +128,10 @@ model Usuario {
   documentos      DocumentoCliente[]
   permisoLogs     PermisoLog[]
   invitacion      InvitacionUsuario?
+  registrosPuntos    RegistroPuntos[]
+  planesSemana       PlanSemanal[]
+  prospectosClinica  ProspectoClinica[]
+  sesionesClinica    SesionClinica[]
 }
 
 // Invitación de un solo uso para activar una cuenta creada sin contraseña
@@ -230,6 +247,7 @@ model Cliente {
   referidosOrigen       Referido[] @relation("ReferidosOrigen")
   referidosComoReferido Referido[] @relation("ReferidosCliente")
   documentos            DocumentoCliente[]
+  prospectosClinica     ProspectoClinica[]
 
   @@index([asesorId, estado])
   @@index([referidoPorId])
@@ -239,12 +257,15 @@ model Cita {
   id                  String        @id @default(cuid())
   asesorId            String
   asesor              Usuario       @relation(fields: [asesorId], references: [id], onDelete: Cascade)
-  clienteId           String
-  cliente             Cliente       @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  // Opcional: un evento PERSONAL (bloqueo de agenda) no tiene cliente. Toda
+  // cita de trabajo sí lo exige (validado en la ruta, no aquí).
+  clienteId           String?
+  cliente             Cliente?      @relation(fields: [clienteId], references: [id], onDelete: Cascade)
   titulo              String
   descripcion         String?
   tipo                TipoCita      @default(TELEFONICA)
   modalidad           ModalidadCita @default(CITA_UNICA)
+  clasificacion       ClasificacionCita @default(PRODUCTIVA)
   // Para ACOMPANAMIENTO: promotor (admin) que acompaña al asesor (opcional)
   promotorId          String?
   promotor            Usuario?      @relation("citasPromotor", fields: [promotorId], references: [id], onDelete: SetNull)
@@ -454,6 +475,98 @@ model Referido {
 
   @@index([asesorId, estado])
   @@index([clienteOrigenId])
+}
+
+// ——— Sistema de 25 puntos (formato semanal SMNYL) ———
+// Registro DIARIO de actividad comercial por asesor. El puntaje NO se guarda:
+// se calcula en servidor con el mapa único PUNTOS de routes/puntos.js
+// (referido obtenido=3, llamada=1, cita obtenida=2, cuestionario=2, cierre=3,
+// solicitud=5; meta = 25 puntos diarios). No duplicar esa tabla de valores.
+model RegistroPuntos {
+  id                      String   @id @default(cuid())
+  asesorId                String
+  asesor                  Usuario  @relation(fields: [asesorId], references: [id], onDelete: Cascade)
+  fecha                   DateTime @db.Date
+  // Áreas de prospección
+  referidosObtenidos      Int      @default(0)
+  referidosContactados    Int      @default(0)
+  llamadasRealizadas      Int      @default(0)
+  citasObtenidas          Int      @default(0)
+  // Áreas de alta productividad (planeado vs realizado)
+  citasPlaneadas          Int      @default(0)
+  citasNuevas             Int      @default(0)
+  cuestionariosPlaneados  Int      @default(0)
+  cuestionariosRealizados Int      @default(0)
+  cierresPlaneados        Int      @default(0)
+  cierresRealizados       Int      @default(0)
+  // Resultados
+  solicitudes             Int      @default(0)
+  comision                Float    @default(0)
+  creadoEn                DateTime @default(now())
+  actualizadoEn           DateTime @updatedAt
+
+  @@unique([asesorId, fecha])
+}
+
+// Listas de planeación del formato de 25 puntos, por semana (lunes como
+// inicio, misma convención que el resto del sistema). Cada lista es un Json
+// de hasta 5 strings.
+model PlanSemanal {
+  id                    String   @id @default(cuid())
+  asesorId              String
+  asesor                Usuario  @relation(fields: [asesorId], references: [id], onDelete: Cascade)
+  semanaInicio          DateTime @db.Date
+  mejoresProspectos     Json?
+  desarrolloPersonal    Json?
+  oportunidadesVenta    Json?
+  oportunidadesServicio Json?
+  creadoEn              DateTime @default(now())
+  actualizadoEn         DateTime @updatedAt
+
+  @@unique([asesorId, semanaInicio])
+}
+
+// ——— Clínica telefónica (Evaluador de Prospectos) ———
+// Fila del formato semanal "Evaluador de Prospectos" (diseñado para conseguir
+// 10 citas a la semana): lista de contactos a calificar/llamar en la clínica.
+model ProspectoClinica {
+  id              String    @id @default(cuid())
+  asesorId        String
+  asesor          Usuario   @relation(fields: [asesorId], references: [id], onDelete: Cascade)
+  semanaInicio    DateTime  @db.Date
+  nombre          String
+  contacto        String? // teléfono o "contacto personal"
+  parentesco      String?
+  edad            Int?
+  estadoCivil     String? // incluye cónyuge (texto libre, como el formato)
+  ocupacion       String?
+  dependientes    String? // nombre y edad de los hijos (texto libre)
+  tieneSeguro     Boolean?
+  fechaEntrevista DateTime?
+  planSeguimiento String?
+  resultado       String    @default("PENDIENTE") // PENDIENTE, CONTACTADO, CITA_OBTENIDA, CONVERTIDO, DESCARTADO
+  // Si el prospecto se convirtió en cliente del CRM
+  clienteId       String?
+  cliente         Cliente?  @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  creadoEn        DateTime  @default(now())
+  actualizadoEn   DateTime  @updatedAt
+
+  @@index([asesorId, semanaInicio])
+}
+
+// Sesión de clínica telefónica realizada (la meta operativa es ~2 por semana):
+// cuántas llamadas se hicieron y cuántas citas se obtuvieron en la sesión.
+model SesionClinica {
+  id             String   @id @default(cuid())
+  asesorId       String
+  asesor         Usuario  @relation(fields: [asesorId], references: [id], onDelete: Cascade)
+  fecha          DateTime
+  llamadas       Int      @default(0)
+  citasObtenidas Int      @default(0)
+  notas          String?
+  creadoEn       DateTime @default(now())
+
+  @@index([asesorId, fecha])
 }
 
 // Bono de producción del asesor, separado por período (mes/año).

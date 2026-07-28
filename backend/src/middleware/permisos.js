@@ -2,7 +2,7 @@ import { prisma } from '../prisma.js';
 
 // Secciones controlables. Debe coincidir con el catálogo del frontend
 // (components/configuracion/secciones.js) y con las claves de PoliticaRol.accesos.
-export const SECCIONES = ['dashboard', 'clientes', 'citas', 'ventas', 'actividad', 'metas', 'asesores', 'configuracion'];
+export const SECCIONES = ['dashboard', 'clientes', 'citas', 'ventas', 'actividad', 'metas', 'puntos', 'clinica', 'asesores', 'configuracion'];
 
 // Secciones de administración: además del permiso, exigen rol ADMIN/SUPERADMIN
 // (piso de rol). No se conceden a un ASESOR ni activando su toggle de rol,

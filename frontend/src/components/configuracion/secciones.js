@@ -10,6 +10,8 @@ export const SECCIONES = [
   { id: 'ventas', label: 'Pólizas', desc: 'Pólizas vendidas y comisiones' },
   { id: 'actividad', label: 'Actividad', desc: 'Bitácora de acciones' },
   { id: 'metas', label: 'Metas', desc: 'Objetivos mensuales' },
+  { id: 'puntos', label: '25 puntos', desc: 'Formato semanal de actividad comercial' },
+  { id: 'clinica', label: 'Clínica telefónica', desc: 'Evaluador de prospectos y sesiones' },
   // Secciones de administración: además del permiso exigen rol Admin/Súper
   // Admin en el servidor (no se conceden por excepción a un asesor).
   { id: 'asesores', label: 'Asesores', desc: 'Gestión del equipo', soloAdmin: true },

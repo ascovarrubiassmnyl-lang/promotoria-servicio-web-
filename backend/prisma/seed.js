@@ -7,8 +7,8 @@ async function main() {
   console.log('Seed: políticas de acceso por rol (RBAC)...');
   // Acceso base por rol; SUPERADMIN no lleva fila (acceso total hardcodeado).
   const politicasSeed = {
-    ASESOR: { dashboard: true, clientes: true, citas: true, ventas: true, actividad: true, metas: true, asesores: false, configuracion: false },
-    ADMIN: { dashboard: true, clientes: true, citas: true, ventas: true, actividad: true, metas: true, asesores: true, configuracion: true },
+    ASESOR: { dashboard: true, clientes: true, citas: true, ventas: true, actividad: true, metas: true, puntos: true, clinica: true, asesores: false, configuracion: false },
+    ADMIN: { dashboard: true, clientes: true, citas: true, ventas: true, actividad: true, metas: true, puntos: true, clinica: true, asesores: true, configuracion: true },
   };
   for (const [rol, accesos] of Object.entries(politicasSeed)) {
     await prisma.politicaRol.upsert({ where: { rol }, update: {}, create: { rol, accesos } });

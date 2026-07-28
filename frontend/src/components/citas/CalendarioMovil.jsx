@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Modal, CitaBadge } from '../ui.jsx';
-import { CANALES, ESTADOS_CITA, CITA_VIVA, infoCanal } from './tipos.js';
+import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, infoCanal, colorCita } from './tipos.js';
 import CitaFormModal from './CitaFormModal.jsx';
 import { hora, nombreMes } from '../../lib/format.js';
 
@@ -37,13 +37,16 @@ const focoAnillo = 'focus-visible:outline-none focus-visible:ring-2 focus-visibl
 // Card de cita compartida por Agenda y Mes (y la lista del día seleccionado).
 function CardCita({ c, onClick, esAdmin }) {
   const canal = infoCanal(c.tipo);
+  // El color de la tarjeta es la CLASIFICACIÓN (verde/ámbar/rojo); el canal
+  // queda como texto secundario.
+  const color = colorCita(c);
   const cancelada = c.estado === 'CANCELADA';
   return (
     <button
       onClick={onClick}
       className={`w-full flex items-stretch gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800/75 dark:hover:bg-slate-700/60 ${focoAnillo}`}
     >
-      <span className={`w-1 shrink-0 self-stretch rounded-full ${canal.dot} ${cancelada ? 'opacity-40' : ''}`} />
+      <span className={`w-1 shrink-0 self-stretch rounded-full ${color.dot} ${cancelada ? 'opacity-40' : ''}`} />
       <span className="min-w-0 flex-1">
         <span className="block text-xs font-semibold tabular-nums text-slate-500 dark:text-slate-400">
           {hora(c.fechaHoraInicio)} – {hora(c.fechaHoraFin)}
@@ -52,11 +55,16 @@ function CardCita({ c, onClick, esAdmin }) {
           {c.titulo}
         </span>
         <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ${canal.chip}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${canal.dot}`} />
-            {canal.label}
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ${color.chip}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${color.dot}`} />
+            {color.label}
           </span>
           <CitaBadge estado={c.estado} />
+          {c.cliente ? (
+            <span className="text-[11px] text-slate-400 dark:text-slate-500">{canal.label}</span>
+          ) : (
+            <span className="text-[11px] text-slate-400 dark:text-slate-500">Sin cliente</span>
+          )}
           {esAdmin && c.asesor && (
             <span className="text-[11px] text-slate-400 dark:text-slate-500">{c.asesor.nombre} {c.asesor.apellidoP}</span>
           )}
@@ -115,6 +123,7 @@ export default function CalendarioMovil() {
   const [expandido, setExpandido] = useState(() => new Set());
   const [fCanal, setFCanal] = useState('');
   const [fEstado, setFEstado] = useState('');
+  const [fClasif, setFClasif] = useState('');
   const [fAsesor, setFAsesor] = useState('');
   const [sheetFiltros, setSheetFiltros] = useState(false);
   const [detalle, setDetalle] = useState(null);
@@ -159,8 +168,8 @@ export default function CalendarioMovil() {
   });
 
   const filtradas = useMemo(
-    () => (citas || []).filter((c) => (!fCanal || c.tipo === fCanal) && (!fEstado || c.estado === fEstado)),
-    [citas, fCanal, fEstado]
+    () => (citas || []).filter((c) => (!fCanal || c.tipo === fCanal) && (!fEstado || c.estado === fEstado) && (!fClasif || (c.clasificacion || 'PRODUCTIVA') === fClasif)),
+    [citas, fCanal, fEstado, fClasif]
   );
 
   const porDia = useMemo(() => {
@@ -171,7 +180,7 @@ export default function CalendarioMovil() {
   }, [filtradas]);
 
   const esHoy = (d) => d.toDateString() === hoy.toDateString();
-  const hayFiltros = !!(fCanal || fEstado || fAsesor);
+  const hayFiltros = !!(fCanal || fEstado || fClasif || fAsesor);
   const selKey = dayKey(selDay);
   const listaDia = porDia[selKey] || [];
 
@@ -318,8 +327,9 @@ export default function CalendarioMovil() {
     return g;
   }, [view, desde, hasta, selDay]);
 
+  // Pips de la tira de días/mes: clasificación (el color de los eventos).
   const pipsDe = (items) =>
-    [...new Set(items.map((c) => c.tipo))].slice(0, 3).map((t) => infoCanal(t).dot);
+    [...new Set(items.map((c) => c.clasificacion || 'PRODUCTIVA'))].slice(0, 3).map((v) => CLASIFICACIONES[v]?.dot || CLASIFICACIONES.PRODUCTIVA.dot);
 
   const diasAgenda = useMemo(
     () => diasSemana.filter((d) => (porDia[dayKey(d)] || []).length > 0),
@@ -445,13 +455,14 @@ export default function CalendarioMovil() {
                 <div className="pointer-events-none absolute inset-y-0" style={{ left: COL_HORA + 6, right: 8 }}>
                   {eventosDia.map((e, i) => {
                     const canal = infoCanal(e.c.tipo);
+                    const color = colorCita(e.c);
                     const cancelada = e.c.estado === 'CANCELADA';
                     return (
                       <button
                         key={e.c.id}
                         ref={i === 0 ? primeraCitaRef : null}
                         onClick={() => setDetalle(e.c)}
-                        className={`pointer-events-auto absolute overflow-hidden rounded-lg border border-slate-200/70 border-l-[3px] text-left shadow-sm dark:border-slate-600/60 ${canal.chip} ${canal.borde} ${cancelada ? 'line-through opacity-50' : ''} ${focoAnillo} ${
+                        className={`pointer-events-auto absolute overflow-hidden rounded-lg border border-slate-200/70 border-l-[3px] text-left shadow-sm dark:border-slate-600/60 ${color.chip} ${color.borde} ${cancelada ? 'line-through opacity-50' : ''} ${focoAnillo} ${
                           e.corta ? 'flex items-center gap-2 px-2.5' : 'flex flex-col justify-center gap-0 px-2.5 py-1'
                         }`}
                         style={{
@@ -462,8 +473,8 @@ export default function CalendarioMovil() {
                         }}
                       >
                         <span className="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{e.c.titulo}</span>
-                        <span className={`truncate text-[11.5px] ${canal.text} ${e.corta ? 'shrink-0' : ''}`}>
-                          <span className="tabular-nums">{hora(e.c.fechaHoraInicio)}</span> · {canal.label}
+                        <span className={`truncate text-[11.5px] ${color.text} ${e.corta ? 'shrink-0' : ''}`}>
+                          <span className="tabular-nums">{hora(e.c.fechaHoraInicio)}</span> · {e.c.cliente ? canal.label : color.label}
                           {e.mas ? ` · +${e.mas} más` : ''}
                         </span>
                       </button>
@@ -575,11 +586,20 @@ export default function CalendarioMovil() {
             </select>
           </>
         )}
+        <h4 className="mb-2 mt-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Clasificación</h4>
+        <div className="flex flex-wrap gap-2">
+          <OpcionChip on={!fClasif} onClick={() => setFClasif('')}>Todas</OpcionChip>
+          {Object.values(CLASIFICACIONES).map((cl) => (
+            <OpcionChip key={cl.value} on={fClasif === cl.value} onClick={() => setFClasif(fClasif === cl.value ? '' : cl.value)} dot={cl.dot}>
+              {cl.label}
+            </OpcionChip>
+          ))}
+        </div>
         <h4 className="mb-2 mt-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Canal</h4>
         <div className="flex flex-wrap gap-2">
           <OpcionChip on={!fCanal} onClick={() => setFCanal('')}>Todos</OpcionChip>
           {Object.values(CANALES).map((c) => (
-            <OpcionChip key={c.value} on={fCanal === c.value} onClick={() => setFCanal(fCanal === c.value ? '' : c.value)} dot={c.dot}>
+            <OpcionChip key={c.value} on={fCanal === c.value} onClick={() => setFCanal(fCanal === c.value ? '' : c.value)}>
               {c.label}
             </OpcionChip>
           ))}
@@ -608,16 +628,24 @@ export default function CalendarioMovil() {
             </div>
             <div className="space-y-1.5 text-[13px] text-slate-600 dark:text-slate-300">
               <p className="tabular-nums font-medium">{hora(detalle.fechaHoraInicio)} – {hora(detalle.fechaHoraFin)}</p>
-              {detalle.cliente && (
+              {detalle.cliente ? (
                 <p>{detalle.cliente.nombre} {detalle.cliente.apellidoP}{detalle.cliente.telefono ? ` · ${detalle.cliente.telefono}` : ''}</p>
+              ) : (
+                <p className="text-slate-400 dark:text-slate-500">Evento personal (sin cliente)</p>
               )}
               <p className="flex items-center gap-1.5">
-                <span className={`h-2 w-2 rounded-full ${canalDet?.dot}`} />
-                {canalDet?.label}{detalle.ubicacion ? ` · ${detalle.ubicacion}` : ''}
+                <span className={`h-2 w-2 rounded-full ${colorCita(detalle).dot}`} />
+                {colorCita(detalle).label}
+                {detalle.cliente ? ` · ${canalDet?.label}` : ''}{detalle.ubicacion ? ` · ${detalle.ubicacion}` : ''}
               </p>
               {detalle.modalidad === 'ACOMPANAMIENTO' && (
                 <p className="inline-flex items-center gap-1 rounded-md bg-violet-50 px-2 py-0.5 font-medium text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
                   ◎ Acompañamiento{detalle.promotor ? ` · ${detalle.promotor.nombre} ${detalle.promotor.apellidoP}` : ' · promotor por asignar'}
+                </p>
+              )}
+              {detalle.modalidad === 'ENTREGA_POLIZA' && (
+                <p className="inline-flex items-center gap-1 rounded-md bg-teal-50 px-2 py-0.5 font-medium text-teal-700 dark:bg-teal-900/30 dark:text-teal-300">
+                  ⬒ Entrega de póliza
                 </p>
               )}
               {esAdmin() && detalle.asesor && (

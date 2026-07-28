@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Modal, Field } from '../ui.jsx';
-import { CANALES, TIPOS_CITA, CITA_VIVA, infoCanal } from './tipos.js';
+import { CANALES, TIPOS_CITA, CLASIFICACIONES, CITA_VIVA, infoCanal } from './tipos.js';
 import { hora, fechaCorta, isoLocalInput } from '../../lib/format.js';
 
 const DURACION_DEFAULT_MIN = 30;
@@ -35,9 +35,12 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
       setForm({
         asesorId: cita.asesorId,
         clienteId: cita.clienteId,
+        // Evento personal = sin cliente (bloqueo de agenda, clasificación roja).
+        esPersonal: !cita.clienteId,
         titulo: cita.titulo,
         descripcion: cita.descripcion || '',
         modalidad: cita.modalidad || 'CITA_UNICA',
+        clasificacion: cita.clasificacion || 'PRODUCTIVA',
         promotorId: cita.promotorId || '',
         tipo: cita.tipo || 'PRESENCIAL',
         fechaHoraInicio: isoLocalInput(new Date(cita.fechaHoraInicio)),
@@ -53,9 +56,11 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
       setForm({
         asesorId: asesorId || '',
         clienteId: clienteId || '',
+        esPersonal: false,
         titulo: '',
         descripcion: '',
         modalidad: 'CITA_UNICA',
+        clasificacion: 'PRODUCTIVA',
         promotorId: '',
         tipo: 'PRESENCIAL',
         fechaHoraInicio: inicio,
@@ -127,9 +132,11 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
     setForm((f) => ({ ...f, fechaHoraInicio: v, fechaHoraFin: v ? sumarMinutos(v, dur) : f.fechaHoraFin }));
   };
 
+  const esPersonal = !!form.esPersonal;
+
   const submit = async (e) => {
     e.preventDefault();
-    if (!editando && !form.clienteId) { setErr('Selecciona el cliente'); return; }
+    if (!editando && !esPersonal && !form.clienteId) { setErr('Selecciona el cliente'); return; }
     if (!form.titulo || !form.fechaHoraInicio) { setErr('Título e inicio son requeridos'); return; }
     if (!finDespuesDeInicio) { setErr('El fin debe ser posterior al inicio'); return; }
     setSaving(true); setErr('');
@@ -137,8 +144,9 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
       const payload = {
         titulo: form.titulo,
         descripcion: form.descripcion,
-        modalidad: form.modalidad,
-        promotorId: form.modalidad === 'ACOMPANAMIENTO' ? (form.promotorId || undefined) : null,
+        modalidad: esPersonal ? 'CITA_UNICA' : form.modalidad,
+        clasificacion: esPersonal ? 'PERSONAL' : form.clasificacion,
+        promotorId: !esPersonal && form.modalidad === 'ACOMPANAMIENTO' ? (form.promotorId || undefined) : null,
         tipo: form.tipo,
         fechaHoraInicio: new Date(form.fechaHoraInicio).toISOString(),
         fechaHoraFin: new Date(form.fechaHoraFin).toISOString(),
@@ -149,7 +157,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
       if (editando) {
         await api.patch(`/citas/${cita.id}`, payload);
       } else {
-        payload.clienteId = form.clienteId;
+        if (!esPersonal) payload.clienteId = form.clienteId;
         if (esAdmin() && form.asesorId) payload.asesorId = form.asesorId;
         if (payload.promotorId === null) delete payload.promotorId;
         await api.post('/citas', payload);
@@ -162,9 +170,24 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={editando ? 'Reagendar / editar cita' : 'Agendar cita'}>
+    <Modal open={open} onClose={onClose} title={editando ? (esPersonal ? 'Editar evento personal' : 'Reagendar / editar cita') : 'Agendar cita'}>
       <form onSubmit={submit} className="space-y-3">
-        {necesitaAsesor && (
+        {/* Evento personal: bloqueo de agenda sin cliente (rojo). Desde la
+            ficha de un cliente no aplica; al editar, el carácter no cambia. */}
+        {!clienteId && !editando && (
+          <label className="flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-600 px-3 py-2.5 text-sm text-slate-600 dark:text-slate-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={esPersonal}
+              onChange={(e) => setForm({ ...form, esPersonal: e.target.checked, clienteId: e.target.checked ? '' : form.clienteId })}
+            />
+            <span className="inline-flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${CLASIFICACIONES.PERSONAL.dot}`} />
+              Evento personal (sin cliente — bloquea tu agenda)
+            </span>
+          </label>
+        )}
+        {necesitaAsesor && !esPersonal && (
           <Field label="Asesor*">
             <select className="input" required value={form.asesorId} onChange={(e) => setForm({ ...form, asesorId: e.target.value, clienteId: '' })}>
               <option value="">Selecciona…</option>
@@ -172,7 +195,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
             </select>
           </Field>
         )}
-        {!editando && !clienteId && (
+        {!editando && !clienteId && !esPersonal && (
           <Field label="Cliente*">
             <select className="input" required value={form.clienteId} disabled={necesitaAsesor && !form.asesorId} onChange={(e) => setForm({ ...form, clienteId: e.target.value })}>
               <option value="">{necesitaAsesor && !form.asesorId ? 'Elige asesor primero' : 'Selecciona…'}</option>
@@ -184,40 +207,66 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
           <input className="input" required value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} placeholder="Ej. Presentación de póliza" />
         </Field>
 
-        <Field label="Tipo de cita*">
-          <select className="input" value={form.modalidad} onChange={(e) => setForm({ ...form, modalidad: e.target.value, promotorId: e.target.value === 'ACOMPANAMIENTO' ? form.promotorId : '' })}>
-            {Object.values(TIPOS_CITA).map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">"Acompañamiento" = el promotor asiste contigo a la cita.</p>
-        </Field>
-        {form.modalidad === 'ACOMPANAMIENTO' && (
-          <Field label="Promotor que acompaña">
-            <select className="input" value={form.promotorId} onChange={(e) => setForm({ ...form, promotorId: e.target.value })}>
-              <option value="">Sin asignar (luego lo elige el promotor)</option>
-              {promotores?.map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellidoP}</option>)}
-            </select>
-          </Field>
+        {!esPersonal && (
+          <>
+            <Field label="Tipo de cita*">
+              <select className="input" value={form.modalidad} onChange={(e) => setForm({ ...form, modalidad: e.target.value, promotorId: e.target.value === 'ACOMPANAMIENTO' ? form.promotorId : '' })}>
+                {Object.values(TIPOS_CITA).map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">"Acompañamiento" = el promotor asiste contigo a la cita.</p>
+            </Field>
+            {form.modalidad === 'ACOMPANAMIENTO' && (
+              <Field label="Promotor que acompaña">
+                <select className="input" value={form.promotorId} onChange={(e) => setForm({ ...form, promotorId: e.target.value })}>
+                  <option value="">Sin asignar (luego lo elige el promotor)</option>
+                  {promotores?.map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellidoP}</option>)}
+                </select>
+              </Field>
+            )}
+
+            <Field label="Clasificación (color en el calendario)">
+              <div className="grid grid-cols-3 gap-2">
+                {Object.values(CLASIFICACIONES).map((cl) => (
+                  <button
+                    key={cl.value}
+                    type="button"
+                    onClick={() => setForm({ ...form, clasificacion: cl.value })}
+                    className={`rounded-lg border px-2 py-2.5 text-xs font-medium flex flex-col items-center gap-1.5 transition ${
+                      form.clasificacion === cl.value
+                        ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300'
+                        : 'border-slate-200 text-slate-500 hover:text-slate-700 dark:border-slate-600 dark:text-slate-400 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <span className={`w-2 h-2 rounded-full ${cl.dot}`} />
+                    {cl.label}
+                  </button>
+                ))}
+              </div>
+            </Field>
+          </>
         )}
 
-        <Field label="Canal*">
-          <div className="grid grid-cols-3 gap-2">
-            {Object.values(CANALES).map((c) => (
-              <button
-                key={c.value}
-                type="button"
-                onClick={() => setForm({ ...form, tipo: c.value })}
-                className={`rounded-lg border px-2 py-2.5 text-xs font-medium flex flex-col items-center gap-1.5 transition ${
-                  form.tipo === c.value
-                    ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300'
-                    : 'border-slate-200 text-slate-500 hover:text-slate-700 dark:border-slate-600 dark:text-slate-400 dark:hover:text-slate-200'
-                }`}
-              >
-                <span className={`w-2 h-2 rounded-full ${c.dot}`} />
-                {c.label}
-              </button>
-            ))}
-          </div>
-        </Field>
+        {!esPersonal && (
+          <Field label="Canal*">
+            <div className="grid grid-cols-3 gap-2">
+              {Object.values(CANALES).map((c) => (
+                <button
+                  key={c.value}
+                  type="button"
+                  onClick={() => setForm({ ...form, tipo: c.value })}
+                  className={`rounded-lg border px-2 py-2.5 text-xs font-medium flex flex-col items-center gap-1.5 transition ${
+                    form.tipo === c.value
+                      ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300'
+                      : 'border-slate-200 text-slate-500 hover:text-slate-700 dark:border-slate-600 dark:text-slate-400 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${c.dot}`} />
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          </Field>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Inicio*">
@@ -239,8 +288,8 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
           </div>
         )}
 
-        <Field label={canal.ubicacionLabel}>
-          <input className="input" value={form.ubicacion} onChange={(e) => setForm({ ...form, ubicacion: e.target.value })} placeholder={canal.ubicacionLabel} />
+        <Field label={esPersonal ? 'Ubicación (opcional)' : canal.ubicacionLabel}>
+          <input className="input" value={form.ubicacion} onChange={(e) => setForm({ ...form, ubicacion: e.target.value })} placeholder={esPersonal ? 'Ubicación (opcional)' : canal.ubicacionLabel} />
         </Field>
         <Field label="Notas">
           <textarea className="input" rows={2} value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Objetivo de la cita" />

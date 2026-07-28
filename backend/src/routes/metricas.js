@@ -47,14 +47,16 @@ router.get('/dashboard', asyncHandler(async (req, res) => {
   ] = await Promise.all([
     prisma.cliente.count({ where: { ...whereAsesor, archivadoEn: null } }),
     prisma.cliente.count({ where: { ...whereAsesor, archivadoEn: null, creadoEn: wherePeriodo.creadoEn } }),
-    prisma.cita.count({ where: { ...whereAsesor, fechaHoraInicio: { gte: ini, lte: fin } } }),
-    prisma.cita.count({ where: { ...whereAsesor, estado: 'COMPLETADA', fechaHoraInicio: { gte: ini, lte: fin } } }),
+    // Los eventos personales (clasificacion PERSONAL, sin cliente) no cuentan
+    // como citas de trabajo en ninguna métrica.
+    prisma.cita.count({ where: { ...whereAsesor, clasificacion: { not: 'PERSONAL' }, fechaHoraInicio: { gte: ini, lte: fin } } }),
+    prisma.cita.count({ where: { ...whereAsesor, clasificacion: { not: 'PERSONAL' }, estado: 'COMPLETADA', fechaHoraInicio: { gte: ini, lte: fin } } }),
     prisma.venta.count({ where: { ...whereAsesor, estado: { in: GANADA }, ...wherePeriodo } }),
     prisma.venta.count({ where: { ...whereAsesor, estado: 'PENDIENTE_PAGAR' } }),
     prisma.venta.aggregate({ where: { ...whereAsesor, estado: { in: GANADA }, ...wherePeriodo }, _sum: { primaAnual: true, comisionMonto: true } }),
     prisma.venta.aggregate({ where: { ...whereAsesor, estado: { in: PIPELINE } }, _sum: { comisionMonto: true } }),
     prisma.venta.aggregate({ where: { ...whereAsesor, estado: 'PENDIENTE_PAGAR' }, _sum: { primaAnual: true } }),
-    prisma.cita.count({ where: { ...whereAsesor, estado: { in: ['PROGRAMADA', 'CONFIRMADA'] }, fechaHoraInicio: { gte: hoyIni, lte: hoyFin } } }),
+    prisma.cita.count({ where: { ...whereAsesor, clasificacion: { not: 'PERSONAL' }, estado: { in: ['PROGRAMADA', 'CONFIRMADA'] }, fechaHoraInicio: { gte: hoyIni, lte: hoyFin } } }),
     prisma.cliente.count({ where: { ...whereAsesor, archivadoEn: null, necesitaSeguimiento: true } }),
     prisma.venta.groupBy({ by: ['estado'], where: { ...whereAsesor, ...wherePeriodo }, _count: { _all: true } }),
     prisma.referido.count({ where: { ...whereAsesor, creadoEn: wherePeriodo.creadoEn } }),
@@ -104,7 +106,7 @@ router.get('/dashboard', asyncHandler(async (req, res) => {
         prisma.venta.count({ where: { asesorId: a.id, estado: { in: GANADA }, ...wherePeriodo } }),
         prisma.venta.aggregate({ where: { asesorId: a.id, estado: { in: GANADA }, ...wherePeriodo }, _sum: { primaAnual: true } }),
         prisma.cliente.count({ where: { asesorId: a.id, archivadoEn: null } }),
-        prisma.cita.count({ where: { asesorId: a.id, fechaHoraInicio: { gte: ini, lte: fin } } }),
+        prisma.cita.count({ where: { asesorId: a.id, clasificacion: { not: 'PERSONAL' }, fechaHoraInicio: { gte: ini, lte: fin } } }),
       ]);
       return { id: a.id, nombre: `${a.nombre} ${a.apellidoP}`, email: a.email, ventas, prima: prima._sum.primaAnual || 0, clientes, citas, metaPrima: metaPor[a.id] ?? null };
     }));

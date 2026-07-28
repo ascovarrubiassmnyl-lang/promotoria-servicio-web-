@@ -34,7 +34,7 @@ async function actualesPorAsesor(ini, fin) {
   const rango = { gte: ini, lte: fin };
   const [ventas, citas, prospectos, referidos, llamadas] = await Promise.all([
     prisma.venta.groupBy({ by: ['asesorId'], where: { ...GANADA, creadoEn: rango }, _count: { _all: true }, _sum: { primaAnual: true } }),
-    prisma.cita.groupBy({ by: ['asesorId'], where: { estado: 'COMPLETADA', fechaHoraInicio: rango }, _count: { _all: true } }),
+    prisma.cita.groupBy({ by: ['asesorId'], where: { estado: 'COMPLETADA', clasificacion: { not: 'PERSONAL' }, fechaHoraInicio: rango }, _count: { _all: true } }),
     prisma.cliente.groupBy({ by: ['asesorId'], where: { creadoEn: rango, archivadoEn: null }, _count: { _all: true } }),
     prisma.referido.groupBy({ by: ['asesorId'], where: { creadoEn: rango }, _count: { _all: true } }),
     prisma.actividad.groupBy({ by: ['asesorId'], where: { tipo: 'LLAMADA', creadoEn: rango }, _count: { _all: true } }),

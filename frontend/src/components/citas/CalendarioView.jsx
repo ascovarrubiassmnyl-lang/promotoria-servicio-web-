@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Card, Modal, CitaBadge, EmptyState, MenuAcciones } from '../ui.jsx';
-import { CANALES, ESTADOS_CITA, CITA_VIVA, infoCanal } from './tipos.js';
+import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, infoCanal, colorCita } from './tipos.js';
 import CitaFormModal from './CitaFormModal.jsx';
 import CalendarioMovil from './CalendarioMovil.jsx';
 import useIsMobile from '../../hooks/useIsMobile.js';
@@ -44,6 +44,7 @@ function CalendarioEscritorio() {
   const [selectedDay, setSelectedDay] = useState(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()));
   const [fCanal, setFCanal] = useState('');
   const [fEstado, setFEstado] = useState('');
+  const [fClasif, setFClasif] = useState('');
   const [fAsesor, setFAsesor] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [preFecha, setPreFecha] = useState(null);
@@ -82,8 +83,8 @@ function CalendarioEscritorio() {
   });
 
   const filtradas = useMemo(
-    () => (citas || []).filter((c) => (!fCanal || c.tipo === fCanal) && (!fEstado || c.estado === fEstado)),
-    [citas, fCanal, fEstado]
+    () => (citas || []).filter((c) => (!fCanal || c.tipo === fCanal) && (!fEstado || c.estado === fEstado) && (!fClasif || (c.clasificacion || 'PRODUCTIVA') === fClasif)),
+    [citas, fCanal, fEstado, fClasif]
   );
 
   const porDia = useMemo(() => {
@@ -146,12 +147,14 @@ function CalendarioEscritorio() {
   // calendario original (punto por canal + hora + cliente, sin fondo); el chip
   // con fondo de color es solo para móvil. No duplicar el calendario por rol
   // ni por dispositivo: es el mismo componente con clases responsivas.
+  // El color del evento es la CLASIFICACIÓN (verde/ámbar/rojo, colorCita);
+  // el canal queda como etiqueta en el panel del día.
   const ChipCita = ({ c, className = '' }) => {
-    const canal = infoCanal(c.tipo);
+    const color = colorCita(c);
     const cancelada = c.estado === 'CANCELADA';
     return (
-      <div className={`flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium truncate ${canal.chip} ${cancelada ? 'line-through opacity-50' : ''} ${className}`}>
-        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${canal.dot}`} />
+      <div className={`flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium truncate ${color.chip} ${cancelada ? 'line-through opacity-50' : ''} ${className}`}>
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${color.dot}`} />
         <span className="tabular-nums shrink-0">{hora(c.fechaHoraInicio)}</span>
         <span className="truncate">{c.titulo}</span>
       </div>
@@ -159,13 +162,13 @@ function CalendarioEscritorio() {
   };
 
   const LineaCita = ({ c, className = '' }) => {
-    const canal = infoCanal(c.tipo);
+    const color = colorCita(c);
     const cancelada = c.estado === 'CANCELADA';
     return (
       <div className={`items-center gap-1 text-[10px] text-slate-600 dark:text-slate-300 ${cancelada ? 'line-through opacity-50' : ''} ${className}`}>
-        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${canal.dot}`} />
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${color.dot}`} />
         <span className="tabular-nums shrink-0">{hora(c.fechaHoraInicio)}</span>
-        <span className="truncate">{c.cliente?.nombre}</span>
+        <span className="truncate">{c.cliente?.nombre || c.titulo}</span>
       </div>
     );
   };
@@ -251,7 +254,7 @@ function CalendarioEscritorio() {
                 />
               ))}
               {items.map((c) => {
-                const canal = infoCanal(c.tipo);
+                const color = colorCita(c);
                 const ini = new Date(c.fechaHoraInicio); const fin = new Date(c.fechaHoraFin);
                 const minIni = Math.max(ini.getHours() * 60 + ini.getMinutes(), HORA_INI * 60);
                 const minFin = Math.min(Math.max(fin.getHours() * 60 + fin.getMinutes(), minIni + 25), (HORA_FIN + 1) * 60);
@@ -262,10 +265,10 @@ function CalendarioEscritorio() {
                   <button
                     key={c.id}
                     onClick={(e) => { e.stopPropagation(); setSelectedDay(d); }}
-                    className={`absolute left-0.5 right-0.5 rounded-md border-l-2 px-1.5 py-0.5 text-left overflow-hidden ${canal.chip} ${canal.borde} ${cancelada ? 'line-through opacity-50' : ''}`}
+                    className={`absolute left-0.5 right-0.5 rounded-md border-l-2 px-1.5 py-0.5 text-left overflow-hidden ${color.chip} ${color.borde} ${cancelada ? 'line-through opacity-50' : ''}`}
                     style={{ top, height: Math.max(alto, 20) }}
                   >
-                    <div className={`text-[10px] font-semibold tabular-nums ${canal.text}`}>{hora(c.fechaHoraInicio)}</div>
+                    <div className={`text-[10px] font-semibold tabular-nums ${color.text}`}>{hora(c.fechaHoraInicio)}</div>
                     <div className="text-[10px] font-medium text-slate-700 dark:text-slate-200 truncate">{c.titulo}</div>
                   </button>
                 );
@@ -296,15 +299,16 @@ function CalendarioEscritorio() {
               </div>
               {items.map((c) => {
                 const canal = infoCanal(c.tipo);
+                const color = colorCita(c);
                 const cancelada = c.estado === 'CANCELADA';
                 return (
                   <button key={c.id} onClick={() => setSelectedDay(d)} className="w-full flex gap-3 items-start rounded-lg px-2 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50">
                     <span className="w-[120px] shrink-0 text-xs tabular-nums text-slate-500 dark:text-slate-400 pt-0.5">{hora(c.fechaHoraInicio)} – {hora(c.fechaHoraFin)}</span>
-                    <span className={`w-0.5 self-stretch rounded ${canal.dot}`} />
+                    <span className={`w-0.5 self-stretch rounded ${color.dot}`} />
                     <span className="min-w-0">
                       <span className={`block text-sm font-medium text-slate-800 dark:text-slate-100 truncate ${cancelada ? 'line-through opacity-60' : ''}`}>{c.titulo}</span>
                       <span className="block text-xs text-slate-400 dark:text-slate-500 truncate">
-                        {c.cliente?.nombre} {c.cliente?.apellidoP} · {canal.label}
+                        {c.cliente ? `${c.cliente.nombre} ${c.cliente.apellidoP}` : 'Evento personal'} · {canal.label}
                         {c.modalidad === 'ACOMPANAMIENTO' && <span className="text-violet-600 dark:text-violet-400"> · + {c.promotor ? `${c.promotor.nombre} ${c.promotor.apellidoP}` : 'promotor por asignar'}</span>}
                         {esAdmin() && !fAsesor && <> · {c.asesor?.nombre} {c.asesor?.apellidoP}</>}
                       </span>
@@ -351,6 +355,10 @@ function CalendarioEscritorio() {
             {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
           </select>
         )}
+        <select className="input w-auto" value={fClasif} onChange={(e) => setFClasif(e.target.value)}>
+          <option value="">Todas las clasificaciones</option>
+          {Object.values(CLASIFICACIONES).map((cl) => <option key={cl.value} value={cl.value}>{cl.label}</option>)}
+        </select>
         <select className="input w-auto" value={fCanal} onChange={(e) => setFCanal(e.target.value)}>
           <option value="">Todos los canales</option>
           {Object.values(CANALES).map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
@@ -359,10 +367,11 @@ function CalendarioEscritorio() {
           <option value="">Todos los estados</option>
           {Object.values(ESTADOS_CITA).map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
+        {/* Leyenda = clasificación (el color de los eventos). */}
         <div className="ml-auto flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">
-          {Object.values(CANALES).map((c) => (
-            <span key={c.value} className="inline-flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${c.dot}`} />{c.label}
+          {Object.values(CLASIFICACIONES).map((cl) => (
+            <span key={cl.value} className="inline-flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${cl.dot}`} />{cl.label}
             </span>
           ))}
         </div>
@@ -385,9 +394,10 @@ function CalendarioEscritorio() {
               <ul className="space-y-3">
                 {citasDiaSel.map((c) => {
                   const canal = infoCanal(c.tipo);
+                  const color = colorCita(c);
                   const viva = CITA_VIVA.includes(c.estado);
                   return (
-                    <li key={c.id} className={`rounded-lg border border-slate-100 dark:border-slate-700 border-l-[3px] ${canal.borde} p-3`}>
+                    <li key={c.id} className={`rounded-lg border border-slate-100 dark:border-slate-700 border-l-[3px] ${color.borde} p-3`}>
                       <div className="flex items-start justify-between gap-2">
                         <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{c.titulo}</p>
                         <div className="flex items-center gap-1">
@@ -406,13 +416,21 @@ function CalendarioEscritorio() {
                       </div>
                       <div className="mt-1.5 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
                         <p className="tabular-nums">{hora(c.fechaHoraInicio)} – {hora(c.fechaHoraFin)}</p>
-                        <p className="text-slate-600 dark:text-slate-300">{c.cliente?.nombre} {c.cliente?.apellidoP}{c.cliente?.telefono ? ` · ${c.cliente.telefono}` : ''}</p>
+                        <p className="text-slate-600 dark:text-slate-300">
+                          {c.cliente ? <>{c.cliente.nombre} {c.cliente.apellidoP}{c.cliente.telefono ? ` · ${c.cliente.telefono}` : ''}</> : 'Evento personal (sin cliente)'}
+                        </p>
                         <p className="flex items-center gap-1.5">
-                          <span className={`w-2 h-2 rounded-full ${canal.dot}`} />{canal.label}{c.ubicacion ? ` · ${c.ubicacion}` : ''}
+                          <span className={`w-2 h-2 rounded-full ${color.dot}`} />{color.label}
+                          {c.cliente ? <> · {canal.label}</> : null}{c.ubicacion ? ` · ${c.ubicacion}` : ''}
                         </p>
                         {c.modalidad === 'ACOMPANAMIENTO' && (
                           <p className="inline-flex items-center gap-1 rounded-md bg-violet-50 dark:bg-violet-900/30 px-2 py-0.5 font-medium text-violet-700 dark:text-violet-300">
                             ◎ Acompañamiento{c.promotor ? ` · ${c.promotor.nombre} ${c.promotor.apellidoP}` : ' · promotor por asignar'}
+                          </p>
+                        )}
+                        {c.modalidad === 'ENTREGA_POLIZA' && (
+                          <p className="inline-flex items-center gap-1 rounded-md bg-teal-50 dark:bg-teal-900/30 px-2 py-0.5 font-medium text-teal-700 dark:text-teal-300">
+                            ⬒ Entrega de póliza
                           </p>
                         )}
                         {esAdmin() && <p className="text-[10px] text-slate-400 dark:text-slate-500">Asesor: {c.asesor?.nombre} {c.asesor?.apellidoP}</p>}

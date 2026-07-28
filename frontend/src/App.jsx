@@ -13,6 +13,8 @@ import Actividad from './pages/Actividad.jsx';
 import Asesores from './pages/Asesores.jsx';
 import Configuracion from './pages/Configuracion.jsx';
 import Targets from './pages/Targets.jsx';
+import Puntos from './pages/Puntos.jsx';
+import Clinica from './pages/Clinica.jsx';
 
 export default function App() {
   return (
@@ -35,6 +37,10 @@ export default function App() {
         {/* Metas: el promotor gestiona equipo e individuales; el asesor solo
             ve la suya (la API fuerza el alcance, tercera capa). */}
         <Route path="/targets" element={<SeccionRoute seccion="metas"><Targets /></SeccionRoute>} />
+        {/* 25 puntos y Clínica telefónica: compartidas por ambos roles; el
+            alcance (propio vs. por asesor) lo fuerza la API. */}
+        <Route path="/puntos" element={<SeccionRoute seccion="puntos"><Puntos /></SeccionRoute>} />
+        <Route path="/clinica" element={<SeccionRoute seccion="clinica"><Clinica /></SeccionRoute>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -11,13 +11,14 @@ router.use(authenticate);
 router.use(permiteSeccion('citas'));
 
 router.get('/', asyncHandler(async (req, res) => {
-  const { desde, hasta, estado, asesorId, clienteId, promotorId } = req.query;
+  const { desde, hasta, estado, asesorId, clienteId, promotorId, clasificacion } = req.query;
   const where = {};
   if (req.user.rol === 'ASESOR') where.asesorId = req.user.id;
   else if (asesorId) where.asesorId = asesorId;
   if (promotorId) where.promotorId = promotorId;
   if (clienteId) where.clienteId = clienteId;
   if (estado) where.estado = estado;
+  if (clasificacion) where.clasificacion = clasificacion;
   if (desde || hasta) {
     where.fechaHoraInicio = {};
     if (desde) where.fechaHoraInicio.gte = new Date(desde);
@@ -65,13 +66,19 @@ async function buscarEmpalme(asesorId, inicio, fin, excluirId = null) {
   });
 }
 
+const CLASIFICACIONES = ['PRODUCTIVA', 'GESTION', 'PERSONAL'];
+
 router.post('/', asyncHandler(async (req, res) => {
-  const { clienteId, titulo, descripcion, tipo, fechaHoraInicio, fechaHoraFin, ubicacion, recordatorioMinutos, modalidad, promotorId, ignorarEmpalme } = req.body || {};
-  if (!clienteId || !titulo || !fechaHoraInicio) return res.status(400).json({ error: 'clienteId, titulo y fechaHoraInicio son requeridos' });
-  const cliente = await prisma.cliente.findUnique({ where: { id: clienteId } });
-  if (!cliente) return res.status(400).json({ error: 'Cliente no encontrado' });
-  const asesorId = (req.user.rol === 'ASESOR') ? req.user.id : (req.body.asesorId || cliente.asesorId);
-  if (req.user.rol === 'ASESOR' && cliente.asesorId !== req.user.id) return res.status(403).json({ error: 'El cliente pertenece a otro asesor' });
+  const { clienteId, titulo, descripcion, tipo, fechaHoraInicio, fechaHoraFin, ubicacion, recordatorioMinutos, modalidad, clasificacion, promotorId, ignorarEmpalme } = req.body || {};
+  if (!titulo || !fechaHoraInicio) return res.status(400).json({ error: 'titulo y fechaHoraInicio son requeridos' });
+  if (clasificacion && !CLASIFICACIONES.includes(clasificacion)) return res.status(400).json({ error: 'clasificacion inválida' });
+  // Solo un evento PERSONAL (bloqueo de agenda) puede no llevar cliente;
+  // toda cita de trabajo lo exige, igual que antes.
+  if (!clienteId && clasificacion !== 'PERSONAL') return res.status(400).json({ error: 'clienteId es requerido (salvo eventos personales)' });
+  const cliente = clienteId ? await prisma.cliente.findUnique({ where: { id: clienteId } }) : null;
+  if (clienteId && !cliente) return res.status(400).json({ error: 'Cliente no encontrado' });
+  const asesorId = (req.user.rol === 'ASESOR') ? req.user.id : (req.body.asesorId || cliente?.asesorId || req.user.id);
+  if (req.user.rol === 'ASESOR' && cliente && cliente.asesorId !== req.user.id) return res.status(403).json({ error: 'El cliente pertenece a otro asesor' });
 
   // Validar promotor si se asigna (debe ser admin/superadmin)
   let promotorFinal = null;
@@ -93,9 +100,10 @@ router.post('/', asyncHandler(async (req, res) => {
   // cambia después con las acciones del ciclo de vida (completar, cancelar, no asistió).
   const cita = await prisma.cita.create({
     data: {
-      asesorId, clienteId, titulo, descripcion: descripcion || null,
+      asesorId, clienteId: clienteId || null, titulo, descripcion: descripcion || null,
       tipo: tipo || 'TELEFONICA',
       modalidad: modalidad || 'CITA_UNICA',
+      clasificacion: clasificacion || (clienteId ? 'PRODUCTIVA' : 'PERSONAL'),
       promotorId: promotorFinal,
       estado: 'PROGRAMADA',
       fechaHoraInicio: inicio, fechaHoraFin: fin,
@@ -107,13 +115,16 @@ router.post('/', asyncHandler(async (req, res) => {
       promotor: { select: { id: true, nombre: true, apellidoP: true } },
     },
   });
-  await registrarActividad(asesorId, 'CITA_CREADA', {
-    citaId: cita.id,
-    clienteId: cliente.id,
-    cliente: `${cliente.nombre} ${cliente.apellidoP}`,
-    titulo,
-    modalidad: modalidad || 'CITA_UNICA',
-  });
+  // Los eventos personales no dejan huella en la bitácora de trabajo.
+  if (cliente) {
+    await registrarActividad(asesorId, 'CITA_CREADA', {
+      citaId: cita.id,
+      clienteId: cliente.id,
+      cliente: `${cliente.nombre} ${cliente.apellidoP}`,
+      titulo,
+      modalidad: modalidad || 'CITA_UNICA',
+    });
+  }
   res.status(201).json(cita);
 }));
 
@@ -122,12 +133,18 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   const existente = await prisma.cita.findUnique({ where: { id } });
   if (!existente) return res.status(404).json({ error: 'Cita no encontrada' });
   if (req.user.rol === 'ASESOR' && existente.asesorId !== req.user.id) return res.status(403).json({ error: 'Sin acceso a esta cita' });
-  const { titulo, descripcion, tipo, estado, fechaHoraInicio, fechaHoraFin, ubicacion, recordatorioMinutos, modalidad, promotorId, ignorarEmpalme } = req.body || {};
+  const { titulo, descripcion, tipo, estado, fechaHoraInicio, fechaHoraFin, ubicacion, recordatorioMinutos, modalidad, clasificacion, promotorId, ignorarEmpalme } = req.body || {};
   const data = {};
   if (titulo) data.titulo = titulo;
   if (descripcion !== undefined) data.descripcion = descripcion || null;
   if (tipo) data.tipo = tipo;
   if (modalidad) data.modalidad = modalidad;
+  if (clasificacion) {
+    if (!CLASIFICACIONES.includes(clasificacion)) return res.status(400).json({ error: 'clasificacion inválida' });
+    // Un evento sin cliente solo puede ser PERSONAL (no hay a quién facturarle).
+    if (!existente.clienteId && clasificacion !== 'PERSONAL') return res.status(400).json({ error: 'Un evento sin cliente solo puede ser personal' });
+    data.clasificacion = clasificacion;
+  }
   if (promotorId !== undefined) data.promotorId = promotorId || null;
   if (estado) data.estado = estado;
   if (fechaHoraInicio) data.fechaHoraInicio = new Date(fechaHoraInicio);

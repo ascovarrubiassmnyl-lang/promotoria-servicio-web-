@@ -316,7 +316,19 @@ conservan sus nombres históricos; la traducción a UI vive en el **mapa único*
 
 - `Cita.modalidad` (`ModalidadCita`) = **Tipo de cita** (quién participa):
   `CITA_UNICA` → "Cita de asesor" | `ACOMPANAMIENTO` → "Acompañamiento con
-  promotor" (con selector de `promotorId`, validado como admin en el backend).
+  promotor" (con selector de `promotorId`, validado como admin en el backend)
+  | `ENTREGA_POLIZA` → "Entrega de póliza" (chip teal en el panel de detalle).
+- `Cita.clasificacion` (`ClasificacionCita`, 2026-07-28) = **el COLOR del
+  evento en el calendario** (metodología de la promotoría): `PRODUCTIVA`
+  verde "Genera dinero" | `GESTION` ámbar "Gestión / seguimiento" |
+  `PERSONAL` rojo. El canal ya NO colorea eventos (quedó como etiqueta de
+  texto); `colorCita(c)` en `tipos.js` es el único punto de decisión del
+  color. **Eventos personales**: `Cita.clienteId` es opcional — solo una cita
+  `PERSONAL` puede no llevar cliente (checkbox "Evento personal" en el modal;
+  bloquea agenda, cuenta para empalmes, la promotora la ve como ocupación).
+  Las citas PERSONAL se excluyen de TODAS las métricas de citas (dashboard,
+  ranking, targets: `clasificacion: { not: 'PERSONAL' }`) y no registran
+  actividad en la bitácora.
 - `Cita.tipo` (`TipoCita`) = **Canal** (medio): `TELEFONICA` → azul (blue),
   `PRESENCIAL` → teal, `VIDEO` → "Videollamada", violeta. El canal es el color
   de chips/eventos/leyenda, y la etiqueta del campo Ubicación se adapta al
@@ -397,6 +409,50 @@ parametrizados en `UMBRALES_RITMO`, no duplicar):
 (solo su propia fila) y responde **403** en `/targets/equipo` y en los POST —
 un asesor nunca recibe metas ni actuales de otros. El promotor gestiona meta
 de equipo e individuales con ranking y contribución (% de la prima del equipo).
+
+## Sección 25 puntos (`/puntos`, 2026-07-28)
+
+Digitaliza el **formato semanal de 25 puntos** de SMNYL (`pages/Puntos.jsx`,
+sección RBAC `puntos`, permitida a ambos roles). Modelos: `RegistroPuntos`
+(registro DIARIO por asesor, `@@unique([asesorId, fecha])`, columnas de
+prospección/alta productividad/resultados) y `PlanSemanal` (las 4 listas de
+planeación por semana, lunes como inicio).
+
+- **El puntaje NO se guarda**: se calcula con el mapa único `PUNTOS` de
+  `backend/src/routes/puntos.js` (referido obtenido=3, llamada=1, cita
+  obtenida=2, cuestionario realizado=2, cierre realizado=3, solicitud=5;
+  `META_PUNTOS_DIARIA = 25`). El frontend recibe `valores`/`metaDiaria` en
+  `GET /puntos/semana` y no re-declara valores.
+- API: `GET /puntos/semana?inicio=YYYY-MM-DD` (lunes), `PUT /puntos/dia`
+  (upsert del día, guarda al salir de cada celda), `PUT /puntos/plan`,
+  `GET /puntos/resumen` (solo promotores: ranking semanal por asesor). El
+  asesor solo se ve a sí mismo (el parámetro `asesorId` se ignora); el
+  promotor captura/consulta por asesor con el selector.
+- Semana lunes–domingo con helpers compartidos en `frontend/src/lib/semana.js`
+  (`rangoSemana`, `labelSemana`, `isoDia`) — mismos que usa Clínica.
+
+## Sección Clínica telefónica (`/clinica`, 2026-07-28)
+
+Digitaliza el **"Evaluador de Prospectos"** semanal (formato físico de la
+promotoría, diseñado para conseguir 10 citas/semana) más el registro de
+sesiones de clínica (`pages/Clinica.jsx`, sección RBAC `clinica`). Modelos:
+`ProspectoClinica` (fila del evaluador: nombre, contacto, parentesco, edad,
+estado civil, ocupación, dependientes, ¿tiene seguro?, fecha de entrevista,
+plan de seguimiento, `resultado`) y `SesionClinica` (fecha, llamadas, citas
+obtenidas, notas).
+
+- Metas fijas en `backend/src/routes/clinica.js`: `META_CITAS_SEMANA = 10`,
+  `META_SESIONES_SEMANA = 2`. "Citas obtenidas" de la semana = suma de las
+  sesiones + prospectos con resultado `CITA_OBTENIDA`.
+- `resultado` ∈ PENDIENTE/CONTACTADO/CITA_OBTENIDA/CONVERTIDO/DESCARTADO
+  (mapa de labels/colores en `pages/Clinica.jsx`, select inline en la tabla).
+  **Convertir en cliente** (`POST /clinica/prospectos/:id/convertir`): crea el
+  `Cliente` con `fuente: "Clínica telefónica"`, lo enlaza (`clienteId`), marca
+  `CONVERTIDO` y registra `CLIENTE_CREADO` en la bitácora. "Pasar a la próxima
+  semana" = PATCH de `semanaInicio` (arrastre de no contactados).
+- Alcance por rol igual que 25 puntos: asesor solo lo suyo; promotor con
+  selector + `GET /clinica/resumen` (avance de cada asesor hacia 10 citas y
+  2 sesiones).
 
 ## Sección Configuración (rediseño 2026-07)
 

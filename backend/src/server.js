@@ -21,6 +21,8 @@ import referidosRoutes from './routes/referidos.js';
 import bonosRoutes from './routes/bonos.js';
 import documentosRoutes from './routes/documentos.js';
 import configuracionRoutes from './routes/configuracion.js';
+import puntosRoutes from './routes/puntos.js';
+import clinicaRoutes from './routes/clinica.js';
 import { startReminderJob } from './jobs/reminderJob.js';
 import { initMailer } from './services/mailer.js';
 import { errorHandler, notFound } from './middleware/error.js';
@@ -52,6 +54,8 @@ app.use('/api/referidos', referidosRoutes);
 app.use('/api/bonos', bonosRoutes);
 app.use('/api/documentos', documentosRoutes);
 app.use('/api/configuracion', configuracionRoutes);
+app.use('/api/puntos', puntosRoutes);
+app.use('/api/clinica', clinicaRoutes);
 
 // Producción (Railway, un solo servicio): Express sirve el build de Vite.
 // Estáticos + fallback SPA para las rutas de React Router; /api/* nunca cae

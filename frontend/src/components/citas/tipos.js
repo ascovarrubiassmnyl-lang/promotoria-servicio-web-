@@ -42,11 +42,57 @@ export const infoCanal = (tipo) =>
     borde: 'border-slate-400',
   };
 
-// Tipo de cita (Cita.modalidad): quién participa.
+// Tipo de cita (Cita.modalidad): quién participa / propósito.
 export const TIPOS_CITA = {
   CITA_UNICA: { value: 'CITA_UNICA', label: 'Cita de asesor' },
   ACOMPANAMIENTO: { value: 'ACOMPANAMIENTO', label: 'Acompañamiento con promotor' },
+  ENTREGA_POLIZA: { value: 'ENTREGA_POLIZA', label: 'Entrega de póliza' },
 };
+
+export const infoTipoCita = (modalidad) =>
+  TIPOS_CITA[modalidad] || { value: modalidad, label: modalidad || '—' };
+
+// Clasificación (Cita.clasificacion): qué aporta al negocio. ES EL COLOR del
+// evento en el calendario (metodología de la promotoría: rojo = personal,
+// amarillo = no genera dinero directo, verde = genera dinero); el canal queda
+// como etiqueta secundaria.
+export const CLASIFICACIONES = {
+  PRODUCTIVA: {
+    value: 'PRODUCTIVA',
+    label: 'Genera dinero',
+    dot: 'bg-emerald-500',
+    text: 'text-emerald-600 dark:text-emerald-400',
+    chip: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+    borde: 'border-emerald-500',
+  },
+  GESTION: {
+    value: 'GESTION',
+    label: 'Gestión / seguimiento',
+    dot: 'bg-amber-400',
+    text: 'text-amber-600 dark:text-amber-400',
+    chip: 'bg-amber-50 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+    borde: 'border-amber-400',
+  },
+  PERSONAL: {
+    value: 'PERSONAL',
+    label: 'Personal',
+    dot: 'bg-red-500',
+    text: 'text-red-600 dark:text-red-400',
+    chip: 'bg-red-50 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+    borde: 'border-red-500',
+  },
+};
+
+export const infoClasificacion = (v) =>
+  CLASIFICACIONES[v] || CLASIFICACIONES.PRODUCTIVA;
+
+// Colores de un evento del calendario: manda la clasificación. Único punto de
+// decisión — no elegir colores de cita en los componentes.
+export const colorCita = (c) => infoClasificacion(c?.clasificacion);
+
+// Un evento personal es el único que puede vivir sin cliente (bloqueo de
+// agenda del asesor; la promotora lo ve como ocupación).
+export const esEventoPersonal = (c) => !c?.clienteId;
 
 // Ciclo de vida. Una cita nace PROGRAMADA (el alta nunca pide estado) y cambia
 // con acciones: completar, cancelar (soft delete: conserva el registro), no asistió.
