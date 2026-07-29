@@ -38,8 +38,8 @@ function CalendarioEscritorio() {
   const qc = useQueryClient();
   const hoy = new Date();
 
-  // Semana por defecto para el asesor (su unidad de trabajo diaria); Mes para el promotor.
-  const [view, setView] = useState(esAdmin() ? 'mes' : 'semana');
+  // Mes por defecto para ambos roles (misma UI de entrada para asesor y promotor).
+  const [view, setView] = useState('mes');
   const [refDate, setRefDate] = useState(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()));
   const [selectedDay, setSelectedDay] = useState(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()));
   const [fCanal, setFCanal] = useState('');
