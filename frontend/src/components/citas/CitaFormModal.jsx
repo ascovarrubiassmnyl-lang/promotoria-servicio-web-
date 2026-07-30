@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Modal, Field } from '../ui.jsx';
-import { CANALES, TIPOS_CITA, CLASIFICACIONES, CITA_VIVA, infoCanal } from './tipos.js';
+import { CANALES, TIPOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, infoCanal } from './tipos.js';
 import { hora, fechaCorta, isoLocalInput } from '../../lib/format.js';
 
 const DURACION_DEFAULT_MIN = 30;
@@ -36,7 +36,10 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
         asesorId: cita.asesorId,
         clienteId: cita.clienteId,
         // Evento personal = sin cliente (bloqueo de agenda, clasificación roja).
-        esPersonal: !cita.clienteId,
+        // La agenda propia del promotor (PRP/entrevistas) también vive sin
+        // cliente pero NO es un evento personal: debe conservar su selector
+        // de Tipo de cita y Clasificación al editar.
+        esPersonal: !cita.clienteId && !MODALIDADES_PROMOTOR.includes(cita.modalidad),
         titulo: cita.titulo,
         descripcion: cita.descripcion || '',
         modalidad: cita.modalidad || 'CITA_UNICA',
@@ -71,8 +74,10 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
     setErr('');
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Selector de asesor solo para admin en alta sin scope fijo
-  const necesitaAsesor = esAdmin() && !editando && !clienteId && !asesorId;
+  // Selector de asesor solo para admin en alta sin scope fijo. Las modalidades
+  // de agenda propia del promotor (PRP, entrevistas) nunca lo requieren: son
+  // eventos del propio promotor, no de un asesor.
+  const necesitaAsesor = esAdmin() && !editando && !clienteId && !asesorId && !MODALIDADES_PROMOTOR.includes(form?.modalidad);
   const { data: asesores } = useQuery({
     queryKey: ['asesores-list'],
     queryFn: async () => (await api.get('/usuarios/asesores')).data,
@@ -82,7 +87,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
   const { data: clientes } = useQuery({
     queryKey: ['clientes-cita', form?.asesorId || 'propios'],
     queryFn: async () => (await api.get('/clientes', { params: { asesorId: form?.asesorId || undefined } })).data,
-    enabled: open && !editando && !clienteId && (!necesitaAsesor || !!form?.asesorId),
+    enabled: open && !editando && !clienteId && !MODALIDADES_PROMOTOR.includes(form?.modalidad) && (!necesitaAsesor || !!form?.asesorId),
   });
 
   const { data: promotores } = useQuery({
@@ -133,10 +138,11 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
   };
 
   const esPersonal = !!form.esPersonal;
+  const modalidadPropia = MODALIDADES_PROMOTOR.includes(form.modalidad);
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!editando && !esPersonal && !form.clienteId) { setErr('Selecciona el cliente'); return; }
+    if (!editando && !esPersonal && !modalidadPropia && !form.clienteId) { setErr('Selecciona el cliente'); return; }
     if (!form.titulo || !form.fechaHoraInicio) { setErr('Título e inicio son requeridos'); return; }
     if (!finDespuesDeInicio) { setErr('El fin debe ser posterior al inicio'); return; }
     setSaving(true); setErr('');
@@ -157,7 +163,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
       if (editando) {
         await api.patch(`/citas/${cita.id}`, payload);
       } else {
-        if (!esPersonal) payload.clienteId = form.clienteId;
+        if (!esPersonal && !modalidadPropia) payload.clienteId = form.clienteId;
         if (esAdmin() && form.asesorId) payload.asesorId = form.asesorId;
         if (payload.promotorId === null) delete payload.promotorId;
         await api.post('/citas', payload);
@@ -195,7 +201,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
             </select>
           </Field>
         )}
-        {!editando && !clienteId && !esPersonal && (
+        {!editando && !clienteId && !esPersonal && !modalidadPropia && (
           <Field label="Cliente*">
             <select className="input" required value={form.clienteId} disabled={necesitaAsesor && !form.asesorId} onChange={(e) => setForm({ ...form, clienteId: e.target.value })}>
               <option value="">{necesitaAsesor && !form.asesorId ? 'Elige asesor primero' : 'Selecciona…'}</option>
@@ -210,10 +216,25 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
         {!esPersonal && (
           <>
             <Field label="Tipo de cita*">
-              <select className="input" value={form.modalidad} onChange={(e) => setForm({ ...form, modalidad: e.target.value, promotorId: e.target.value === 'ACOMPANAMIENTO' ? form.promotorId : '' })}>
-                {Object.values(TIPOS_CITA).map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              <select
+                className="input"
+                value={form.modalidad}
+                onChange={(e) => {
+                  const propia = MODALIDADES_PROMOTOR.includes(e.target.value);
+                  setForm({
+                    ...form,
+                    modalidad: e.target.value,
+                    clienteId: propia ? '' : form.clienteId,
+                    asesorId: propia ? '' : form.asesorId,
+                    promotorId: e.target.value === 'ACOMPANAMIENTO' ? form.promotorId : '',
+                  });
+                }}
+              >
+                {Object.values(TIPOS_CITA).filter((t) => esAdmin() || !MODALIDADES_PROMOTOR.includes(t.value)).map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
-              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">"Acompañamiento" = el promotor asiste contigo a la cita.</p>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                {modalidadPropia ? 'Agenda propia: no necesita asesor ni cliente.' : '"Acompañamiento" = el promotor asiste contigo a la cita.'}
+              </p>
             </Field>
             {form.modalidad === 'ACOMPANAMIENTO' && (
               <Field label="Promotor que acompaña">

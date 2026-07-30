@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Card, Modal, CitaBadge, EmptyState, MenuAcciones } from '../ui.jsx';
-import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, infoCanal, colorCita } from './tipos.js';
+import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, infoCanal, infoTipoCita, colorCita } from './tipos.js';
 import CitaFormModal from './CitaFormModal.jsx';
 import CalendarioMovil from './CalendarioMovil.jsx';
 import useIsMobile from '../../hooks/useIsMobile.js';
@@ -142,30 +142,16 @@ function CalendarioEscritorio() {
   const abrirReagendar = (c) => { setCitaEdit(c); setPreFecha(null); setModalOpen(true); };
 
   // ---------- Celdas / chips ----------
-  // En la vista Mes conviven dos presentaciones por breakpoint (decisión del
-  // usuario 2026-07-27): en escritorio (md+) la celda usa la línea discreta del
-  // calendario original (punto por canal + hora + cliente, sin fondo); el chip
-  // con fondo de color es solo para móvil. No duplicar el calendario por rol
-  // ni por dispositivo: es el mismo componente con clases responsivas.
-  // El color del evento es la CLASIFICACIÓN (verde/ámbar/rojo, colorCita);
-  // el canal queda como etiqueta en el panel del día.
-  const ChipCita = ({ c, className = '' }) => {
-    const color = colorCita(c);
-    const cancelada = c.estado === 'CANCELADA';
-    return (
-      <div className={`flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium truncate ${color.chip} ${cancelada ? 'line-through opacity-50' : ''} ${className}`}>
-        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${color.dot}`} />
-        <span className="tabular-nums shrink-0">{hora(c.fechaHoraInicio)}</span>
-        <span className="truncate">{c.titulo}</span>
-      </div>
-    );
-  };
-
+  // La vista Mes usa el mismo chip con fondo de color en todos los tamaños
+  // (antes escritorio mostraba solo un punto de 1.5px sin fondo, casi
+  // invisible — feedback de la promotora 2026-07-30). El color del evento es
+  // la CLASIFICACIÓN (verde/ámbar/rojo, colorCita); el canal queda como
+  // etiqueta en el panel del día.
   const LineaCita = ({ c, className = '' }) => {
     const color = colorCita(c);
     const cancelada = c.estado === 'CANCELADA';
     return (
-      <div className={`items-center gap-1 text-[10px] text-slate-600 dark:text-slate-300 ${cancelada ? 'line-through opacity-50' : ''} ${className}`}>
+      <div className={`flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium truncate ${color.chip} ${cancelada ? 'line-through opacity-50' : ''} ${className}`}>
         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${color.dot}`} />
         <span className="tabular-nums shrink-0">{hora(c.fechaHoraInicio)}</span>
         <span className="truncate">{c.cliente?.nombre || c.titulo}</span>
@@ -203,10 +189,8 @@ function CalendarioEscritorio() {
             >
               <div className={`text-xs font-semibold md:font-normal ${esHoy(d) ? 'w-5 h-5 rounded-full bg-brand-600 text-white flex items-center justify-center' : 'text-slate-600 dark:text-slate-300'}`}>{d.getDate()}</div>
               <div className="mt-1 space-y-0.5">
-                {items.slice(0, 2).map((c) => <ChipCita key={c.id} c={c} className="md:hidden" />)}
-                {items.length > 2 && <p className="text-[10px] text-slate-400 dark:text-slate-500 pl-1 md:hidden">+{items.length - 2} más</p>}
-                {items.slice(0, 3).map((c) => <LineaCita key={c.id} c={c} className="hidden md:flex" />)}
-                {items.length > 3 && <p className="hidden text-[10px] text-slate-400 dark:text-slate-500 md:block">+{items.length - 3} más</p>}
+                {items.slice(0, 3).map((c) => <LineaCita key={c.id} c={c} />)}
+                {items.length > 3 && <p className="text-[10px] text-slate-400 dark:text-slate-500 pl-1">+{items.length - 3} más</p>}
               </div>
             </button>
           );
@@ -308,7 +292,7 @@ function CalendarioEscritorio() {
                     <span className="min-w-0">
                       <span className={`block text-sm font-medium text-slate-800 dark:text-slate-100 truncate ${cancelada ? 'line-through opacity-60' : ''}`}>{c.titulo}</span>
                       <span className="block text-xs text-slate-400 dark:text-slate-500 truncate">
-                        {c.cliente ? `${c.cliente.nombre} ${c.cliente.apellidoP}` : 'Evento personal'} · {canal.label}
+                        {c.cliente ? `${c.cliente.nombre} ${c.cliente.apellidoP}` : MODALIDADES_PROMOTOR.includes(c.modalidad) ? infoTipoCita(c.modalidad).label : 'Evento personal'} · {canal.label}
                         {c.modalidad === 'ACOMPANAMIENTO' && <span className="text-violet-600 dark:text-violet-400"> · + {c.promotor ? `${c.promotor.nombre} ${c.promotor.apellidoP}` : 'promotor por asignar'}</span>}
                         {esAdmin() && !fAsesor && <> · {c.asesor?.nombre} {c.asesor?.apellidoP}</>}
                       </span>
@@ -352,6 +336,7 @@ function CalendarioEscritorio() {
           <select className="input w-auto" value={fAsesor} onChange={(e) => setFAsesor(e.target.value)}>
             <option value="">Todos los asesores</option>
             <option value="__mios__">Mis acompañamientos</option>
+            <option value={user?.id}>Mi agenda</option>
             {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
           </select>
         )}
@@ -417,11 +402,13 @@ function CalendarioEscritorio() {
                       <div className="mt-1.5 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
                         <p className="tabular-nums">{hora(c.fechaHoraInicio)} – {hora(c.fechaHoraFin)}</p>
                         <p className="text-slate-600 dark:text-slate-300">
-                          {c.cliente ? <>{c.cliente.nombre} {c.cliente.apellidoP}{c.cliente.telefono ? ` · ${c.cliente.telefono}` : ''}</> : 'Evento personal (sin cliente)'}
+                          {c.cliente
+                            ? <>{c.cliente.nombre} {c.cliente.apellidoP}{c.cliente.telefono ? ` · ${c.cliente.telefono}` : ''}</>
+                            : MODALIDADES_PROMOTOR.includes(c.modalidad) ? infoTipoCita(c.modalidad).label : 'Evento personal (sin cliente)'}
                         </p>
                         <p className="flex items-center gap-1.5">
                           <span className={`w-2 h-2 rounded-full ${color.dot}`} />{color.label}
-                          {c.cliente ? <> · {canal.label}</> : null}{c.ubicacion ? ` · ${c.ubicacion}` : ''}
+                          {c.cliente || MODALIDADES_PROMOTOR.includes(c.modalidad) ? <> · {canal.label}</> : null}{c.ubicacion ? ` · ${c.ubicacion}` : ''}
                         </p>
                         {c.modalidad === 'ACOMPANAMIENTO' && (
                           <p className="inline-flex items-center gap-1 rounded-md bg-violet-50 dark:bg-violet-900/30 px-2 py-0.5 font-medium text-violet-700 dark:text-violet-300">

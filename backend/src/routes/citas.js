@@ -67,14 +67,24 @@ async function buscarEmpalme(asesorId, inicio, fin, excluirId = null) {
 }
 
 const CLASIFICACIONES = ['PRODUCTIVA', 'GESTION', 'PERSONAL'];
+// Agenda propia de reclutamiento del promotor: solo ADMIN/SUPERADMIN, sin
+// asesor ni cliente (equivalen a un evento personal, pero no bloquean la
+// agenda ni se pintan de rojo — su color lo da la clasificación elegida).
+const MODALIDADES_PROMOTOR = ['PRP', 'ENTREVISTA_INICIAL', 'ENTREVISTA_SELECCION', 'ENTREVISTA_CARRERA'];
 
 router.post('/', asyncHandler(async (req, res) => {
   const { clienteId, titulo, descripcion, tipo, fechaHoraInicio, fechaHoraFin, ubicacion, recordatorioMinutos, modalidad, clasificacion, promotorId, ignorarEmpalme } = req.body || {};
   if (!titulo || !fechaHoraInicio) return res.status(400).json({ error: 'titulo y fechaHoraInicio son requeridos' });
   if (clasificacion && !CLASIFICACIONES.includes(clasificacion)) return res.status(400).json({ error: 'clasificacion inválida' });
-  // Solo un evento PERSONAL (bloqueo de agenda) puede no llevar cliente;
-  // toda cita de trabajo lo exige, igual que antes.
-  if (!clienteId && clasificacion !== 'PERSONAL') return res.status(400).json({ error: 'clienteId es requerido (salvo eventos personales)' });
+  if (modalidad && MODALIDADES_PROMOTOR.includes(modalidad) && req.user.rol === 'ASESOR') {
+    return res.status(403).json({ error: 'Este tipo de cita es solo para el promotor' });
+  }
+  // Solo un evento PERSONAL (bloqueo de agenda) o de agenda propia del
+  // promotor (reclutamiento) puede no llevar cliente; toda cita de trabajo
+  // con un asesor lo exige, igual que antes.
+  if (!clienteId && clasificacion !== 'PERSONAL' && !MODALIDADES_PROMOTOR.includes(modalidad)) {
+    return res.status(400).json({ error: 'clienteId es requerido (salvo eventos personales o de agenda propia)' });
+  }
   const cliente = clienteId ? await prisma.cliente.findUnique({ where: { id: clienteId } }) : null;
   if (clienteId && !cliente) return res.status(400).json({ error: 'Cliente no encontrado' });
   const asesorId = (req.user.rol === 'ASESOR') ? req.user.id : (req.body.asesorId || cliente?.asesorId || req.user.id);
@@ -141,8 +151,11 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   if (modalidad) data.modalidad = modalidad;
   if (clasificacion) {
     if (!CLASIFICACIONES.includes(clasificacion)) return res.status(400).json({ error: 'clasificacion inválida' });
-    // Un evento sin cliente solo puede ser PERSONAL (no hay a quién facturarle).
-    if (!existente.clienteId && clasificacion !== 'PERSONAL') return res.status(400).json({ error: 'Un evento sin cliente solo puede ser personal' });
+    // Un evento sin cliente solo puede ser PERSONAL o de agenda propia del promotor.
+    const modalidadEfectiva = modalidad || existente.modalidad;
+    if (!existente.clienteId && clasificacion !== 'PERSONAL' && !MODALIDADES_PROMOTOR.includes(modalidadEfectiva)) {
+      return res.status(400).json({ error: 'Un evento sin cliente solo puede ser personal o de agenda propia' });
+    }
     data.clasificacion = clasificacion;
   }
   if (promotorId !== undefined) data.promotorId = promotorId || null;

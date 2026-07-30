@@ -47,7 +47,15 @@ export const TIPOS_CITA = {
   CITA_UNICA: { value: 'CITA_UNICA', label: 'Cita de asesor' },
   ACOMPANAMIENTO: { value: 'ACOMPANAMIENTO', label: 'Acompañamiento con promotor' },
   ENTREGA_POLIZA: { value: 'ENTREGA_POLIZA', label: 'Entrega de póliza' },
+  // Agenda propia de reclutamiento del promotor: sin asesor ni cliente.
+  PRP: { value: 'PRP', label: 'PRP' },
+  ENTREVISTA_INICIAL: { value: 'ENTREVISTA_INICIAL', label: 'Entrevista inicial' },
+  ENTREVISTA_SELECCION: { value: 'ENTREVISTA_SELECCION', label: 'Entrevista de selección' },
+  ENTREVISTA_CARRERA: { value: 'ENTREVISTA_CARRERA', label: 'Entrevista de carrera' },
 };
+
+// Solo el promotor las ve/usa (reclutamiento propio, sin asesor ni cliente).
+export const MODALIDADES_PROMOTOR = ['PRP', 'ENTREVISTA_INICIAL', 'ENTREVISTA_SELECCION', 'ENTREVISTA_CARRERA'];
 
 export const infoTipoCita = (modalidad) =>
   TIPOS_CITA[modalidad] || { value: modalidad, label: modalidad || '—' };
@@ -90,8 +98,8 @@ export const infoClasificacion = (v) =>
 // decisión — no elegir colores de cita en los componentes.
 export const colorCita = (c) => infoClasificacion(c?.clasificacion);
 
-// Un evento personal es el único que puede vivir sin cliente (bloqueo de
-// agenda del asesor; la promotora lo ve como ocupación).
+// Sin cliente: evento personal (bloqueo de agenda) o agenda propia del
+// promotor (MODALIDADES_PROMOTOR) — los únicos que pueden vivir sin uno.
 export const esEventoPersonal = (c) => !c?.clienteId;
 
 // Ciclo de vida. Una cita nace PROGRAMADA (el alta nunca pide estado) y cambia

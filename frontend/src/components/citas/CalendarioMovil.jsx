@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Modal, CitaBadge } from '../ui.jsx';
-import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, infoCanal, colorCita } from './tipos.js';
+import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, infoCanal, infoTipoCita, colorCita } from './tipos.js';
 import CitaFormModal from './CitaFormModal.jsx';
 import { hora, nombreMes } from '../../lib/format.js';
 
@@ -60,7 +60,10 @@ function CardCita({ c, onClick, esAdmin }) {
             {color.label}
           </span>
           <CitaBadge estado={c.estado} />
-          {c.cliente ? (
+          {MODALIDADES_PROMOTOR.includes(c.modalidad) && (
+            <span className="text-[11px] text-slate-400 dark:text-slate-500">{infoTipoCita(c.modalidad).label}</span>
+          )}
+          {c.cliente || MODALIDADES_PROMOTOR.includes(c.modalidad) ? (
             <span className="text-[11px] text-slate-400 dark:text-slate-500">{canal.label}</span>
           ) : (
             <span className="text-[11px] text-slate-400 dark:text-slate-500">Sin cliente</span>
@@ -582,6 +585,7 @@ export default function CalendarioMovil() {
             <select className="input" value={fAsesor} onChange={(e) => setFAsesor(e.target.value)}>
               <option value="">Todos los asesores</option>
               <option value="__mios__">Mis acompañamientos</option>
+              <option value={user?.id}>Mi agenda</option>
               {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
             </select>
           </>
@@ -631,12 +635,14 @@ export default function CalendarioMovil() {
               {detalle.cliente ? (
                 <p>{detalle.cliente.nombre} {detalle.cliente.apellidoP}{detalle.cliente.telefono ? ` · ${detalle.cliente.telefono}` : ''}</p>
               ) : (
-                <p className="text-slate-400 dark:text-slate-500">Evento personal (sin cliente)</p>
+                <p className="text-slate-400 dark:text-slate-500">
+                  {MODALIDADES_PROMOTOR.includes(detalle.modalidad) ? infoTipoCita(detalle.modalidad).label : 'Evento personal (sin cliente)'}
+                </p>
               )}
               <p className="flex items-center gap-1.5">
                 <span className={`h-2 w-2 rounded-full ${colorCita(detalle).dot}`} />
                 {colorCita(detalle).label}
-                {detalle.cliente ? ` · ${canalDet?.label}` : ''}{detalle.ubicacion ? ` · ${detalle.ubicacion}` : ''}
+                {detalle.cliente || MODALIDADES_PROMOTOR.includes(detalle.modalidad) ? ` · ${canalDet?.label}` : ''}{detalle.ubicacion ? ` · ${detalle.ubicacion}` : ''}
               </p>
               {detalle.modalidad === 'ACOMPANAMIENTO' && (
                 <p className="inline-flex items-center gap-1 rounded-md bg-violet-50 px-2 py-0.5 font-medium text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
