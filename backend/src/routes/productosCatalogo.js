@@ -22,7 +22,7 @@ router.get('/', asyncHandler(async (req, res) => {
 }));
 
 router.post('/', esAdmin, asyncHandler(async (req, res) => {
-  const { ramo, nombre, codigo, descripcion, comisionPct, comisionBonoPct, activo } = req.body || {};
+  const { ramo, nombre, codigo, descripcion, comisionPct, comisionBonoPct, coberturas, activo } = req.body || {};
   if (!ramo || !nombre) return res.status(400).json({ error: 'ramo y nombre son requeridos' });
   const creado = await prisma.productoCatalogo.create({
     data: {
@@ -31,6 +31,7 @@ router.post('/', esAdmin, asyncHandler(async (req, res) => {
       descripcion: descripcion || null,
       comisionPct: comisionPct ?? null,
       comisionBonoPct: comisionBonoPct ?? null,
+      coberturas: Array.isArray(coberturas) ? coberturas : undefined,
       activo: activo ?? true,
     },
   });
@@ -39,7 +40,7 @@ router.post('/', esAdmin, asyncHandler(async (req, res) => {
 
 router.patch('/:id', esAdmin, asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { ramo, nombre, codigo, descripcion, comisionPct, comisionBonoPct, activo } = req.body || {};
+  const { ramo, nombre, codigo, descripcion, comisionPct, comisionBonoPct, coberturas, activo } = req.body || {};
   const data = {};
   if (ramo) data.ramo = ramo;
   if (nombre) data.nombre = nombre;
@@ -47,6 +48,7 @@ router.patch('/:id', esAdmin, asyncHandler(async (req, res) => {
   if (descripcion !== undefined) data.descripcion = descripcion || null;
   if (comisionPct !== undefined) data.comisionPct = comisionPct ?? null;
   if (comisionBonoPct !== undefined) data.comisionBonoPct = comisionBonoPct ?? null;
+  if (coberturas !== undefined) data.coberturas = Array.isArray(coberturas) ? coberturas : null;
   if (activo !== undefined) data.activo = activo;
   const actualizado = await prisma.productoCatalogo.update({ where: { id }, data });
   res.json(actualizado);

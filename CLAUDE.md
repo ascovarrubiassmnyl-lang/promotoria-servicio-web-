@@ -190,6 +190,17 @@ tipografía = la sans del sistema (no se importó serif del mock).
   coaseguro, `coberturas` (Json `[{nombre, detalle?, monto?}]` — `monto` es texto
   libre: "$800,000", "Incluida", "10%"), `beneficiarios` (Json
   `[{nombre, porcentaje?}]`), calendario de recibos desde `recordatoriosPago`.
+- **Autocompletado de coberturas desde el catálogo** (2026-07-30): `ProductoCatalogo.coberturas`
+  (mismo shape `[{nombre, detalle, monto}]`, fuente: bóveda Obsidian
+  `10_Seguros_SMYNL/Productos`, cargado vía `backend/prisma/productosCatalogoData.js`)
+  es la plantilla de coberturas por producto (20 de 21 productos documentados;
+  falta el desglose por variante de Imagina Ser PPR si se documenta a futuro).
+  En `PolizaFormModal`, al elegir un producto del catálogo se copian sus
+  coberturas a `form.coberturas` **solo si la lista está vacía** (no pisa
+  ediciones manuales); botón "Cargar del catálogo" para repoblar bajo demanda.
+  Cambios al catálogo (vía seed o `PATCH /api/productos-catalogo/:id`) no
+  migran automáticamente pólizas ya creadas — `Venta.coberturas` es una copia,
+  no una referencia viva.
 
 ### Reglas de negocio de comisiones (no romper)
 
@@ -554,6 +565,15 @@ Componentes reutilizables en `components/ui.jsx`:
 - `Badge({ color })` y derivados `ClienteBadge`/`CitaBadge`/`VentaBadge` (estado→color).
 - `Modal({ open, onClose, title, wide })`, `Drawer({ ..., wide })`, `Field({ label })`,
   `EmptyState({ message })`.
+- `DatePicker({ value, onChange, placeholder })` (2026-07-30) — mini calendario en
+  popover (mismo contrato `value`/`onChange` string `'YYYY-MM-DD'` que
+  `<input type="date">`, para sustituirlo directo). Sin librería externa (no hay
+  date-picker en `package.json`, `dayjs` solo se usa para formateo): construido a
+  mano con los mismos tokens del sistema, siguiendo la convención del proyecto de
+  no meter dependencias nuevas para piezas decorativas/UI pequeñas. Semana
+  lunes-domingo, igual que el resto del calendario de la app. Usado en
+  `PolizaFormModal` para las 4 fechas de la póliza; para agregarlo a Citas u
+  otro formulario, reusar este componente en vez de crear otro.
 
 Formato: helpers y catálogos de labels en `lib/format.js` (`mxn`, `fechaCorta`,
 `edad`, `RAMOS_LABEL`, `FORMAS_PAGO`, `ESTADOS_VENTA_LABEL`, `PAGOS_POR_ANIO`…).

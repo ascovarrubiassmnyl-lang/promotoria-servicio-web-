@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
-import { Modal, Field } from '../ui.jsx';
+import { Modal, Field, DatePicker } from '../ui.jsx';
 import {
   RAMOS, RAMOS_LABEL, FORMAS_PAGO, FORMAS_PAGO_LIST,
   ESTADOS_VENTA, ESTADOS_VENTA_LABEL, isoLocalDateInput,
@@ -74,7 +74,21 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
 
   const onProductoCatalogo = (id) => {
     const p = catalogo?.find((x) => x.id === id);
-    setForm((f) => ({ ...f, productoCatalogoId: id, producto: p?.nombre || f.producto, comisionPct: p?.comisionPct ?? f.comisionPct }));
+    setForm((f) => ({
+      ...f,
+      productoCatalogoId: id,
+      producto: p?.nombre || f.producto,
+      comisionPct: p?.comisionPct ?? f.comisionPct,
+      // Autocompleta coberturas del catálogo solo si el usuario no había capturado ninguna.
+      coberturas: f.coberturas.length === 0 && Array.isArray(p?.coberturas) ? p.coberturas.map((c) => ({ ...c })) : f.coberturas,
+    }));
+  };
+
+  const productoCatalogoActual = catalogo?.find((x) => x.id === form.productoCatalogoId);
+  const cargarCoberturasDelCatalogo = () => {
+    if (Array.isArray(productoCatalogoActual?.coberturas)) {
+      set('coberturas', productoCatalogoActual.coberturas.map((c) => ({ ...c })));
+    }
   };
 
   // Editores de filas dinámicas
@@ -173,10 +187,10 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
               {FORMAS_PAGO_LIST.map((f) => <option key={f} value={f}>{FORMAS_PAGO[f]}</option>)}
             </select>
           </Field>
-          <Field label="Fecha de firma"><input type="date" className="input" value={form.fechaFirma} onChange={(e) => set('fechaFirma', e.target.value)} /></Field>
-          <Field label="Inicio de vigencia"><input type="date" className="input" value={form.fechaInicioVigencia} onChange={(e) => set('fechaInicioVigencia', e.target.value)} /></Field>
-          <Field label="Fin de vigencia"><input type="date" className="input" value={form.fechaFinVigencia} onChange={(e) => set('fechaFinVigencia', e.target.value)} /></Field>
-          <Field label="Próximo pago"><input type="date" className="input" value={form.fechaProximoPago} onChange={(e) => set('fechaProximoPago', e.target.value)} /></Field>
+          <Field label="Fecha de firma"><DatePicker value={form.fechaFirma} onChange={(v) => set('fechaFirma', v)} /></Field>
+          <Field label="Inicio de vigencia"><DatePicker value={form.fechaInicioVigencia} onChange={(v) => set('fechaInicioVigencia', v)} /></Field>
+          <Field label="Fin de vigencia"><DatePicker value={form.fechaFinVigencia} onChange={(v) => set('fechaFinVigencia', v)} /></Field>
+          <Field label="Próximo pago"><DatePicker value={form.fechaProximoPago} onChange={(v) => set('fechaProximoPago', v)} /></Field>
           <Field label="Día de pago recurrente (1-28)">
             <input type="number" min="1" max="28" className="input" value={form.diaPago} onChange={(e) => set('diaPago', e.target.value)} />
           </Field>
@@ -199,7 +213,12 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="label !mb-0">Coberturas</label>
-            <button type="button" onClick={() => set('coberturas', [...form.coberturas, { nombre: '', detalle: '', monto: '' }])} className="text-xs font-medium text-brand-600 dark:text-brand-400 hover:underline">+ Agregar cobertura</button>
+            <div className="flex items-center gap-3">
+              {Array.isArray(productoCatalogoActual?.coberturas) && productoCatalogoActual.coberturas.length > 0 && (
+                <button type="button" onClick={cargarCoberturasDelCatalogo} className="text-xs font-medium text-brand-600 dark:text-brand-400 hover:underline">Cargar del catálogo (reemplaza la lista)</button>
+              )}
+              <button type="button" onClick={() => set('coberturas', [...form.coberturas, { nombre: '', detalle: '', monto: '' }])} className="text-xs font-medium text-brand-600 dark:text-brand-400 hover:underline">+ Agregar cobertura</button>
+            </div>
           </div>
           {form.coberturas.length === 0 && <p className="text-xs text-slate-400 dark:text-slate-500">Ej. Fallecimiento (básica) · Suma asegurada · $2,000,000</p>}
           <div className="space-y-2">

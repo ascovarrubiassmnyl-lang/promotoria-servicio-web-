@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ESTADOS_VENTA_LABEL } from '../lib/format.js';
+import { ESTADOS_VENTA_LABEL, nombreMes } from '../lib/format.js';
 import { infoEtapa } from './clientes/etapas.js';
 import { infoEstadoCita } from './citas/tipos.js';
 
@@ -157,6 +157,99 @@ export function Field({ label, children }) {
     <div>
       <label className="label">{label}</label>
       {children}
+    </div>
+  );
+}
+
+// Selector de fecha con mini calendario (popover). `value`/`onChange` usan el
+// mismo formato string 'YYYY-MM-DD' que <input type="date">, para poder
+// sustituirlo directo en cualquier formulario.
+export function DatePicker({ value, onChange, placeholder = 'Selecciona una fecha', className = '' }) {
+  const [open, setOpen] = useState(false);
+  const [mesVisible, setMesVisible] = useState(() => {
+    const base = value ? new Date(`${value}T00:00:00`) : new Date();
+    return new Date(base.getFullYear(), base.getMonth(), 1);
+  });
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const base = value ? new Date(`${value}T00:00:00`) : new Date();
+    setMesVisible(new Date(base.getFullYear(), base.getMonth(), 1));
+    const cerrar = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener('click', cerrar);
+    return () => document.removeEventListener('click', cerrar);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const seleccionada = value ? new Date(`${value}T00:00:00`) : null;
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+
+  const diasEnMes = new Date(mesVisible.getFullYear(), mesVisible.getMonth() + 1, 0).getDate();
+  const offset = (new Date(mesVisible.getFullYear(), mesVisible.getMonth(), 1).getDay() + 6) % 7; // semana lunes-domingo
+  const celdas = [...Array(offset).fill(null), ...Array.from({ length: diasEnMes }, (_, i) => i + 1)];
+
+  const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const cambiarMes = (delta) => setMesVisible((m) => new Date(m.getFullYear(), m.getMonth() + delta, 1));
+  const elegir = (dia) => { onChange(fmt(new Date(mesVisible.getFullYear(), mesVisible.getMonth(), dia))); setOpen(false); };
+
+  const label = seleccionada
+    ? seleccionada.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
+    : placeholder;
+
+  return (
+    <div className={`relative ${className}`} ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={`input text-left flex items-center justify-between ${!seleccionada ? 'text-slate-400 dark:text-slate-500' : ''}`}
+      >
+        <span className="truncate">{label}</span>
+        <svg className="w-4 h-4 text-slate-400 shrink-0 ml-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="3" y="5" width="18" height="16" rx="2" />
+          <path d="M3 10h18M8 3v4M16 3v4" strokeLinecap="round" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute z-30 mt-1 w-64 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-lg p-3">
+          <div className="flex items-center justify-between mb-2">
+            <button type="button" onClick={() => cambiarMes(-1)} aria-label="Mes anterior" className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 6l-6 6 6 6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </button>
+            <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{nombreMes(mesVisible.getMonth() + 1)} {mesVisible.getFullYear()}</span>
+            <button type="button" onClick={() => cambiarMes(1)} aria-label="Mes siguiente" className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </button>
+          </div>
+          <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-medium text-slate-400 dark:text-slate-500 mb-1">
+            {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d, i) => <span key={i}>{d}</span>)}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {celdas.map((dia, i) => {
+              if (!dia) return <span key={i} />;
+              const d = new Date(mesVisible.getFullYear(), mesVisible.getMonth(), dia);
+              const esHoy = d.getTime() === hoy.getTime();
+              const esSeleccionado = seleccionada && d.getTime() === seleccionada.getTime();
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => elegir(dia)}
+                  className={`h-7 w-7 rounded-lg text-xs font-medium transition ${esSeleccionado
+                    ? 'bg-brand-600 text-white'
+                    : esHoy
+                      ? 'text-brand-600 dark:text-brand-400 font-semibold'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+                >{dia}</button>
+              );
+            })}
+          </div>
+          <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+            <button type="button" onClick={() => { onChange(fmt(hoy)); setOpen(false); }} className="text-xs font-medium text-brand-600 dark:text-brand-400 hover:underline">Hoy</button>
+            {value && <button type="button" onClick={() => { onChange(''); setOpen(false); }} className="text-xs font-medium text-slate-400 hover:text-red-500">Limpiar</button>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

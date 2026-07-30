@@ -42,13 +42,19 @@ enum TipoCita {
 }
 
 // Modalidad de la cita:
-//  ACOMPANAMIENTO = cita compartida asesor+promotor (el promotor acompaña al asesor).
-//  CITA_UNICA     = cita normal del asesor, sin promotor presente.
-//  ENTREGA_POLIZA = cita para entregar la póliza emitida al cliente.
+//  ACOMPANAMIENTO       = cita compartida asesor+promotor (el promotor acompaña al asesor).
+//  CITA_UNICA           = cita normal del asesor, sin promotor presente.
+//  ENTREGA_POLIZA       = cita para entregar la póliza emitida al cliente.
+//  PRP/ENTREVISTA_*     = agenda propia de reclutamiento del promotor: no
+//                         llevan asesor ni cliente (ver backend/src/routes/citas.js).
 enum ModalidadCita {
   CITA_UNICA
   ACOMPANAMIENTO
   ENTREGA_POLIZA
+  PRP
+  ENTREVISTA_INICIAL
+  ENTREVISTA_SELECCION
+  ENTREVISTA_CARRERA
 }
 
 // Clasificación de la agenda por lo que aporta al negocio (metodología de la
@@ -427,6 +433,7 @@ model ProductoCatalogo {
   descripcion     String?
   comisionPct     Float? // comisión sugerida para asesores (% de la prima anual)
   comisionBonoPct Float? // % de comisión adicional porcentaje de bono si aplica
+  coberturas      Json? // [{nombre, detalle, monto}] — plantilla para autocompletar Venta.coberturas
   activo          Boolean    @default(true)
   creadoEn        DateTime   @default(now())
   actualizadoEn   DateTime   @updatedAt
