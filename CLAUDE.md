@@ -190,17 +190,19 @@ tipografía = la sans del sistema (no se importó serif del mock).
   coaseguro, `coberturas` (Json `[{nombre, detalle?, monto?}]` — `monto` es texto
   libre: "$800,000", "Incluida", "10%"), `beneficiarios` (Json
   `[{nombre, porcentaje?}]`), calendario de recibos desde `recordatoriosPago`.
-- **Autocompletado de coberturas desde el catálogo** (2026-07-30): `ProductoCatalogo.coberturas`
+- **Coberturas guiadas desde el catálogo** (2026-07-30): `ProductoCatalogo.coberturas`
   (mismo shape `[{nombre, detalle, monto}]`, fuente: bóveda Obsidian
   `10_Seguros_SMYNL/Productos`, cargado vía `backend/prisma/productosCatalogoData.js`)
-  es la plantilla de coberturas por producto (20 de 21 productos documentados;
-  falta el desglose por variante de Imagina Ser PPR si se documenta a futuro).
-  En `PolizaFormModal`, al elegir un producto del catálogo se copian sus
-  coberturas a `form.coberturas` **solo si la lista está vacía** (no pisa
-  ediciones manuales); botón "Cargar del catálogo" para repoblar bajo demanda.
-  Cambios al catálogo (vía seed o `PATCH /api/productos-catalogo/:id`) no
-  migran automáticamente pólizas ya creadas — `Venta.coberturas` es una copia,
-  no una referencia viva.
+  es el catálogo de coberturas disponibles por producto (21 de 21 productos
+  documentados). En `PolizaFormModal`, al elegir un producto del catálogo aparece
+  un selector "Agregar cobertura del catálogo…" con las coberturas que aún no se
+  agregaron a la póliza — se eligen **una por una**, nunca todas de golpe. Una
+  fila agregada así queda con `nombre`/`detalle` de solo lectura (definidos por
+  la compañía, no editables) y solo `monto` editable (varía por edad/suma
+  asegurada/suscripción); "+ Agregar cobertura personalizada" sigue disponible
+  para filas 100% libres fuera del catálogo. Cambios al catálogo (vía seed o
+  `PATCH /api/productos-catalogo/:id`) no migran automáticamente pólizas ya
+  creadas — `Venta.coberturas` es una copia, no una referencia viva.
 
 ### Reglas de negocio de comisiones (no romper)
 

@@ -74,22 +74,22 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
 
   const onProductoCatalogo = (id) => {
     const p = catalogo?.find((x) => x.id === id);
-    setForm((f) => ({
-      ...f,
-      productoCatalogoId: id,
-      producto: p?.nombre || f.producto,
-      comisionPct: p?.comisionPct ?? f.comisionPct,
-      // Autocompleta coberturas del catálogo solo si el usuario no había capturado ninguna.
-      coberturas: f.coberturas.length === 0 && Array.isArray(p?.coberturas) ? p.coberturas.map((c) => ({ ...c })) : f.coberturas,
-    }));
+    setForm((f) => ({ ...f, productoCatalogoId: id, producto: p?.nombre || f.producto, comisionPct: p?.comisionPct ?? f.comisionPct }));
   };
 
   const productoCatalogoActual = catalogo?.find((x) => x.id === form.productoCatalogoId);
-  const cargarCoberturasDelCatalogo = () => {
-    if (Array.isArray(productoCatalogoActual?.coberturas)) {
-      set('coberturas', productoCatalogoActual.coberturas.map((c) => ({ ...c })));
-    }
+  // Coberturas del catálogo que aún no se agregaron a la póliza (para el selector).
+  const coberturasDisponibles = (productoCatalogoActual?.coberturas || []).filter(
+    (c) => !form.coberturas.some((fc) => fc.nombre === c.nombre)
+  );
+  const agregarCoberturaDelCatalogo = (nombre) => {
+    const c = coberturasDisponibles.find((x) => x.nombre === nombre);
+    if (c) set('coberturas', [...form.coberturas, { ...c }]);
   };
+  // Una fila viene "bloqueada" (nombre/detalle de solo lectura, definidos por la
+  // compañía) si coincide exactamente con una cobertura del catálogo del producto
+  // elegido; el monto sí es editable (varía por edad/suma asegurada/suscripción).
+  const esCoberturaDeCatalogo = (fila) => (productoCatalogoActual?.coberturas || []).some((c) => c.nombre === fila.nombre && c.detalle === fila.detalle);
 
   // Editores de filas dinámicas
   const setFila = (lista, i, campo, valor) => {
@@ -213,23 +213,44 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="label !mb-0">Coberturas</label>
-            <div className="flex items-center gap-3">
-              {Array.isArray(productoCatalogoActual?.coberturas) && productoCatalogoActual.coberturas.length > 0 && (
-                <button type="button" onClick={cargarCoberturasDelCatalogo} className="text-xs font-medium text-brand-600 dark:text-brand-400 hover:underline">Cargar del catálogo (reemplaza la lista)</button>
-              )}
-              <button type="button" onClick={() => set('coberturas', [...form.coberturas, { nombre: '', detalle: '', monto: '' }])} className="text-xs font-medium text-brand-600 dark:text-brand-400 hover:underline">+ Agregar cobertura</button>
-            </div>
+            <button type="button" onClick={() => set('coberturas', [...form.coberturas, { nombre: '', detalle: '', monto: '' }])} className="text-xs font-medium text-brand-600 dark:text-brand-400 hover:underline">+ Agregar cobertura personalizada</button>
           </div>
+          {productoCatalogoActual && (
+            <select
+              className="input mb-2"
+              value=""
+              disabled={coberturasDisponibles.length === 0}
+              onChange={(e) => agregarCoberturaDelCatalogo(e.target.value)}
+            >
+              <option value="">
+                {coberturasDisponibles.length > 0 ? 'Agregar cobertura del catálogo…' : 'Ya agregaste todas las coberturas del catálogo'}
+              </option>
+              {coberturasDisponibles.map((c) => (
+                <option key={c.nombre} value={c.nombre}>{c.nombre} — {c.monto}</option>
+              ))}
+            </select>
+          )}
           {form.coberturas.length === 0 && <p className="text-xs text-slate-400 dark:text-slate-500">Ej. Fallecimiento (básica) · Suma asegurada · $2,000,000</p>}
           <div className="space-y-2">
-            {form.coberturas.map((c, i) => (
-              <div key={i} className="grid grid-cols-[1.3fr_1fr_0.8fr_auto] gap-2">
-                <input className="input" placeholder="Cobertura*" value={c.nombre || ''} onChange={(e) => setFila('coberturas', i, 'nombre', e.target.value)} />
-                <input className="input" placeholder="Detalle" value={c.detalle || ''} onChange={(e) => setFila('coberturas', i, 'detalle', e.target.value)} />
-                <input className="input" placeholder="$ / Incluida" value={c.monto || ''} onChange={(e) => setFila('coberturas', i, 'monto', e.target.value)} />
-                <button type="button" onClick={() => quitarFila('coberturas', i)} className="text-slate-400 hover:text-red-500 px-1" aria-label="quitar cobertura">✕</button>
-              </div>
-            ))}
+            {form.coberturas.map((c, i) => {
+              const bloqueada = esCoberturaDeCatalogo(c);
+              return (
+                <div key={i} className="grid grid-cols-[1.3fr_1fr_0.8fr_auto] gap-2">
+                  {bloqueada ? (
+                    <div className="input flex items-center bg-slate-50 dark:bg-slate-700/40 text-slate-700 dark:text-slate-200" title="Definida por el catálogo de la compañía">{c.nombre}</div>
+                  ) : (
+                    <input className="input" placeholder="Cobertura*" value={c.nombre || ''} onChange={(e) => setFila('coberturas', i, 'nombre', e.target.value)} />
+                  )}
+                  {bloqueada ? (
+                    <div className="input flex items-center bg-slate-50 dark:bg-slate-700/40 text-slate-500 dark:text-slate-400 text-xs" title="Definida por el catálogo de la compañía">{c.detalle}</div>
+                  ) : (
+                    <input className="input" placeholder="Detalle" value={c.detalle || ''} onChange={(e) => setFila('coberturas', i, 'detalle', e.target.value)} />
+                  )}
+                  <input className="input" placeholder="$ / Incluida" value={c.monto || ''} onChange={(e) => setFila('coberturas', i, 'monto', e.target.value)} />
+                  <button type="button" onClick={() => quitarFila('coberturas', i)} className="text-slate-400 hover:text-red-500 px-1" aria-label="quitar cobertura">✕</button>
+                </div>
+              );
+            })}
           </div>
         </div>
 
