@@ -197,8 +197,10 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
           <Field label="Asesor*">
             <select className="input" required value={form.asesorId} onChange={(e) => setForm({ ...form, asesorId: e.target.value, clienteId: '' })}>
               <option value="">Selecciona…</option>
+              <option value={user?.id}>Sin asesor (mi propia cita)</option>
               {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
             </select>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">No toda cita es con un asesor: elige "Sin asesor" si es tuya.</p>
           </Field>
         )}
         {!editando && !clienteId && !esPersonal && !modalidadPropia && (
