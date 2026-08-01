@@ -14,6 +14,8 @@ export const TIPOS_ACTIVIDAD = [
   'NOTA_CREADA',
   'RECORDATORIO_CREADO',
   'REFERIDO_CREADO',
+  'CANDIDATO_CREADO',
+  'CANDIDATO_ETAPA',
 ];
 
 // Registra un evento estructurado: tipo canónico + payload con los datos

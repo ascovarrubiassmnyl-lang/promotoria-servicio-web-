@@ -292,7 +292,7 @@ function CalendarioEscritorio() {
                     <span className="min-w-0">
                       <span className={`block text-sm font-medium text-slate-800 dark:text-slate-100 truncate ${cancelada ? 'line-through opacity-60' : ''}`}>{c.titulo}</span>
                       <span className="block text-xs text-slate-400 dark:text-slate-500 truncate">
-                        {c.cliente ? `${c.cliente.nombre} ${c.cliente.apellidoP}` : MODALIDADES_PROMOTOR.includes(c.modalidad) ? infoTipoCita(c.modalidad).label : 'Evento personal'} · {canal.label}
+                        {c.cliente ? `${c.cliente.nombre} ${c.cliente.apellidoP}` : c.candidato ? `${c.candidato.nombre} ${c.candidato.apellidoP} · ${infoTipoCita(c.modalidad).label}` : MODALIDADES_PROMOTOR.includes(c.modalidad) ? infoTipoCita(c.modalidad).label : 'Evento personal'} · {canal.label}
                         {c.modalidad === 'ACOMPANAMIENTO' && <span className="text-violet-600 dark:text-violet-400"> · + {c.promotor ? `${c.promotor.nombre} ${c.promotor.apellidoP}` : 'promotor por asignar'}</span>}
                         {esAdmin() && !fAsesor && <> · {c.asesor?.nombre} {c.asesor?.apellidoP}</>}
                       </span>
@@ -404,7 +404,9 @@ function CalendarioEscritorio() {
                         <p className="text-slate-600 dark:text-slate-300">
                           {c.cliente
                             ? <>{c.cliente.nombre} {c.cliente.apellidoP}{c.cliente.telefono ? ` · ${c.cliente.telefono}` : ''}</>
-                            : MODALIDADES_PROMOTOR.includes(c.modalidad) ? infoTipoCita(c.modalidad).label : 'Evento personal (sin cliente)'}
+                            : c.candidato
+                              ? <>Candidato: {c.candidato.nombre} {c.candidato.apellidoP}{c.candidato.telefono ? ` · ${c.candidato.telefono}` : ''}</>
+                              : MODALIDADES_PROMOTOR.includes(c.modalidad) ? infoTipoCita(c.modalidad).label : 'Evento personal (sin cliente)'}
                         </p>
                         <p className="flex items-center gap-1.5">
                           <span className={`w-2 h-2 rounded-full ${color.dot}`} />{color.label}

@@ -20,7 +20,9 @@ const sumarMinutos = (isoLocal, min) => {
 //  - asesorId: scope admin — la cita/el listado de clientes es de ese asesor.
 //  - cita: modo edición/reagendar (PATCH); sin ella es alta (POST).
 //  - preFecha: Date para prellenar el inicio (día seleccionado en el calendario).
-export default function CitaFormModal({ open, onClose, onSaved, cita = null, clienteId = null, asesorId = null, preFecha = null }) {
+//  - candidatoId: fija el candidato y oculta su selector (perfil del candidato).
+//  - preModalidad: modalidad preseleccionada (entrevista según la etapa del candidato).
+export default function CitaFormModal({ open, onClose, onSaved, cita = null, clienteId = null, asesorId = null, preFecha = null, candidatoId = null, preModalidad = null }) {
   const { esAdmin, user } = useAuth();
   const qc = useQueryClient();
   const editando = !!cita;
@@ -35,6 +37,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
       setForm({
         asesorId: cita.asesorId,
         clienteId: cita.clienteId,
+        candidatoId: cita.candidatoId || '',
         // Evento personal = sin cliente (bloqueo de agenda, clasificación roja).
         // La agenda propia del promotor (PRP/entrevistas) también vive sin
         // cliente pero NO es un evento personal: debe conservar su selector
@@ -59,11 +62,14 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
       setForm({
         asesorId: asesorId || '',
         clienteId: clienteId || '',
+        candidatoId: candidatoId || '',
         esPersonal: false,
         titulo: '',
         descripcion: '',
-        modalidad: 'CITA_UNICA',
-        clasificacion: 'PRODUCTIVA',
+        modalidad: preModalidad || 'CITA_UNICA',
+        // Las entrevistas de reclutamiento no generan dinero directo: nacen
+        // como Gestión (el color puede cambiarse antes de guardar).
+        clasificacion: preModalidad && MODALIDADES_PROMOTOR.includes(preModalidad) ? 'GESTION' : 'PRODUCTIVA',
         promotorId: '',
         tipo: 'PRESENCIAL',
         fechaHoraInicio: inicio,
@@ -94,6 +100,14 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
     queryKey: ['promotores-list'],
     queryFn: async () => (await api.get('/usuarios/promotores')).data,
     enabled: open,
+  });
+
+  // Candidatos para citas de reclutamiento (opcional: una PRP grupal puede no
+  // llevar candidato). Solo admin — las modalidades propias no existen para asesor.
+  const { data: candidatos } = useQuery({
+    queryKey: ['candidatos-cita'],
+    queryFn: async () => (await api.get('/candidatos')).data,
+    enabled: open && esAdmin() && !candidatoId && MODALIDADES_PROMOTOR.includes(form?.modalidad),
   });
 
   // Detección de empalme en vivo: citas vivas del mismo asesor alrededor del inicio.
@@ -151,6 +165,9 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
         titulo: form.titulo,
         descripcion: form.descripcion,
         modalidad: esPersonal ? 'CITA_UNICA' : form.modalidad,
+        // El candidato solo viaja en citas de reclutamiento; en cualquier otra
+        // modalidad se limpia (el backend rechaza la combinación inválida).
+        ...(editando || modalidadPropia ? { candidatoId: !esPersonal && modalidadPropia ? (form.candidatoId || null) : null } : {}),
         clasificacion: esPersonal ? 'PERSONAL' : form.clasificacion,
         promotorId: !esPersonal && form.modalidad === 'ACOMPANAMIENTO' ? (form.promotorId || undefined) : null,
         tipo: form.tipo,
@@ -163,6 +180,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
       if (editando) {
         await api.patch(`/citas/${cita.id}`, payload);
       } else {
+        if (payload.candidatoId === null) delete payload.candidatoId;
         if (!esPersonal && !modalidadPropia) payload.clienteId = form.clienteId;
         if (esAdmin() && form.asesorId) payload.asesorId = form.asesorId;
         if (payload.promotorId === null) delete payload.promotorId;
@@ -228,6 +246,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
                     modalidad: e.target.value,
                     clienteId: propia ? '' : form.clienteId,
                     asesorId: propia ? '' : form.asesorId,
+                    candidatoId: propia ? form.candidatoId : '',
                     promotorId: e.target.value === 'ACOMPANAMIENTO' ? form.promotorId : '',
                   });
                 }}
@@ -244,6 +263,15 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
                   <option value="">Sin asignar (luego lo elige el promotor)</option>
                   {promotores?.map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellidoP}</option>)}
                 </select>
+              </Field>
+            )}
+            {modalidadPropia && !candidatoId && (
+              <Field label="Candidato (opcional)">
+                <select className="input" value={form.candidatoId} onChange={(e) => setForm({ ...form, candidatoId: e.target.value })}>
+                  <option value="">Sin candidato (ej. sesión grupal)</option>
+                  {candidatos?.map((c) => <option key={c.id} value={c.id}>{c.nombre} {c.apellidoP} {c.apellidoM || ''}</option>)}
+                </select>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">La cita quedará ligada al expediente del candidato.</p>
               </Field>
             )}
 

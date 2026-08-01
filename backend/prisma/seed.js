@@ -8,8 +8,8 @@ async function main() {
   console.log('Seed: políticas de acceso por rol (RBAC)...');
   // Acceso base por rol; SUPERADMIN no lleva fila (acceso total hardcodeado).
   const politicasSeed = {
-    ASESOR: { dashboard: true, clientes: true, citas: true, ventas: true, actividad: true, metas: true, puntos: true, clinica: true, asesores: false, configuracion: false },
-    ADMIN: { dashboard: true, clientes: true, citas: true, ventas: true, actividad: true, metas: true, puntos: true, clinica: true, asesores: true, configuracion: true },
+    ASESOR: { dashboard: true, clientes: true, citas: true, ventas: true, actividad: true, metas: true, puntos: true, clinica: true, candidatos: false, asesores: false, configuracion: false },
+    ADMIN: { dashboard: true, clientes: true, citas: true, ventas: true, actividad: true, metas: true, puntos: true, clinica: true, candidatos: true, asesores: true, configuracion: true },
   };
   for (const [rol, accesos] of Object.entries(politicasSeed)) {
     await prisma.politicaRol.upsert({ where: { rol }, update: {}, create: { rol, accesos } });
@@ -66,6 +66,34 @@ async function main() {
     const existente = await prisma.productoCatalogo.findUnique({ where: { ramo_nombre: { ramo: p.ramo, nombre: p.nombre } } });
     if (existente) productoCatalogo[`${p.ramo}_${p.nombre}`] = existente;
     else productoCatalogo[`${p.ramo}_${p.nombre}`] = await prisma.productoCatalogo.create({ data: p });
+  }
+
+  console.log('Seed: candidatos a asesor (reclutamiento)...');
+  // Demo del módulo de candidatos: etapas distintas y un semáforo de cada
+  // color. El semáforo NO se inventa: refleja la regla de utils/semaforoCandidato.js
+  // aplicada a las evaluaciones de abajo. Solo se siembran una vez.
+  if ((await prisma.candidato.count()) === 0) {
+    const evalVerde = { caracterIntegridad: 5, agilidadMental: 4, empuje: 5, nivelEnergia: 4, motivacionDinero: 4, posibilidadPermanencia: 4, imagenProfesional: 4, enfoqueSocial: 5, autoGestionable: 4, orientadoProcesos: 4, claridadMetas: 4, enfoqueActividad: 4 };
+    const evalAmarillo = { caracterIntegridad: 4, agilidadMental: 3, empuje: 3, nivelEnergia: 3, motivacionDinero: 4, posibilidadPermanencia: 3, imagenProfesional: 3, enfoqueSocial: 3, autoGestionable: 3, orientadoProcesos: 3, claridadMetas: 4, enfoqueActividad: 3 };
+    const evalRojo = { caracterIntegridad: 3, agilidadMental: 2, empuje: 1, nivelEnergia: 2, motivacionDinero: 3, posibilidadPermanencia: 2, imagenProfesional: 3, enfoqueSocial: 2, autoGestionable: 2, orientadoProcesos: 2, claridadMetas: 2, enfoqueActividad: 2 };
+    const candidatosData = [
+      { nombre: 'Fernanda', apellidoP: 'Salas', telefono: '5552220001', sexo: 'F', ciudad: 'Monterrey', fuente: 'Referido personal', profesion: 'Lic. en Administración', etapa: 'CARRERA', semaforo: 'VERDE', evaluacion: evalVerde },
+      { nombre: 'Ricardo', apellidoP: 'Nava', telefono: '5552220002', sexo: 'M', ciudad: 'Guadalupe', fuente: 'Bolsa de trabajo', profesion: 'Ventas', etapa: 'SELECCION', semaforo: 'AMARILLO', evaluacion: evalAmarillo },
+      { nombre: 'Sofía', apellidoP: 'Ibarra', telefono: '5552220003', sexo: 'F', ciudad: 'San Pedro', fuente: 'Redes sociales', etapa: 'ENTREVISTA_INICIAL', semaforo: 'ROJO', evaluacion: evalRojo },
+      { nombre: 'Andrés', apellidoP: 'Camarillo', telefono: '5552220004', sexo: 'M', ciudad: 'Monterrey', fuente: 'Referido de asesor', referidoPor: 'Juan Pérez', etapa: 'ENTREVISTA_INICIAL', semaforo: 'SIN_EVALUAR' },
+      { nombre: 'Valeria', apellidoP: 'Ortiz', telefono: '5552220005', sexo: 'F', ciudad: 'Apodaca', fuente: 'Feria de empleo', etapa: 'PRECONTRATO_MC', semaforo: 'VERDE', evaluacion: { ...evalVerde, claridadMetas: 5 } },
+    ];
+    for (const { evaluacion, ...c } of candidatosData) {
+      await prisma.candidato.create({
+        data: {
+          ...c,
+          creadoPorId: admin.id,
+          reclutadorId: admin.id,
+          oficina: 'Promotoría Origen',
+          ...(evaluacion ? { evaluacion: { create: { ...evaluacion, evaluadorId: admin.id, vitalesCompletadosEn: new Date(), valoresCompletadosEn: new Date() } } } : {}),
+        },
+      });
+    }
   }
 
   console.log('Seed: creando clientes (pipeline)...');

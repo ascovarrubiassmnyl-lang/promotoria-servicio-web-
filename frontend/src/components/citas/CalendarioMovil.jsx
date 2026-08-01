@@ -61,7 +61,9 @@ function CardCita({ c, onClick, esAdmin }) {
           </span>
           <CitaBadge estado={c.estado} />
           {MODALIDADES_PROMOTOR.includes(c.modalidad) && (
-            <span className="text-[11px] text-slate-400 dark:text-slate-500">{infoTipoCita(c.modalidad).label}</span>
+            <span className="text-[11px] text-slate-400 dark:text-slate-500">
+              {infoTipoCita(c.modalidad).label}{c.candidato ? ` · ${c.candidato.nombre} ${c.candidato.apellidoP}` : ''}
+            </span>
           )}
           {c.cliente || MODALIDADES_PROMOTOR.includes(c.modalidad) ? (
             <span className="text-[11px] text-slate-400 dark:text-slate-500">{canal.label}</span>

@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Card, Modal, Field, EmptyState, MenuAcciones } from '../ui.jsx';
+import CandidatoFormModal from '../candidatos/CandidatoFormModal.jsx';
 import { ETAPAS, infoEtapa, FLAG_SEGUIMIENTO } from './etapas.js';
 import { RAMOS_LABEL, fechaCorta, hora } from '../../lib/format.js';
 
@@ -87,6 +88,10 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
 
   const [toArchive, setToArchive] = useState(null);
   const [archiving, setArchiving] = useState(false);
+
+  // Captura de candidato a asesor (reclutamiento): mismo botón de alta, el
+  // selector "Cliente | Candidato" del modal rutea al formulario correcto.
+  const [openCandidato, setOpenCandidato] = useState(false);
 
   // q y asesor se filtran en el servidor; los chips de etapa filtran en
   // cliente para poder mostrar el conteo de todas las etapas a la vez.
@@ -340,8 +345,26 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
         )}
       </Card>
 
-      <Modal open={open} onClose={() => setOpen(false)} title={editId ? 'Editar cliente' : 'Nuevo cliente'}>
+      <Modal open={open} onClose={() => setOpen(false)} title={editId ? 'Editar cliente' : 'Nuevo registro'}>
         <form onSubmit={submit} className="space-y-3">
+          {/* Selector de tipo de registro (solo alta): un candidato a asesor
+              NO es un cliente — su expediente vive en el módulo de Candidatos. */}
+          {!editId && (
+            <Field label="¿Qué vas a registrar?">
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" className="rounded-lg border border-brand-500 bg-brand-50 px-3 py-2.5 text-sm font-medium text-brand-700 dark:bg-brand-900/30 dark:text-brand-300">
+                  Cliente
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setOpen(false); setOpenCandidato(true); }}
+                  className="rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-700 dark:border-slate-600 dark:text-slate-400 dark:hover:text-slate-200 transition"
+                >
+                  Candidato a asesor
+                </button>
+              </div>
+            </Field>
+          )}
           {esAdmin() && !scoped && asesores?.length > 0 && (
             <Field label="Asesor asignado">
               <select className="input" value={formAsesorId} onChange={(e) => setFormAsesorId(e.target.value)}>
@@ -431,6 +454,16 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
           </div>
         </form>
       </Modal>
+
+      <CandidatoFormModal
+        open={openCandidato}
+        onClose={() => setOpenCandidato(false)}
+        onSaved={(creado) => {
+          // El promotor va directo al expediente nuevo; el asesor (sin acceso
+          // al módulo) solo captura y recibe la confirmación del cierre.
+          if (creado && esAdmin()) navigate(`/candidatos/${creado.id}`);
+        }}
+      />
 
       <Modal open={!!toArchive} onClose={() => setToArchive(null)} title="Archivar cliente">
         {toArchive && (

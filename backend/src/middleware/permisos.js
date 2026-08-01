@@ -2,12 +2,12 @@ import { prisma } from '../prisma.js';
 
 // Secciones controlables. Debe coincidir con el catálogo del frontend
 // (components/configuracion/secciones.js) y con las claves de PoliticaRol.accesos.
-export const SECCIONES = ['dashboard', 'clientes', 'citas', 'ventas', 'actividad', 'metas', 'puntos', 'clinica', 'asesores', 'configuracion'];
+export const SECCIONES = ['dashboard', 'clientes', 'citas', 'ventas', 'actividad', 'metas', 'puntos', 'clinica', 'candidatos', 'asesores', 'configuracion'];
 
 // Secciones de administración: además del permiso, exigen rol ADMIN/SUPERADMIN
 // (piso de rol). No se conceden a un ASESOR ni activando su toggle de rol,
 // porque sus rutas no tienen scoping por asesor (vería/editaría a todo el equipo).
-export const SECCIONES_SOLO_ADMIN = ['asesores', 'configuracion'];
+export const SECCIONES_SOLO_ADMIN = ['candidatos', 'asesores', 'configuracion'];
 
 // Caché en memoria de PoliticaRol (proceso único de nodemon). Se invalida al
 // escribir una política desde /api/configuracion.

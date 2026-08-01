@@ -15,6 +15,8 @@ import Configuracion from './pages/Configuracion.jsx';
 import Targets from './pages/Targets.jsx';
 import Puntos from './pages/Puntos.jsx';
 import Clinica from './pages/Clinica.jsx';
+import Candidatos from './pages/Candidatos.jsx';
+import CandidatoDetalle from './pages/CandidatoDetalle.jsx';
 
 export default function App() {
   return (
@@ -41,6 +43,10 @@ export default function App() {
             alcance (propio vs. por asesor) lo fuerza la API. */}
         <Route path="/puntos" element={<SeccionRoute seccion="puntos"><Puntos /></SeccionRoute>} />
         <Route path="/clinica" element={<SeccionRoute seccion="clinica"><Clinica /></SeccionRoute>} />
+        {/* Candidatos (reclutamiento): sección con piso de rol ADMIN/SUPERADMIN
+            en el servidor; la política del rol Asesor nunca la concede. */}
+        <Route path="/candidatos" element={<SeccionRoute seccion="candidatos"><Candidatos /></SeccionRoute>} />
+        <Route path="/candidatos/:id" element={<SeccionRoute seccion="candidatos"><CandidatoDetalle /></SeccionRoute>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

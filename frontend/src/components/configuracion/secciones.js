@@ -14,6 +14,7 @@ export const SECCIONES = [
   { id: 'clinica', label: 'Clínica telefónica', desc: 'Evaluador de prospectos y sesiones' },
   // Secciones de administración: además del permiso exigen rol Admin/Súper
   // Admin en el servidor (no se conceden por excepción a un asesor).
+  { id: 'candidatos', label: 'Candidatos', desc: 'Reclutamiento de asesores', soloAdmin: true },
   { id: 'asesores', label: 'Asesores', desc: 'Gestión del equipo', soloAdmin: true },
   { id: 'configuracion', label: 'Configuración', desc: 'Accesos y notificaciones', soloAdmin: true },
 ];

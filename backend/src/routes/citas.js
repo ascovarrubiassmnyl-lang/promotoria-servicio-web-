@@ -11,12 +11,13 @@ router.use(authenticate);
 router.use(permiteSeccion('citas'));
 
 router.get('/', asyncHandler(async (req, res) => {
-  const { desde, hasta, estado, asesorId, clienteId, promotorId, clasificacion } = req.query;
+  const { desde, hasta, estado, asesorId, clienteId, candidatoId, promotorId, clasificacion } = req.query;
   const where = {};
   if (req.user.rol === 'ASESOR') where.asesorId = req.user.id;
   else if (asesorId) where.asesorId = asesorId;
   if (promotorId) where.promotorId = promotorId;
   if (clienteId) where.clienteId = clienteId;
+  if (candidatoId) where.candidatoId = candidatoId;
   if (estado) where.estado = estado;
   if (clasificacion) where.clasificacion = clasificacion;
   if (desde || hasta) {
@@ -28,6 +29,7 @@ router.get('/', asyncHandler(async (req, res) => {
     where,
     include: {
       cliente: { select: { id: true, nombre: true, apellidoP: true, telefono: true } },
+      candidato: { select: { id: true, nombre: true, apellidoP: true, telefono: true } },
       asesor: { select: { id: true, nombre: true, apellidoP: true } },
       promotor: { select: { id: true, nombre: true, apellidoP: true } },
     },
@@ -42,6 +44,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
     where: { id },
     include: {
       cliente: true,
+      candidato: { select: { id: true, nombre: true, apellidoP: true, telefono: true, etapa: true } },
       asesor: { select: { id: true, nombre: true, apellidoP: true } },
       promotor: { select: { id: true, nombre: true, apellidoP: true } },
     },
@@ -73,11 +76,21 @@ const CLASIFICACIONES = ['PRODUCTIVA', 'GESTION', 'PERSONAL'];
 const MODALIDADES_PROMOTOR = ['PRP', 'ENTREVISTA_INICIAL', 'ENTREVISTA_SELECCION', 'ENTREVISTA_CARRERA'];
 
 router.post('/', asyncHandler(async (req, res) => {
-  const { clienteId, titulo, descripcion, tipo, fechaHoraInicio, fechaHoraFin, ubicacion, recordatorioMinutos, modalidad, clasificacion, promotorId, ignorarEmpalme } = req.body || {};
+  const { clienteId, candidatoId, titulo, descripcion, tipo, fechaHoraInicio, fechaHoraFin, ubicacion, recordatorioMinutos, modalidad, clasificacion, promotorId, ignorarEmpalme } = req.body || {};
   if (!titulo || !fechaHoraInicio) return res.status(400).json({ error: 'titulo y fechaHoraInicio son requeridos' });
   if (clasificacion && !CLASIFICACIONES.includes(clasificacion)) return res.status(400).json({ error: 'clasificacion inválida' });
   if (modalidad && MODALIDADES_PROMOTOR.includes(modalidad) && req.user.rol === 'ASESOR') {
     return res.status(403).json({ error: 'Este tipo de cita es solo para el promotor' });
+  }
+  // Candidato y cliente son excluyentes: el candidato solo aplica a citas de
+  // reclutamiento (PRP/ENTREVISTA_*) y es opcional (una PRP grupal no tiene
+  // candidato único); una cita de reclutamiento nunca lleva cliente.
+  if (candidatoId && !MODALIDADES_PROMOTOR.includes(modalidad)) {
+    return res.status(400).json({ error: 'El candidato solo aplica a citas de reclutamiento (PRP/entrevistas)' });
+  }
+  if (candidatoId && clienteId) return res.status(400).json({ error: 'Una cita no puede llevar cliente y candidato a la vez' });
+  if (clienteId && MODALIDADES_PROMOTOR.includes(modalidad)) {
+    return res.status(400).json({ error: 'Una cita de reclutamiento no lleva cliente (elige un candidato)' });
   }
   // Solo un evento PERSONAL (bloqueo de agenda) o de agenda propia del
   // promotor (reclutamiento) puede no llevar cliente; toda cita de trabajo
@@ -87,6 +100,8 @@ router.post('/', asyncHandler(async (req, res) => {
   }
   const cliente = clienteId ? await prisma.cliente.findUnique({ where: { id: clienteId } }) : null;
   if (clienteId && !cliente) return res.status(400).json({ error: 'Cliente no encontrado' });
+  const candidato = candidatoId ? await prisma.candidato.findUnique({ where: { id: candidatoId } }) : null;
+  if (candidatoId && !candidato) return res.status(400).json({ error: 'Candidato no encontrado' });
   const asesorId = (req.user.rol === 'ASESOR') ? req.user.id : (req.body.asesorId || cliente?.asesorId || req.user.id);
   if (req.user.rol === 'ASESOR' && cliente && cliente.asesorId !== req.user.id) return res.status(403).json({ error: 'El cliente pertenece a otro asesor' });
 
@@ -110,7 +125,8 @@ router.post('/', asyncHandler(async (req, res) => {
   // cambia después con las acciones del ciclo de vida (completar, cancelar, no asistió).
   const cita = await prisma.cita.create({
     data: {
-      asesorId, clienteId: clienteId || null, titulo, descripcion: descripcion || null,
+      asesorId, clienteId: clienteId || null, candidatoId: candidatoId || null,
+      titulo, descripcion: descripcion || null,
       tipo: tipo || 'TELEFONICA',
       modalidad: modalidad || 'CITA_UNICA',
       clasificacion: clasificacion || (clienteId ? 'PRODUCTIVA' : 'PERSONAL'),
@@ -121,6 +137,7 @@ router.post('/', asyncHandler(async (req, res) => {
     },
     include: {
       cliente: { select: { id: true, nombre: true, apellidoP: true, telefono: true } },
+      candidato: { select: { id: true, nombre: true, apellidoP: true, telefono: true } },
       asesor: { select: { id: true, nombre: true, apellidoP: true } },
       promotor: { select: { id: true, nombre: true, apellidoP: true } },
     },
@@ -134,6 +151,14 @@ router.post('/', asyncHandler(async (req, res) => {
       titulo,
       modalidad: modalidad || 'CITA_UNICA',
     });
+  } else if (candidato) {
+    await registrarActividad(asesorId, 'CITA_CREADA', {
+      citaId: cita.id,
+      candidatoId: candidato.id,
+      candidato: `${candidato.nombre} ${candidato.apellidoP}`,
+      titulo,
+      modalidad: modalidad || 'CITA_UNICA',
+    });
   }
   res.status(201).json(cita);
 }));
@@ -143,12 +168,28 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   const existente = await prisma.cita.findUnique({ where: { id } });
   if (!existente) return res.status(404).json({ error: 'Cita no encontrada' });
   if (req.user.rol === 'ASESOR' && existente.asesorId !== req.user.id) return res.status(403).json({ error: 'Sin acceso a esta cita' });
-  const { titulo, descripcion, tipo, estado, fechaHoraInicio, fechaHoraFin, ubicacion, recordatorioMinutos, modalidad, clasificacion, promotorId, ignorarEmpalme } = req.body || {};
+  const { titulo, descripcion, tipo, estado, fechaHoraInicio, fechaHoraFin, ubicacion, recordatorioMinutos, modalidad, clasificacion, promotorId, candidatoId, ignorarEmpalme } = req.body || {};
   const data = {};
   if (titulo) data.titulo = titulo;
   if (descripcion !== undefined) data.descripcion = descripcion || null;
   if (tipo) data.tipo = tipo;
   if (modalidad) data.modalidad = modalidad;
+  // Mismas reglas del alta: candidato solo en citas de reclutamiento y nunca
+  // junto a un cliente.
+  if (candidatoId !== undefined) {
+    const modalidadEfectiva = modalidad || existente.modalidad;
+    if (candidatoId && !MODALIDADES_PROMOTOR.includes(modalidadEfectiva)) {
+      return res.status(400).json({ error: 'El candidato solo aplica a citas de reclutamiento (PRP/entrevistas)' });
+    }
+    if (candidatoId && existente.clienteId) {
+      return res.status(400).json({ error: 'Una cita no puede llevar cliente y candidato a la vez' });
+    }
+    if (candidatoId) {
+      const candidato = await prisma.candidato.findUnique({ where: { id: candidatoId } });
+      if (!candidato) return res.status(400).json({ error: 'Candidato no encontrado' });
+    }
+    data.candidatoId = candidatoId || null;
+  }
   if (clasificacion) {
     if (!CLASIFICACIONES.includes(clasificacion)) return res.status(400).json({ error: 'clasificacion inválida' });
     // Un evento sin cliente solo puede ser PERSONAL o de agenda propia del promotor.
@@ -181,6 +222,7 @@ router.patch('/:id', asyncHandler(async (req, res) => {
     data,
     include: {
       cliente: { select: { id: true, nombre: true, apellidoP: true, telefono: true } },
+      candidato: { select: { id: true, nombre: true, apellidoP: true, telefono: true } },
       asesor: { select: { id: true, nombre: true, apellidoP: true } },
       promotor: { select: { id: true, nombre: true, apellidoP: true } },
     },

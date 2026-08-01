@@ -100,6 +100,26 @@ export const TIPOS_EVENTO = {
     icon: <Icono d={['M8 8a3 3 0 106 0 3 3 0 00-6 0', 'M3 20c0-3 2-5 5-5h2', 'M16 16l3 3 5-5']} />,
     titulo: (m) => (m.clienteOrigen ? `Nuevo referido desde ${m.clienteOrigen}` : 'Nuevo referido'),
   },
+  CANDIDATO_CREADO: {
+    label: 'Candidato nuevo',
+    dot: 'bg-rose-500',
+    text: 'text-rose-600 dark:text-rose-400',
+    marker: 'bg-rose-50 text-rose-600 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:ring-rose-500/30',
+    chipOn: 'ring-rose-500 dark:ring-rose-400',
+    badgeOn: 'bg-rose-50 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300',
+    icon: <Icono d={['M9 8a3 3 0 106 0 3 3 0 00-6 0', 'M4 20c0-3 2-5 5-5h2', 'M15 18h6', 'M18 15v6']} />,
+    titulo: (m) => (m.candidato ? `Candidato registrado: ${m.candidato}` : 'Candidato registrado'),
+  },
+  CANDIDATO_ETAPA: {
+    label: 'Avance de candidato',
+    dot: 'bg-fuchsia-500',
+    text: 'text-fuchsia-600 dark:text-fuchsia-400',
+    marker: 'bg-fuchsia-50 text-fuchsia-600 ring-fuchsia-200 dark:bg-fuchsia-500/10 dark:text-fuchsia-400 dark:ring-fuchsia-500/30',
+    chipOn: 'ring-fuchsia-500 dark:ring-fuchsia-400',
+    badgeOn: 'bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-500/15 dark:text-fuchsia-300',
+    icon: <Icono d={['M4 17l6-6 4 4 6-6', 'M14 9h6v6']} />,
+    titulo: (m) => (m.candidato ? `${m.candidato} cambió de etapa` : 'Candidato cambió de etapa'),
+  },
 };
 
 // Orden estable de los chips de filtro.
@@ -123,6 +143,6 @@ export function infoTipo(tipo) {
 // Campos del payload que hacen a un evento "estructurado". Los eventos
 // históricos (solo descripcion pre-renderizada, o metadata con solo clienteId/
 // tipoOriginal) se muestran con su texto crudo como fallback.
-const CAMPOS_VISIBLES = ['cliente', 'producto', 'ramo', 'prima', 'nota', 'titulo', 'clienteOrigen', 'referido', 'proximoCobro'];
+const CAMPOS_VISIBLES = ['cliente', 'candidato', 'producto', 'ramo', 'prima', 'nota', 'titulo', 'clienteOrigen', 'referido', 'proximoCobro', 'fuente', 'etapa'];
 export const esEventoEstructurado = (e) =>
   !!e.metadata && CAMPOS_VISIBLES.some((k) => e.metadata[k] != null);

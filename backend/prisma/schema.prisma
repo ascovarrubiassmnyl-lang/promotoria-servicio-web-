@@ -68,6 +68,28 @@ enum ClasificacionCita {
   PERSONAL
 }
 
+// ——— Módulo de Candidatos (reclutamiento de asesores) ———
+// Pipeline del proceso de selección SMNYL. ENTREVISTA_ADICIONAL es opcional:
+// al avanzar desde CARRERA se puede saltar directo a PRECONTRATO_MC.
+enum EtapaCandidato {
+  ENTREVISTA_INICIAL
+  SELECCION
+  CARRERA
+  ENTREVISTA_ADICIONAL
+  PRECONTRATO_MC
+  FIRMA_CONTRATO_FC
+}
+
+// Resultado de la evaluación vitales+valores. NO se captura a mano: lo calcula
+// el servidor (utils/semaforoCandidato.js, única implementación de la regla)
+// al completar los valores.
+enum SemaforoCandidato {
+  SIN_EVALUAR
+  VERDE
+  AMARILLO
+  ROJO
+}
+
 // Estado del ciclo de una venta en el pipeline financiero
 enum EstadoVenta {
   PENDIENTE_PAGAR
@@ -138,6 +160,9 @@ model Usuario {
   planesSemana       PlanSemanal[]
   prospectosClinica  ProspectoClinica[]
   sesionesClinica    SesionClinica[]
+  candidatosCreados     Candidato[]           @relation("candidatosCreados")
+  candidatosReclutados  Candidato[]           @relation("candidatosReclutados")
+  evaluacionesCandidato EvaluacionCandidato[]
 }
 
 // Invitación de un solo uso para activar una cuenta creada sin contraseña
@@ -267,6 +292,11 @@ model Cita {
   // cita de trabajo sí lo exige (validado en la ruta, no aquí).
   clienteId           String?
   cliente             Cliente?      @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  // Solo citas de reclutamiento (PRP/ENTREVISTA_*): candidato entrevistado.
+  // Opcional (una PRP grupal puede no tener candidato); excluyente con clienteId
+  // según la modalidad — validado en la ruta, no aquí.
+  candidatoId         String?
+  candidato           Candidato?    @relation(fields: [candidatoId], references: [id], onDelete: Cascade)
   titulo              String
   descripcion         String?
   tipo                TipoCita      @default(TELEFONICA)
@@ -285,7 +315,100 @@ model Cita {
 
   @@index([asesorId, fechaHoraInicio])
   @@index([clienteId])
+  @@index([candidatoId])
   @@index([promotorId])
+}
+
+// ——— Módulo de Candidatos (reclutamiento) ———
+// CRM de perfiles de personas que podrían entrar al proceso de volverse
+// asesores. Dueño del módulo: la promotora (sección RBAC `candidatos`, solo
+// ADMIN/SUPERADMIN); cualquier rol puede CAPTURAR un candidato (un asesor
+// puede referir), por eso se guarda quién lo creó.
+model Candidato {
+  id          String  @id @default(cuid())
+  creadoPorId String
+  creadoPor   Usuario @relation("candidatosCreados", fields: [creadoPorId], references: [id], onDelete: Cascade)
+  // Reclutador asignado (usuario del sistema, opcional) + oficina texto libre,
+  // como el formato SMNYL.
+  reclutadorId String?
+  reclutador   Usuario? @relation("candidatosReclutados", fields: [reclutadorId], references: [id], onDelete: SetNull)
+  oficina      String?
+
+  // Datos personales (paso 1 del formulario SMNYL)
+  nombre          String
+  apellidoP       String
+  apellidoM       String?
+  telefono        String
+  ciudad          String?
+  email           String?
+  fechaNacimiento DateTime?
+  sexo            String? // "M" | "F" (validado en la ruta)
+  rfc             String?
+  fuente          String // requerido en SMNYL (de dónde salió el candidato)
+  referidoPor     String? // texto libre, quién lo refirió
+  notas           String?
+
+  // Información adicional (sección colapsable del formulario)
+  calle                String?
+  colonia              String?
+  codigoPostal         String?
+  estadoDireccion      String?
+  profesion            String?
+  gradoEstudios        String?
+  antiguedadResidencia String?
+  estadoCivil          String?
+  numeroHijos          Int?
+  ingresosAnuales      Float?
+
+  etapa    EtapaCandidato    @default(ENTREVISTA_INICIAL)
+  semaforo SemaforoCandidato @default(SIN_EVALUAR)
+
+  evaluacion EvaluacionCandidato?
+
+  // Borrado lógico, mismo patrón que Cliente: DELETE archiva, no borra.
+  archivadoEn   DateTime?
+  creadoEn      DateTime  @default(now())
+  actualizadoEn DateTime  @updatedAt
+
+  citas Cita[]
+
+  @@index([etapa])
+  @@index([reclutadorId])
+  @@index([creadoPorId])
+}
+
+// Evaluación en dos pasos del candidato (formato SMNYL): 6 vitales → 6 valores,
+// escala 0 = sin contestar, 1–5 = Pobre/Promedio/Bueno/Muy bueno/Excelente.
+// Un paso se considera completo cuando sus 6 dimensiones son ≥1; los valores
+// solo se capturan con vitales completos (flujo secuencial). Al completar los
+// valores el servidor calcula y persiste Candidato.semaforo.
+model EvaluacionCandidato {
+  id          String    @id @default(cuid())
+  candidatoId String    @unique
+  candidato   Candidato @relation(fields: [candidatoId], references: [id], onDelete: Cascade)
+  evaluadorId String
+  evaluador   Usuario   @relation(fields: [evaluadorId], references: [id], onDelete: Cascade)
+
+  // Vitales (1–5)
+  caracterIntegridad     Int @default(0)
+  agilidadMental         Int @default(0)
+  empuje                 Int @default(0)
+  nivelEnergia           Int @default(0)
+  motivacionDinero       Int @default(0)
+  posibilidadPermanencia Int @default(0)
+
+  // Valores (1–5)
+  imagenProfesional Int @default(0)
+  enfoqueSocial     Int @default(0)
+  autoGestionable   Int @default(0)
+  orientadoProcesos Int @default(0)
+  claridadMetas     Int @default(0)
+  enfoqueActividad  Int @default(0)
+
+  vitalesCompletadosEn DateTime?
+  valoresCompletadosEn DateTime?
+  creadoEn             DateTime  @default(now())
+  actualizadoEn        DateTime  @updatedAt
 }
 
 model Venta {

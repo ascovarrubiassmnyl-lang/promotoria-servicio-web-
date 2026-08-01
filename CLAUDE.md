@@ -467,6 +467,53 @@ obtenidas, notas).
   selector + `GET /clinica/resumen` (avance de cada asesor hacia 10 citas y
   2 sesiones).
 
+## Sección Candidatos (`/candidatos`, 2026-07-31)
+
+CRM de **reclutamiento de asesores** de la promotora, replicando el flujo del
+sistema corporativo SMNYL. Modelo `Candidato` **separado de `Cliente`**
+(decisión de arquitectura: Cliente está acoplado a venta y a un asesor dueño —
+no extenderlo). Modelos: `Candidato` (datos del formulario SMNYL + `etapa` +
+`semaforo` + borrado lógico `archivadoEn`, mismo patrón que Cliente) y
+`EvaluacionCandidato` (1:1, las 12 dimensiones 0–5).
+
+- **Pipeline** (`EtapaCandidato`, mapa único frontend en
+  `components/candidatos/tipos.js` — etapas, semáforo, dimensiones y
+  `MODALIDAD_POR_ETAPA` salen de ahí, no duplicar): Entrevista Inicial →
+  Selección → Carrera → Entrevista Adicional (**opcional**, se puede saltar) →
+  Precontrato (MC) → Firma de contrato (FC). `PATCH /candidatos/:id/etapa`
+  solo permite avanzar secuencialmente (con el salto de la Adicional) y
+  regresar libremente; registra `CANDIDATO_ETAPA` en la bitácora.
+- **Evaluación en dos pasos** (formato SMNYL): 6 **vitales** → 6 **valores**,
+  escala 1 Pobre…5 Excelente (0 = sin contestar). `PUT
+  /candidatos/:id/evaluacion/vitales|valores`; valores exige vitales completos
+  (flujo secuencial). El **semáforo NO se captura**: lo calcula el servidor en
+  `backend/src/utils/semaforoCandidato.js` (**única implementación de la
+  regla**, función pura): promedio de las 12 → ≥4.0 VERDE, 3.0–3.9 AMARILLO,
+  <3.0 ROJO; ROJO automático si cualquier vital queda en 1. Regla default
+  pendiente de confirmación de la promotora — si la cambia, ajustar SOLO ahí.
+- **Roles**: sección RBAC `candidatos` con **piso de rol** (en
+  `SECCIONES_SOLO_ADMIN`): solo ADMIN/SUPERADMIN ven/gestionan el módulo.
+  Excepción deliberada: `POST /api/candidatos` solo exige `authenticate`
+  (cualquier rol puede **capturar** — un asesor puede referir un candidato);
+  todo lo demás del router pasa por `permiteSeccion('candidatos')`.
+- **Captura**: el modal "+ Nuevo cliente" (`ClientesView.jsx`) abre con el
+  selector "¿Qué vas a registrar?" (Cliente | Candidato a asesor) y rutea a
+  `CandidatoFormModal` (formulario SMNYL: requeridos nombre, apellido paterno,
+  teléfono, sexo, fuente; "Información adicional" colapsable; reclutador =
+  usuario opcional + oficina texto libre).
+- **Citas de reclutamiento**: `Cita.candidatoId` (opcional, **solo** en
+  modalidades `PRP`/`ENTREVISTA_*` y **excluyente con `clienteId`** — validado
+  en `routes/citas.js`; una PRP grupal puede no llevar candidato). El perfil
+  del candidato agenda con `CitaFormModal` (`candidatoId` fija el candidato,
+  `preModalidad` según `MODALIDAD_POR_ETAPA`; clasificación default `GESTION`).
+  El calendario (escritorio y móvil) muestra el nombre del candidato en chips
+  y panel.
+- Actividad: tipos canónicos nuevos `CANDIDATO_CREADO` y `CANDIDATO_ETAPA`
+  (backend `utils/actividad.js` + espejo en `components/actividad/tipos.jsx`).
+- UI: `pages/Candidatos.jsx` (lista con chips de etapa/semáforo como filtro,
+  archivar/restaurar) y `pages/CandidatoDetalle.jsx` (stepper, wizard de
+  evaluación, citas). Archivado = borrado lógico, igual que clientes.
+
 ## Sección Configuración (rediseño 2026-07)
 
 `pages/Configuracion.jsx` (`/configuracion`) es el **plano de control de
