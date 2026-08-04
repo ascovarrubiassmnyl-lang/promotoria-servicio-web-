@@ -656,6 +656,11 @@ export default function CalendarioMovil() {
                   ⬒ Entrega de póliza
                 </p>
               )}
+              {detalle.serieId && (
+                <p className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 font-medium text-slate-500 dark:bg-slate-700/60 dark:text-slate-400">
+                  ↻ Parte de una serie repetida
+                </p>
+              )}
               {esAdmin() && detalle.asesor && (
                 <p className="text-xs text-slate-400 dark:text-slate-500">Asesor: {detalle.asesor.nombre} {detalle.asesor.apellidoP}</p>
               )}

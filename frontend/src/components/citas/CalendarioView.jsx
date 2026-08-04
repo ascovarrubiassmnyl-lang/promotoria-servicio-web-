@@ -422,6 +422,11 @@ function CalendarioEscritorio() {
                             ⬒ Entrega de póliza
                           </p>
                         )}
+                        {c.serieId && (
+                          <p className="inline-flex items-center gap-1 rounded-md bg-slate-100 dark:bg-slate-700/60 px-2 py-0.5 font-medium text-slate-500 dark:text-slate-400">
+                            ↻ Parte de una serie repetida
+                          </p>
+                        )}
                         {esAdmin() && <p className="text-[10px] text-slate-400 dark:text-slate-500">Asesor: {c.asesor?.nombre} {c.asesor?.apellidoP}</p>}
                       </div>
                       {viva && (

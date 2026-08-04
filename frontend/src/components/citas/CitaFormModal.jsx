@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Modal, Field } from '../ui.jsx';
-import { CANALES, TIPOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, infoCanal } from './tipos.js';
+import { CANALES, TIPOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, infoCanal, RECURRENCIAS, DIAS_SEMANA_LABEL } from './tipos.js';
 import { hora, fechaCorta, isoLocalInput } from '../../lib/format.js';
 
 const DURACION_DEFAULT_MIN = 30;
@@ -75,6 +75,9 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
         fechaHoraInicio: inicio,
         fechaHoraFin: sumarMinutos(inicio, DURACION_DEFAULT_MIN),
         ubicacion: '',
+        recurrenciaTipo: 'NO_REPITE',
+        recurrenciaHasta: '',
+        recurrenciaDias: [base.getDay()],
       });
     }
     setErr('');
@@ -159,6 +162,11 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
     if (!editando && !esPersonal && !modalidadPropia && !form.clienteId) { setErr('Selecciona el cliente'); return; }
     if (!form.titulo || !form.fechaHoraInicio) { setErr('Título e inicio son requeridos'); return; }
     if (!finDespuesDeInicio) { setErr('El fin debe ser posterior al inicio'); return; }
+    if (!editando && form.recurrenciaTipo !== 'NO_REPITE') {
+      if (!form.recurrenciaHasta) { setErr('Indica hasta cuándo se repite'); return; }
+      if (form.recurrenciaHasta < form.fechaHoraInicio.slice(0, 10)) { setErr('"Hasta" debe ser posterior al inicio'); return; }
+      if (form.recurrenciaTipo === 'PERSONALIZADO' && !form.recurrenciaDias?.length) { setErr('Selecciona al menos un día de la semana'); return; }
+    }
     setSaving(true); setErr('');
     try {
       const payload = {
@@ -184,7 +192,19 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
         if (!esPersonal && !modalidadPropia) payload.clienteId = form.clienteId;
         if (esAdmin() && form.asesorId) payload.asesorId = form.asesorId;
         if (payload.promotorId === null) delete payload.promotorId;
-        await api.post('/citas', payload);
+        if (form.recurrenciaTipo !== 'NO_REPITE') {
+          payload.recurrencia = {
+            tipo: form.recurrenciaTipo,
+            hasta: form.recurrenciaHasta,
+            ...(form.recurrenciaTipo === 'PERSONALIZADO' ? { diasSemana: form.recurrenciaDias } : {}),
+          };
+        }
+        const { data: resultado } = await api.post('/citas', payload);
+        if (resultado?.citas?.length > 1 || resultado?.omitidas?.length) {
+          const partes = [`Se agendaron ${resultado.citas.length} citas de la serie.`];
+          if (resultado.omitidas?.length) partes.push(`${resultado.omitidas.length} se omitieron por empalme con otra cita.`);
+          window.alert(partes.join(' '));
+        }
       }
       qc.invalidateQueries(['citas']);
       qc.invalidateQueries(['citas-cal']);
@@ -331,6 +351,61 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
           <p className="text-xs text-red-600 dark:text-red-400">El fin debe ser posterior al inicio.</p>
         ) : (
           <p className="text-xs text-slate-400 dark:text-slate-500 -mt-1">Duración por defecto: 30 min. El fin se ajusta solo al cambiar el inicio.</p>
+        )}
+
+        {/* Repetir: solo al agendar. Cada instancia generada es una cita
+            independiente (se edita/cancela sola, sin afectar a las demás). */}
+        {!editando && (
+          <Field label="Repetir">
+            <select
+              className="input"
+              value={form.recurrenciaTipo}
+              onChange={(e) => setForm({ ...form, recurrenciaTipo: e.target.value })}
+            >
+              {Object.values(RECURRENCIAS).map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+            {form.recurrenciaTipo !== 'NO_REPITE' && (
+              <div className="mt-2 space-y-2">
+                {form.recurrenciaTipo === 'PERSONALIZADO' && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {DIAS_SEMANA_LABEL.map((label, idx) => {
+                      const activo = form.recurrenciaDias?.includes(idx);
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setForm((f) => ({
+                            ...f,
+                            recurrenciaDias: activo ? f.recurrenciaDias.filter((d) => d !== idx) : [...(f.recurrenciaDias || []), idx],
+                          }))}
+                          className={`w-9 h-9 rounded-lg border text-xs font-medium transition ${
+                            activo
+                              ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300'
+                              : 'border-slate-200 text-slate-500 hover:text-slate-700 dark:border-slate-600 dark:text-slate-400 dark:hover:text-slate-200'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <Field label="Hasta*">
+                  <input
+                    type="date"
+                    className="input"
+                    required
+                    min={form.fechaHoraInicio?.slice(0, 10)}
+                    value={form.recurrenciaHasta}
+                    onChange={(e) => setForm({ ...form, recurrenciaHasta: e.target.value })}
+                  />
+                </Field>
+                <p className="text-xs text-slate-400 dark:text-slate-500">
+                  Se crearán citas independientes: cada una se puede reagendar o cancelar sin afectar a las demás.
+                </p>
+              </div>
+            )}
+          </Field>
         )}
 
         {empalme && (

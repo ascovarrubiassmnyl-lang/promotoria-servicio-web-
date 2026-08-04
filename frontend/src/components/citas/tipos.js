@@ -117,3 +117,20 @@ export const infoEstadoCita = (estado) =>
 
 // Estados "vivos" para conteos/empalmes (los mismos que usa el backend).
 export const CITA_VIVA = ['PROGRAMADA', 'CONFIRMADA'];
+
+// Recurrencia al agendar (2026-08): el backend materializa TODAS las
+// instancias como citas normales que comparten `serieId` — cada una se
+// edita/cancela/reagenda de forma independiente, sin lógica de cascada.
+// Mapa único de labels: no duplicar en el modal ni en el detalle.
+export const RECURRENCIAS = {
+  NO_REPITE: { value: 'NO_REPITE', label: 'No se repite' },
+  DIARIO: { value: 'DIARIO', label: 'Todos los días' },
+  DIAS_HABILES: { value: 'DIAS_HABILES', label: 'Días hábiles (lunes a viernes)' },
+  SEMANAL: { value: 'SEMANAL', label: 'Cada semana' },
+  ANUAL: { value: 'ANUAL', label: 'Cada año' },
+  PERSONALIZADO: { value: 'PERSONALIZADO', label: 'Personalizado' },
+};
+
+export const infoRecurrencia = (v) => RECURRENCIAS[v] || RECURRENCIAS.NO_REPITE;
+
+export const DIAS_SEMANA_LABEL = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];

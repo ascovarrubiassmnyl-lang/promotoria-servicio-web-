@@ -310,6 +310,11 @@ model Cita {
   fechaHoraFin        DateTime
   ubicacion           String?
   recordatorioMinutos Int           @default(60)
+  // Cita repetida (2026-08): las instancias generadas por una regla de
+  // recurrencia comparten este id, solo informativo — cada cita se edita,
+  // reagenda o cancela de forma independiente, sin lógica de cascada entre
+  // ellas. Null = cita suelta (no repetida).
+  serieId             String?
   creadoEn            DateTime      @default(now())
   actualizadoEn       DateTime      @updatedAt
 
@@ -317,6 +322,7 @@ model Cita {
   @@index([clienteId])
   @@index([candidatoId])
   @@index([promotorId])
+  @@index([serieId])
 }
 
 // ——— Módulo de Candidatos (reclutamiento) ———

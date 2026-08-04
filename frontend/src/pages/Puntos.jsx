@@ -3,19 +3,22 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { Card, EmptyState } from '../components/ui.jsx';
-import { mxn } from '../lib/format.js';
 import { rangoSemana, labelSemana, isoDia, diasDeSemana, DIAS_LABEL } from '../lib/semana.js';
+import ResumenHistorico from '../components/puntos/ResumenHistorico.jsx';
 
 // Sistema de 25 puntos: digitaliza el formato semanal de la promotoría.
 // El puntaje por concepto y la meta diaria vienen del servidor (GET
 // /puntos/semana → valores/metaDiaria): aquí no se re-declaran valores.
 // Columnas del formato físico, agrupadas igual que en la hoja.
+// Columnas visibles del formato. Las columnas referidosContactados,
+// citasPlaneadas, citasNuevas, cierresPlaneados y comision se retiraron por
+// petición de la promotora (2026-08) — los campos se conservan en la BD para
+// no perder datos históricos, pero ya no se capturan ni muestran.
 const GRUPOS = [
   {
     titulo: 'Prospección',
     campos: [
       ['referidosObtenidos', 'Ref. obtenidos'],
-      ['referidosContactados', 'Ref. contactados'],
       ['llamadasRealizadas', 'Llamadas'],
       ['citasObtenidas', 'Citas obtenidas'],
     ],
@@ -23,11 +26,8 @@ const GRUPOS = [
   {
     titulo: 'Alta productividad',
     campos: [
-      ['citasPlaneadas', 'Citas plan.'],
-      ['citasNuevas', 'Citas nuevas'],
       ['cuestionariosPlaneados', 'Cuest. plan.'],
       ['cuestionariosRealizados', 'Cuest. real.'],
-      ['cierresPlaneados', 'Cierres plan.'],
       ['cierresRealizados', 'Cierres real.'],
     ],
   },
@@ -35,7 +35,6 @@ const GRUPOS = [
     titulo: 'Resultados',
     campos: [
       ['solicitudes', 'Solicitudes'],
-      ['comision', 'Comisión'],
     ],
   },
 ];
@@ -53,6 +52,7 @@ const filaVacia = () => Object.fromEntries(CAMPOS.map((c) => [c, '']));
 export default function Puntos() {
   const { esAdmin, user } = useAuth();
   const qc = useQueryClient();
+  const [modo, setModo] = useState('semana'); // 'semana' | 'historico'
   const [offset, setOffset] = useState(0);
   const [fAsesor, setFAsesor] = useState('');
   const semana = useMemo(() => rangoSemana(offset), [offset]);
@@ -159,14 +159,38 @@ export default function Puntos() {
             Formato semanal de actividad comercial · {nombreScope}
           </p>
         </div>
-        {esAdmin() && (
-          <select className="input w-auto" value={fAsesor} onChange={(e) => setFAsesor(e.target.value)}>
-            <option value="">Mi formato</option>
-            {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
-          </select>
-        )}
+        <div className="flex items-center gap-2">
+          {esAdmin() && (
+            <select className="input w-auto" value={fAsesor} onChange={(e) => setFAsesor(e.target.value)}>
+              <option value="">Mi formato</option>
+              {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
+            </select>
+          )}
+          <div className="flex rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700">
+            <button
+              onClick={() => setModo('semana')}
+              className={`px-3 py-1.5 text-xs font-semibold ${modo === 'semana' ? 'bg-brand-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}
+            >
+              Esta semana
+            </button>
+            <button
+              onClick={() => setModo('historico')}
+              className={`px-3 py-1.5 text-xs font-semibold ${modo === 'historico' ? 'bg-brand-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}
+            >
+              Histórico
+            </button>
+          </div>
+        </div>
       </div>
 
+      {modo === 'historico' ? (
+        <ResumenHistorico
+          asesorId={asesorId || undefined}
+          metaDiaria={metaDiaria}
+          onSeleccionaSemana={(o) => { setOffset(o); setModo('semana'); }}
+        />
+      ) : (
+        <>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-1.5">
           <button onClick={() => setOffset((o) => o - 1)} className="btn-secondary px-3">← Semana anterior</button>
@@ -193,9 +217,9 @@ export default function Puntos() {
           <p className="kpi-note">{mejorDia ? `Mejor día: ${mejorDia.label} (${mejorDia.p} pts)` : 'Sin registros aún'}</p>
         </div>
         <div className="kpi">
-          <p className="kpi-label">Solicitudes · Comisión</p>
+          <p className="kpi-label">Solicitudes acumuladas</p>
           <p className="kpi-val">{totales.solicitudes}</p>
-          <p className="kpi-note">{mxn(totales.comision)} anualizada</p>
+          <p className="kpi-note">Total de la semana</p>
         </div>
       </div>
 
@@ -263,7 +287,7 @@ export default function Puntos() {
                   <td className="py-2 pr-2">Total</td>
                   {CAMPOS.map((campo) => (
                     <td key={campo} className="px-1 py-2 text-center tabular-nums">
-                      {campo === 'comision' ? mxn(totales[campo]) : totales[campo]}
+                      {totales[campo]}
                     </td>
                   ))}
                   <td className="py-2 pl-2 text-right tabular-nums text-brand-700 dark:text-brand-300">{puntosSemana}</td>
@@ -318,8 +342,7 @@ export default function Puntos() {
                     <th className="py-1.5 px-2 text-right">Días activos</th>
                     <th className="py-1.5 px-2 text-right">Llamadas</th>
                     <th className="py-1.5 px-2 text-right">Citas obtenidas</th>
-                    <th className="py-1.5 px-2 text-right">Solicitudes</th>
-                    <th className="py-1.5 pl-2 text-right">Comisión</th>
+                    <th className="py-1.5 pl-2 text-right">Solicitudes</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -336,7 +359,6 @@ export default function Puntos() {
                       <td className="py-2 px-2 text-right tabular-nums">{f.llamadas}</td>
                       <td className="py-2 px-2 text-right tabular-nums">{f.citasObtenidas}</td>
                       <td className="py-2 px-2 text-right tabular-nums">{f.solicitudes}</td>
-                      <td className="py-2 pl-2 text-right tabular-nums">{mxn(f.comision)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -344,6 +366,8 @@ export default function Puntos() {
             </div>
           )}
         </Card>
+      )}
+        </>
       )}
     </div>
   );

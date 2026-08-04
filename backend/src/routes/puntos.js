@@ -139,13 +139,12 @@ router.get('/resumen', asyncHandler(async (req, res) => {
 
   const porAsesor = new Map();
   for (const r of registros) {
-    const acc = porAsesor.get(r.asesorId) || { puntos: 0, dias: 0, llamadas: 0, citasObtenidas: 0, solicitudes: 0, comision: 0 };
+    const acc = porAsesor.get(r.asesorId) || { puntos: 0, dias: 0, llamadas: 0, citasObtenidas: 0, solicitudes: 0 };
     acc.puntos += puntosDe(r);
     acc.dias += 1;
     acc.llamadas += r.llamadasRealizadas;
     acc.citasObtenidas += r.citasObtenidas;
     acc.solicitudes += r.solicitudes;
-    acc.comision += r.comision;
     porAsesor.set(r.asesorId, acc);
   }
 
@@ -153,7 +152,99 @@ router.get('/resumen', asyncHandler(async (req, res) => {
     metaDiaria: META_PUNTOS_DIARIA,
     filas: asesores
       .filter((a) => a.rol === 'ASESOR' || porAsesor.has(a.id))
-      .map((a) => ({ asesor: a, ...(porAsesor.get(a.id) || { puntos: 0, dias: 0, llamadas: 0, citasObtenidas: 0, solicitudes: 0, comision: 0 }) })),
+      .map((a) => ({ asesor: a, ...(porAsesor.get(a.id) || { puntos: 0, dias: 0, llamadas: 0, citasObtenidas: 0, solicitudes: 0 }) })),
+  });
+}));
+
+// Resumen histórico (tendencia) del sistema de 25 puntos, semana a semana,
+// sobre un rango dado. Devuelve KPIs agregados del rango (puntos totales,
+// promedio semanal, mejor semana, totales por concepto) y un array de
+// semanas — cada una con puntos, días activos, mejor día (mayor puntaje) y
+// fecha de inicio — listo para pintar como gráfica de tendencia + drill-down.
+// El asesor solo se ve a sí mismo; el promotor con selector.
+router.get('/historico', asyncHandler(async (req, res) => {
+  const asesorId = asesorScope(req, req.query.asesorId);
+
+  // Rango: por defecto las últimas 12 semanas hasta hoy; soporta `inicio` y
+  // `fin` (YYYY-MM-DD) opcionales. `fin` se ajusta al final del día. Si llega
+  // solo `inicio`, el rango es [inicio, hoy].
+  const ahora = new Date();
+  const hoyFin = new Date(ahora); hoyFin.setUTCHours(23, 59, 59, 999);
+  let desde = req.query.inicio ? fechaDia(req.query.inicio) : null;
+  let hasta = req.query.fin ? fechaDia(req.query.fin) : hoyFin;
+  if (hasta) hasta = new Date(hasta.getTime() + 24 * 60 * 60 * 1000 - 1); // fin del día UTC
+  if (!desde) {
+    // 12 semanas atrás desde `hasta`: lunes más cercano.
+    desde = new Date(hasta);
+    desde.setUTCDate(desde.getUTCDate() - 6); // subimos al lunes más cercano hacia atrás
+    desde.setUTCDate(desde.getUTCDate() - ((desde.getUTCDay() + 6) % 7));
+    desde.setUTCDate(desde.getUTCDate() - 11 * 7); // 12 semanas total
+  }
+  if (desde > hasta) return res.status(400).json({ error: 'inicio debe ser anterior a fin' });
+
+  const registros = await prisma.registroPuntos.findMany({
+    where: { asesorId, fecha: { gte: desde, lte: hasta } },
+    orderBy: { fecha: 'asc' },
+  });
+
+  // Acumula por semana (clave = lunes ISO YYYY-MM-DD). Recolecta por concepto.
+  const porSemana = new Map();
+  const CONCEPTOS = ['referidosObtenidos', 'llamadasRealizadas', 'citasObtenidas',
+    'cuestionariosPlaneados', 'cuestionariosRealizados', 'cierresRealizados', 'solicitudes'];
+  for (const r of registros) {
+    // Lunes de la semana del registro (UTC, @db.Date guardado UTC-medianoche).
+    const d = new Date(r.fecha.getTime());
+    const offset = (d.getUTCDay() + 6) % 7;
+    d.setUTCDate(d.getUTCDate() - offset);
+    d.setUTCHours(0, 0, 0, 0);
+    const clave = d.toISOString().slice(0, 10);
+    const acc = porSemana.get(clave) || { semanaInicio: clave, puntos: 0, dias: 0,
+      mejorDiaFecha: null, mejorDiaPuntos: 0, porConcepto: Object.fromEntries(CONCEPTOS.map((c) => [c, 0])) };
+    const pts = puntosDe(r);
+    acc.puntos += pts;
+    acc.dias += 1;
+    if (pts > acc.mejorDiaPuntos) { acc.mejorDiaPuntos = pts; acc.mejorDiaFecha = r.fecha; }
+    for (const c of CONCEPTOS) acc.porConcepto[c] += r[c] || 0;
+    porSemana.set(clave, acc);
+  }
+
+  // Rellena semanas vacías entre [desde, hasta] para que la gráfica no tenga huecos.
+  const semanas = [];
+  let todosTotal = 0, diasActivosTotal = 0, mejorSemana = null;
+  {
+    const cursor = new Date(desde); cursor.setUTCHours(0, 0, 0, 0);
+    const finLunes = new Date(hasta);
+    while (cursor <= finLunes) {
+      const clave = cursor.toISOString().slice(0, 10);
+      const acc = porSemana.get(clave) || { semanaInicio: clave, puntos: 0, dias: 0,
+        mejorDiaFecha: null, mejorDiaPuntos: 0, porConcepto: Object.fromEntries(CONCEPTOS.map((c) => [c, 0])) };
+      semanas.push(acc);
+      todosTotal += acc.puntos;
+      diasActivosTotal += acc.dias;
+      if (!mejorSemana || acc.puntos > mejorSemana.puntos) mejorSemana = { semanaInicio: clave, puntos: acc.puntos };
+      cursor.setUTCDate(cursor.getUTCDate() + 7);
+    }
+  }
+
+  const totalSemanas = semanas.length || 1;
+  const promedioSemanal = Math.round(todosTotal / totalSemanas);
+  const totalPorConcepto = Object.fromEntries(CONCEPTOS.map((c) => [c,
+    semanas.reduce((acc, s) => acc + s.porConcepto[c], 0)]));
+
+  res.json({
+    asesorId,
+    rango: { inicio: desde.toISOString().slice(0, 10), fin: hasta.toISOString().slice(0, 10) },
+    valores: PUNTOS,
+    metaDiaria: META_PUNTOS_DIARIA,
+    resumen: {
+      puntosTotales: todosTotal,
+      promedioSemanal,
+      diasActivos: diasActivosTotal,
+      mejorSemana,
+      totalPorConcepto,
+      totalSemanas: semanas.length,
+    },
+    semanas,
   });
 }));
 
