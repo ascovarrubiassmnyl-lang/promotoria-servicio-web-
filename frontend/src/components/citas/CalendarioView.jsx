@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { Card, Modal, CitaBadge, EmptyState, MenuAcciones } from '../ui.jsx';
-import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, infoCanal, infoTipoCita, colorCita } from './tipos.js';
+import { Card, Modal, CitaBadge, EmptyState, MenuAcciones, Field } from '../ui.jsx';
+import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, infoCanal, infoTipoCita, colorCita, infoInvitacion } from './tipos.js';
 import CitaFormModal from './CitaFormModal.jsx';
 import CalendarioMovil from './CalendarioMovil.jsx';
 import useIsMobile from '../../hooks/useIsMobile.js';
@@ -33,6 +33,242 @@ export default function CalendarioView() {
   return esMovil ? <CalendarioMovil /> : <CalendarioEscritorio />;
 }
 
+// Ficha técnica de una cita: se abre al hacer clic en el evento del calendario.
+// Los campos rápidos (título, horario, canal, clasificación, estado, ubicación,
+// notas) se editan aquí mismo; el cambio de cliente/asesor/modalidad sigue
+// viviendo en CitaFormModal ("Reagendar / editar"), que es el formulario único.
+function FichaCita({ cita, onClose, onReagendar, onEliminar, onCambiarEstado, esAdmin, usuarioId }) {
+  const qc = useQueryClient();
+  const [form, setForm] = useState(null);
+  const [guardando, setGuardando] = useState(false);
+  const [err, setErr] = useState('');
+  const [respondiendo, setRespondiendo] = useState(false);
+
+  // Responder la invitación de acompañamiento: solo la ve el promotor invitado
+  // mientras esté pendiente (el backend vuelve a validarlo).
+  const responder = async (respuesta) => {
+    setRespondiendo(true);
+    setErr('');
+    try {
+      try {
+        await api.patch(`/citas/${cita.id}/invitacion`, { respuesta });
+      } catch (e) {
+        const empalme = e?.response?.status === 409 && e?.response?.data?.empalme;
+        if (!empalme) throw e;
+        const otra = e.response.data.empalme;
+        const ok = window.confirm(`Ya tienes "${otra.titulo}" a esa hora (${hora(otra.fechaHoraInicio)} – ${hora(otra.fechaHoraFin)}).\n\n¿Aceptar de todos modos?`);
+        if (!ok) { setRespondiendo(false); return; }
+        await api.patch(`/citas/${cita.id}/invitacion`, { respuesta, ignorarEmpalme: true });
+      }
+      qc.invalidateQueries(['citas-cal']);
+      qc.invalidateQueries(['citas']);
+      onClose();
+    } catch (e2) {
+      setErr(handleError(e2));
+    } finally { setRespondiendo(false); }
+  };
+
+  const paraInput = (iso) => {
+    const d = new Date(iso);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+
+  // Se re-inicializa al abrir otra cita (o al refrescarse la que está abierta).
+  useEffect(() => {
+    if (!cita) { setForm(null); return; }
+    setErr('');
+    setForm({
+      titulo: cita.titulo || '',
+      fechaHoraInicio: paraInput(cita.fechaHoraInicio),
+      fechaHoraFin: paraInput(cita.fechaHoraFin),
+      tipo: cita.tipo || 'PRESENCIAL',
+      clasificacion: cita.clasificacion || 'PRODUCTIVA',
+      estado: cita.estado,
+      ubicacion: cita.ubicacion || '',
+      descripcion: cita.descripcion || '',
+    });
+  }, [cita?.id, cita?.actualizadoEn, cita?.estado, cita?.fechaHoraInicio]);
+
+  if (!cita || !form) return null;
+
+  const color = colorCita(cita);
+  const viva = CITA_VIVA.includes(cita.estado);
+  const soyElInvitado = !!usuarioId && cita.promotorId === usuarioId;
+  const sucio = (
+    form.titulo !== (cita.titulo || '') ||
+    form.fechaHoraInicio !== paraInput(cita.fechaHoraInicio) ||
+    form.fechaHoraFin !== paraInput(cita.fechaHoraFin) ||
+    form.tipo !== (cita.tipo || 'PRESENCIAL') ||
+    form.clasificacion !== (cita.clasificacion || 'PRODUCTIVA') ||
+    form.estado !== cita.estado ||
+    form.ubicacion !== (cita.ubicacion || '') ||
+    form.descripcion !== (cita.descripcion || '')
+  );
+
+  const guardar = async (e) => {
+    e.preventDefault();
+    setErr('');
+    if (!form.titulo.trim()) { setErr('El título es obligatorio'); return; }
+    if (new Date(form.fechaHoraFin) <= new Date(form.fechaHoraInicio)) { setErr('El fin debe ser posterior al inicio'); return; }
+    setGuardando(true);
+    try {
+      const payload = {
+        titulo: form.titulo.trim(),
+        fechaHoraInicio: new Date(form.fechaHoraInicio).toISOString(),
+        fechaHoraFin: new Date(form.fechaHoraFin).toISOString(),
+        tipo: form.tipo,
+        clasificacion: form.clasificacion,
+        estado: form.estado,
+        ubicacion: form.ubicacion.trim() || null,
+        descripcion: form.descripcion.trim() || null,
+      };
+      try {
+        await api.patch(`/citas/${cita.id}`, payload);
+      } catch (e2) {
+        // Empalme con otra cita viva: se advierte, no se bloquea (misma
+        // convención que el alta en CitaFormModal).
+        const empalme = e2?.response?.status === 409 && e2?.response?.data?.empalme;
+        if (!empalme) throw e2;
+        const otra = e2.response.data.empalme;
+        const ok = window.confirm(`Se empalma con "${otra.titulo}" (${hora(otra.fechaHoraInicio)} – ${hora(otra.fechaHoraFin)}).\n\n¿Guardar de todos modos?`);
+        if (!ok) { setGuardando(false); return; }
+        await api.patch(`/citas/${cita.id}`, { ...payload, ignorarEmpalme: true });
+      }
+      qc.invalidateQueries(['citas-cal']);
+      qc.invalidateQueries(['citas']);
+      onClose();
+    } catch (e3) {
+      setErr(handleError(e3));
+    } finally { setGuardando(false); }
+  };
+
+  const canal = infoCanal(form.tipo);
+
+  return (
+    <Modal open={!!cita} onClose={onClose} title="Ficha de la cita">
+      <form onSubmit={guardar} className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium ${color.chip}`}>
+            <span className={`w-2 h-2 rounded-full ${color.dot}`} />{color.label}
+          </span>
+          <CitaBadge estado={cita.estado} />
+          {cita.serieId && (
+            <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 dark:bg-slate-700/60 px-2 py-0.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+              ↻ Parte de una serie repetida
+            </span>
+          )}
+        </div>
+
+        {/* Invitación de acompañamiento: el promotor invitado responde aquí;
+            los demás solo ven en qué estado va. */}
+        {cita.invitacionEstado && (
+          soyElInvitado && cita.invitacionEstado === 'PENDIENTE' ? (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 dark:border-amber-700 dark:bg-amber-900/25">
+              <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                {cita.asesor?.nombre} {cita.asesor?.apellidoP} te invitó a acompañar esta cita.
+              </p>
+              <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">
+                Hasta que la aceptes no ocupa tu agenda.
+              </p>
+              <div className="mt-2 flex gap-2">
+                <button type="button" disabled={respondiendo} onClick={() => responder('ACEPTADA')} className="rounded-lg border border-emerald-300 bg-white px-3 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-700 dark:bg-transparent dark:text-emerald-400">✓ Aceptar</button>
+                <button type="button" disabled={respondiendo} onClick={() => responder('RECHAZADA')} className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-transparent dark:text-slate-300">Rechazar</button>
+              </div>
+            </div>
+          ) : (
+            <p className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium ${
+              cita.invitacionEstado === 'ACEPTADA' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+              : cita.invitacionEstado === 'PENDIENTE' ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+              : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>
+              {infoInvitacion(cita.invitacionEstado)?.icono} {infoInvitacion(cita.invitacionEstado)?.label}
+            </p>
+          )
+        )}
+
+        <div className="rounded-lg bg-slate-50 dark:bg-slate-700/40 px-3 py-2 text-xs text-slate-600 dark:text-slate-300 space-y-0.5">
+          <p>
+            {cita.cliente
+              ? <>Cliente: <strong>{cita.cliente.nombre} {cita.cliente.apellidoP}</strong>{cita.cliente.telefono ? ` · ${cita.cliente.telefono}` : ''}</>
+              : cita.candidato
+                ? <>Candidato: <strong>{cita.candidato.nombre} {cita.candidato.apellidoP}</strong>{cita.candidato.telefono ? ` · ${cita.candidato.telefono}` : ''}</>
+                : MODALIDADES_PROMOTOR.includes(cita.modalidad) ? infoTipoCita(cita.modalidad).label : 'Evento personal (sin cliente)'}
+          </p>
+          <p>Tipo de cita: {infoTipoCita(cita.modalidad).label}</p>
+          {cita.modalidad === 'ACOMPANAMIENTO' && (
+            <p className="text-violet-700 dark:text-violet-300">
+              ◎ Acompañamiento{cita.promotor ? ` · ${cita.promotor.nombre} ${cita.promotor.apellidoP}` : ' · promotor por asignar'}
+            </p>
+          )}
+          {esAdmin && <p>Asesor: {cita.asesor?.nombre} {cita.asesor?.apellidoP}</p>}
+        </div>
+
+        <Field label="Título*">
+          <input className="input" required value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} />
+        </Field>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Inicio*">
+            <input type="datetime-local" className="input" required value={form.fechaHoraInicio} onChange={(e) => setForm({ ...form, fechaHoraInicio: e.target.value })} />
+          </Field>
+          <Field label="Fin*">
+            <input type="datetime-local" className="input" required value={form.fechaHoraFin} onChange={(e) => setForm({ ...form, fechaHoraFin: e.target.value })} />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Clasificación">
+            <select className="input" value={form.clasificacion} onChange={(e) => setForm({ ...form, clasificacion: e.target.value })}>
+              {Object.values(CLASIFICACIONES).map((cl) => <option key={cl.value} value={cl.value}>{cl.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Canal">
+            <select className="input" value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })}>
+              {Object.values(CANALES).map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Estado">
+            <select className="input" value={form.estado} onChange={(e) => setForm({ ...form, estado: e.target.value })}>
+              {Object.values(ESTADOS_CITA).map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          </Field>
+          <Field label={canal.ubicacionLabel || 'Ubicación'}>
+            <input className="input" value={form.ubicacion} onChange={(e) => setForm({ ...form, ubicacion: e.target.value })} />
+          </Field>
+        </div>
+
+        <Field label="Notas">
+          <textarea className="input" rows={2} value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Objetivo de la cita" />
+        </Field>
+
+        {err && <p className="text-sm text-red-600 dark:text-red-400">{err}</p>}
+
+        {viva && (
+          <div className="flex flex-wrap gap-1.5 border-t border-slate-100 dark:border-slate-700 pt-3">
+            <button type="button" onClick={async () => { await onCambiarEstado(cita, 'COMPLETADA'); onClose(); }} className="rounded-lg border border-emerald-300 dark:border-emerald-700 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">✓ Completar</button>
+            <button type="button" onClick={async () => { await onCambiarEstado(cita, 'NO_ASISTIO'); onClose(); }} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">No asistió</button>
+            <button type="button" onClick={async () => { await onCambiarEstado(cita, 'CANCELADA'); onClose(); }} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Cancelar cita</button>
+            <button type="button" onClick={() => onReagendar(cita)} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Cambiar cliente / tipo…</button>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-2 pt-2">
+          <button type="button" onClick={() => onEliminar(cita)} className="text-xs font-semibold text-red-600 dark:text-red-400 hover:underline">Eliminar definitivamente</button>
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className="btn-secondary">Cerrar</button>
+            <button type="submit" disabled={guardando || !sucio} className="btn-primary disabled:opacity-50">
+              {guardando ? 'Guardando…' : 'Guardar cambios'}
+            </button>
+          </div>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 function CalendarioEscritorio() {
   const { esAdmin, user } = useAuth();
   const qc = useQueryClient();
@@ -51,6 +287,10 @@ function CalendarioEscritorio() {
   const [citaEdit, setCitaEdit] = useState(null);
   const [toDelete, setToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  // Ficha técnica de la cita: se abre al hacer clic en el evento (en cualquier
+  // vista) y concentra el detalle + las acciones, sin obligar a buscar la cita
+  // en el panel lateral del día.
+  const [detalle, setDetalle] = useState(null);
 
   const { data: asesores } = useQuery({
     queryKey: ['asesores-list'],
@@ -96,6 +336,13 @@ function CalendarioEscritorio() {
 
   const esHoy = (d) => d.toDateString() === hoy.toDateString();
   const citasDiaSel = selectedDay ? (porDia[dayKey(selectedDay)] || []) : [];
+
+  // La ficha se re-lee de la lista viva: tras completar/cancelar/reagendar el
+  // panel refleja el estado nuevo en vez de quedarse con la copia del clic.
+  const citaDetalle = useMemo(
+    () => (detalle ? (citas || []).find((c) => c.id === detalle.id) || null : null),
+    [detalle, citas]
+  );
 
   // ---------- Navegación ----------
   const step = (dir) => {
@@ -147,15 +394,27 @@ function CalendarioEscritorio() {
   // invisible — feedback de la promotora 2026-07-30). El color del evento es
   // la CLASIFICACIÓN (verde/ámbar/rojo, colorCita); el canal queda como
   // etiqueta en el panel del día.
+  // Clic en el chip = abrir la ficha técnica de esa cita (no solo seleccionar
+  // el día). Va como <span role="button"> porque en la vista Mes el chip vive
+  // dentro del <button> de la celda (un <button> anidado es HTML inválido).
   const LineaCita = ({ c, className = '' }) => {
     const color = colorCita(c);
     const cancelada = c.estado === 'CANCELADA';
+    // Invitación pendiente = todavía no ocupa la agenda: se dibuja punteada.
+    const porConfirmar = c.invitacionEstado === 'PENDIENTE';
     return (
-      <div className={`flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium truncate ${color.chip} ${cancelada ? 'line-through opacity-50' : ''} ${className}`}>
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={(e) => { e.stopPropagation(); setDetalle(c); }}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setDetalle(c); } }}
+        title={`${c.titulo}${porConfirmar ? ' — invitación por confirmar' : ''} — clic para ver y editar`}
+        className={`flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium truncate cursor-pointer hover:ring-1 hover:ring-brand-400 ${color.chip} ${porConfirmar ? 'border border-dashed border-current opacity-70' : ''} ${cancelada ? 'line-through opacity-50' : ''} ${className}`}
+      >
         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${color.dot}`} />
         <span className="tabular-nums shrink-0">{hora(c.fechaHoraInicio)}</span>
-        <span className="truncate">{c.cliente?.nombre || c.titulo}</span>
-      </div>
+        <span className="truncate">{porConfirmar ? '⏳ ' : ''}{c.cliente?.nombre || c.titulo}</span>
+      </span>
     );
   };
 
@@ -248,8 +507,9 @@ function CalendarioEscritorio() {
                 return (
                   <button
                     key={c.id}
-                    onClick={(e) => { e.stopPropagation(); setSelectedDay(d); }}
-                    className={`absolute left-0.5 right-0.5 rounded-md border-l-2 px-1.5 py-0.5 text-left overflow-hidden ${color.chip} ${color.borde} ${cancelada ? 'line-through opacity-50' : ''}`}
+                    onClick={(e) => { e.stopPropagation(); setSelectedDay(d); setDetalle(c); }}
+                    title={`${c.titulo} — clic para ver y editar`}
+                    className={`absolute left-0.5 right-0.5 rounded-md border-l-2 px-1.5 py-0.5 text-left overflow-hidden hover:ring-1 hover:ring-brand-400 ${color.chip} ${color.borde} ${cancelada ? 'line-through opacity-50' : ''}`}
                     style={{ top, height: Math.max(alto, 20) }}
                   >
                     <div className={`text-[10px] font-semibold tabular-nums ${color.text}`}>{hora(c.fechaHoraInicio)}</div>
@@ -286,7 +546,7 @@ function CalendarioEscritorio() {
                 const color = colorCita(c);
                 const cancelada = c.estado === 'CANCELADA';
                 return (
-                  <button key={c.id} onClick={() => setSelectedDay(d)} className="w-full flex gap-3 items-start rounded-lg px-2 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                  <button key={c.id} onClick={() => { setSelectedDay(d); setDetalle(c); }} className="w-full flex gap-3 items-start rounded-lg px-2 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50">
                     <span className="w-[120px] shrink-0 text-xs tabular-nums text-slate-500 dark:text-slate-400 pt-0.5">{hora(c.fechaHoraInicio)} – {hora(c.fechaHoraFin)}</span>
                     <span className={`w-0.5 self-stretch rounded ${color.dot}`} />
                     <span className="min-w-0">
@@ -384,7 +644,11 @@ function CalendarioEscritorio() {
                   return (
                     <li key={c.id} className={`rounded-lg border border-slate-100 dark:border-slate-700 border-l-[3px] ${color.borde} p-3`}>
                       <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{c.titulo}</p>
+                        <button
+                          type="button"
+                          onClick={() => setDetalle(c)}
+                          className="text-left text-sm font-medium text-slate-800 dark:text-slate-100 hover:text-brand-600 dark:hover:text-brand-400 hover:underline"
+                        >{c.titulo}</button>
                         <div className="flex items-center gap-1">
                           <CitaBadge estado={c.estado} />
                           <MenuAcciones
@@ -443,6 +707,16 @@ function CalendarioEscritorio() {
             )}
         </Card>
       </div>
+
+      <FichaCita
+        cita={citaDetalle}
+        onClose={() => setDetalle(null)}
+        onReagendar={(c) => { setDetalle(null); abrirReagendar(c); }}
+        onEliminar={(c) => { setDetalle(null); setToDelete(c); }}
+        onCambiarEstado={cambiarEstado}
+        esAdmin={esAdmin()}
+        usuarioId={user?.id}
+      />
 
       <CitaFormModal
         open={modalOpen}

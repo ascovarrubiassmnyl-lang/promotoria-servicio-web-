@@ -68,6 +68,15 @@ enum ClasificacionCita {
   PERSONAL
 }
 
+// Respuesta del promotor a la invitación de acompañar una cita. Mientras esté
+// PENDIENTE la cita no ocupa su agenda; ACEPTADA la vuelve firme (y sí bloquea);
+// RECHAZADA la libera y el asesor debe buscar otro promotor u horario.
+enum EstadoInvitacionCita {
+  PENDIENTE
+  ACEPTADA
+  RECHAZADA
+}
+
 // ——— Módulo de Candidatos (reclutamiento de asesores) ———
 // Pipeline del proceso de selección SMNYL. ENTREVISTA_ADICIONAL es opcional:
 // al avanzar desde CARRERA se puede saltar directo a PRECONTRATO_MC.
@@ -151,6 +160,7 @@ model Usuario {
   targets         Target[]
   notas           Nota[]
   pushSubs        PushSubscription[]
+  googleCalendar  GoogleCalendarCuenta?
   referidos       Referido[]
   bonos           Bono[]
   documentos      DocumentoCliente[]
@@ -211,6 +221,25 @@ model PermisoLog {
 }
 
 // Suscripción Web Push de un usuario (un usuario puede tener varias: móvil, escritorio).
+// Conexión con Google Calendar por usuario (2026-08). Cada persona conecta su
+// propia cuenta desde Configuración (OAuth con consentimiento); guardamos el
+// refresh token para poder escribir eventos en su calendario sin que vuelva a
+// autorizar. Desconectar = borrar la fila (y revocar en Google).
+model GoogleCalendarCuenta {
+  id            String   @id @default(cuid())
+  usuarioId     String   @unique
+  usuario       Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  // Correo de la cuenta de Google conectada (informativo para la UI).
+  email         String
+  refreshToken  String
+  accessToken   String?
+  expiraEn      DateTime?
+  // Calendario destino; "primary" = el principal de esa cuenta.
+  calendarId    String   @default("primary")
+  creadoEn      DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+}
+
 model PushSubscription {
   id             String   @id @default(cuid())
   usuarioId      String
@@ -305,6 +334,17 @@ model Cita {
   // Para ACOMPANAMIENTO: promotor (admin) que acompaña al asesor (opcional)
   promotorId          String?
   promotor            Usuario?      @relation("citasPromotor", fields: [promotorId], references: [id], onDelete: SetNull)
+  // Invitación al promotor (2026-08): mientras esté PENDIENTE la cita NO
+  // bloquea la agenda del promotor (no cuenta para sus empalmes) y le aparece
+  // como "por confirmar"; solo al ACEPTADA se vuelve firme. Null = no hay
+  // invitación (cita sin promotor o creada antes de esta función).
+  invitacionEstado    EstadoInvitacionCita?
+  invitacionRespondidaEn DateTime?
+  // Id del evento espejo en el Google Calendar del promotor (2026-08). Se crea
+  // al ACEPTAR la invitación y se borra al rechazar/cancelar. Null = no hay
+  // evento en Google (no conectó su cuenta o no aplica).
+  googleEventId       String?
+  googleEventUsuarioId String?
   estado              EstadoCita    @default(PROGRAMADA)
   fechaHoraInicio     DateTime
   fechaHoraFin        DateTime

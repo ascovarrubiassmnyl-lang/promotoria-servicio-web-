@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Modal, CitaBadge } from '../ui.jsx';
-import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, infoCanal, infoTipoCita, colorCita } from './tipos.js';
+import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, infoCanal, infoTipoCita, colorCita, infoInvitacion } from './tipos.js';
 import CitaFormModal from './CitaFormModal.jsx';
 import { hora, nombreMes } from '../../lib/format.js';
 
@@ -60,6 +60,11 @@ function CardCita({ c, onClick, esAdmin }) {
             {color.label}
           </span>
           <CitaBadge estado={c.estado} />
+          {c.invitacionEstado === 'PENDIENTE' && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+              ⏳ Por confirmar
+            </span>
+          )}
           {MODALIDADES_PROMOTOR.includes(c.modalidad) && (
             <span className="text-[11px] text-slate-400 dark:text-slate-500">
               {infoTipoCita(c.modalidad).label}{c.candidato ? ` · ${c.candidato.nombre} ${c.candidato.apellidoP}` : ''}
@@ -224,6 +229,26 @@ export default function CalendarioMovil() {
       qc.invalidateQueries(['citas-cal']);
       qc.invalidateQueries(['citas']);
     } catch (e) { alert(handleError(e)); }
+  };
+
+  // Respuesta del promotor a una invitación de acompañamiento. Al aceptar, si
+  // ya tiene algo a esa hora se advierte (no se bloquea), igual que el alta.
+  const responderInvitacion = async (c, respuesta) => {
+    try {
+      try {
+        await api.patch(`/citas/${c.id}/invitacion`, { respuesta });
+      } catch (e) {
+        const empalme = e?.response?.status === 409 && e?.response?.data?.empalme;
+        if (!empalme) throw e;
+        const otra = e.response.data.empalme;
+        const ok = window.confirm(`Ya tienes "${otra.titulo}" a esa hora (${hora(otra.fechaHoraInicio)} – ${hora(otra.fechaHoraFin)}).\n\n¿Aceptar de todos modos?`);
+        if (!ok) return;
+        await api.patch(`/citas/${c.id}/invitacion`, { respuesta, ignorarEmpalme: true });
+      }
+      setDetalle(null);
+      qc.invalidateQueries(['citas-cal']);
+      qc.invalidateQueries(['citas']);
+    } catch (e2) { alert(handleError(e2)); }
   };
 
   const confirmarEliminar = async () => {
@@ -665,6 +690,36 @@ export default function CalendarioMovil() {
                 <p className="text-xs text-slate-400 dark:text-slate-500">Asesor: {detalle.asesor.nombre} {detalle.asesor.apellidoP}</p>
               )}
             </div>
+            {/* Invitación de acompañamiento: el promotor invitado responde
+                aquí; los demás solo ven el estado. Mientras esté pendiente la
+                cita no ocupa su agenda. */}
+            {detalle.invitacionEstado && (
+              detalle.promotorId === user?.id && detalle.invitacionEstado === 'PENDIENTE' ? (
+                <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-900/25">
+                  <p className="text-[13px] font-semibold text-amber-900 dark:text-amber-200">
+                    {detalle.asesor?.nombre} {detalle.asesor?.apellidoP} te invitó a acompañar esta cita.
+                  </p>
+                  <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">Hasta que la aceptes no ocupa tu agenda.</p>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={() => responderInvitacion(detalle, 'ACEPTADA')}
+                      className={`${btnAccion} flex-1 border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-400`}
+                    >✓ Aceptar</button>
+                    <button
+                      onClick={() => responderInvitacion(detalle, 'RECHAZADA')}
+                      className={`${btnAccion} flex-1 border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300`}
+                    >Rechazar</button>
+                  </div>
+                </div>
+              ) : (
+                <p className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[13px] font-medium ${
+                  detalle.invitacionEstado === 'ACEPTADA' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                  : detalle.invitacionEstado === 'PENDIENTE' ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                  : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>
+                  {infoInvitacion(detalle.invitacionEstado)?.icono} {infoInvitacion(detalle.invitacionEstado)?.label}
+                </p>
+              )
+            )}
             <div className="flex flex-wrap gap-2 pt-1">
               {detalleViva && (
                 <button onClick={() => cambiarEstado(detalle, 'COMPLETADA')} className={`${btnAccion} border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-400`}>✓ Completar</button>

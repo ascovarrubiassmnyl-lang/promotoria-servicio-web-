@@ -24,6 +24,10 @@ api.interceptors.response.use(
     if (err.response?.status === 401 && habiaSesion) {
       localStorage.removeItem('token');
       if (!window.location.pathname.startsWith('/login')) {
+        // La sesión venció (o el token dejó de ser válido). Se avisa en la
+        // pantalla de login en lenguaje llano: el usuario no debe ver nunca
+        // el error crudo del servidor ("Token no proporcionado").
+        sessionStorage.setItem('sesionExpirada', '1');
         window.location.href = '/login';
       }
     }
@@ -32,6 +36,12 @@ api.interceptors.response.use(
 );
 
 export const handleError = (err) => {
+  // Los errores de token son de mecánica interna: al usuario se le dice que
+  // su sesión venció (el interceptor ya lo mandó a /login), nunca el texto
+  // crudo del servidor.
+  if (err?.response?.status === 401) {
+    return 'Tu sesión expiró. Vuelve a iniciar sesión.';
+  }
   const msg = err?.response?.data?.error || err?.message || 'Error desconocido';
   return msg;
 };

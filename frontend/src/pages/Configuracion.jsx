@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api, handleError } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useNotif } from '../context/NotifContext.jsx';
@@ -47,7 +47,12 @@ export default function Configuracion() {
       </div>
 
       {tab === 'roles' && <RolesTab esSuperadmin={esSuperadmin()} />}
-      {tab === 'notificaciones' && <NotificacionesTab />}
+      {tab === 'notificaciones' && (
+        <div className="space-y-4">
+          <NotificacionesTab />
+          <GoogleCalendarPanel />
+        </div>
+      )}
       {tab === 'bitacora' && <BitacoraTab />}
     </div>
   );
@@ -170,6 +175,92 @@ function RolesTab({ esSuperadmin }) {
         {!esSuperadmin && <p className="mt-3 text-xs text-slate-400">Solo un Súper Administrador puede editar el acceso por rol.</p>}
       </Card>
     </div>
+  );
+}
+
+// ---------- Google Calendar (2026-08): conexión self-service, por usuario ----------
+// Cada quien conecta SU propia cuenta (como las push): no es configuración
+// global de la promotoría. Al aceptar una invitación de acompañamiento, la
+// cita se escribe en el Google Calendar de quien aceptó.
+function GoogleCalendarPanel() {
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  // El callback de Google redirige aquí con ?google=ok|error&mensaje=…
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const estado = p.get('google');
+    if (!estado) return;
+    setMsg(p.get('mensaje') || (estado === 'ok' ? 'Cuenta conectada' : 'No se pudo conectar'));
+    qc.invalidateQueries(['google-calendar-estado']);
+    window.history.replaceState({}, '', window.location.pathname);
+  }, [qc]);
+
+  const { data: estado, isLoading } = useQuery({
+    queryKey: ['google-calendar-estado'],
+    queryFn: async () => (await api.get('/google-calendar/estado')).data,
+  });
+
+  const conectar = async () => {
+    setBusy(true); setMsg('');
+    try {
+      const { data } = await api.post('/google-calendar/conectar');
+      window.location.href = data.url; // consentimiento en Google
+    } catch (e) {
+      setMsg(handleError(e));
+      setBusy(false);
+    }
+  };
+
+  const desconectar = async () => {
+    if (!window.confirm('¿Desconectar tu Google Calendar? Las citas nuevas dejarán de escribirse ahí.')) return;
+    setBusy(true); setMsg('');
+    try {
+      await api.delete('/google-calendar');
+      setMsg('Cuenta desconectada');
+      qc.invalidateQueries(['google-calendar-estado']);
+    } catch (e) { setMsg(handleError(e)); } finally { setBusy(false); }
+  };
+
+  return (
+    <Card>
+      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">Google Calendar</h3>
+      <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">
+        Conecta tu cuenta para que los acompañamientos que aceptes se agenden automáticamente
+        en tu Google Calendar. Antes de aceptar se revisa que tengas el espacio libre.
+      </p>
+
+      {isLoading ? (
+        <p className="text-sm text-slate-400">Cargando…</p>
+      ) : !estado?.configurado ? (
+        <div className="rounded-lg bg-amber-50 dark:bg-amber-900/25 p-3 text-xs text-amber-800 dark:text-amber-200">
+          <p className="font-semibold mb-1">Falta configurar el servidor</p>
+          <p>
+            El administrador debe definir <span className="font-mono">GOOGLE_CLIENT_ID</span> y
+            <span className="font-mono"> GOOGLE_CLIENT_SECRET</span> (Google Cloud → APIs y servicios →
+            Credenciales, con la Google Calendar API activada) y agregar
+            <span className="font-mono"> /api/google-calendar/callback</span> como URI de redirección autorizado.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+            <Estado label="Conexión" valor={estado.conectado ? 'Conectada' : 'Sin conectar'} color={estado.conectado ? 'green' : 'slate'} />
+            <Estado label="Cuenta" valor={estado.email || '—'} color="slate" />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {estado.conectado ? (
+              <button onClick={desconectar} disabled={busy} className="btn-secondary">Desconectar</button>
+            ) : (
+              <button onClick={conectar} disabled={busy} className="btn-primary">Conectar con Google</button>
+            )}
+          </div>
+        </>
+      )}
+
+      {msg && <p className="mt-3 text-sm text-slate-700 dark:text-slate-300">{msg}</p>}
+    </Card>
   );
 }
 

@@ -5,6 +5,7 @@ import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion } from '../middleware/permisos.js';
 import { registrarActividad } from '../utils/actividad.js';
+import { crearEvento, borrarEvento, horarioLibre } from '../services/googleCalendar.js';
 
 const router = Router();
 router.use(authenticate);
@@ -176,6 +177,12 @@ router.post('/', asyncHandler(async (req, res) => {
     const promotor = await prisma.usuario.findUnique({ where: { id: promotorId } });
     if (promotor && (promotor.rol === 'ADMIN' || promotor.rol === 'SUPERADMIN')) promotorFinal = promotorId;
   }
+  // Invitar al promotor = la cita nace PENDIENTE de su respuesta y todavía no
+  // ocupa su agenda. Si el propio promotor se agenda a sí mismo no hay nada
+  // que aceptar: queda ACEPTADA de entrada.
+  const invitacionEstado = promotorFinal
+    ? (promotorFinal === req.user.id ? 'ACEPTADA' : 'PENDIENTE')
+    : null;
 
   const inicio = new Date(fechaHoraInicio);
   const fin = fechaHoraFin ? new Date(fechaHoraFin) : new Date(inicio.getTime() + 30 * 60 * 1000);
@@ -212,6 +219,8 @@ router.post('/', asyncHandler(async (req, res) => {
         modalidad: modalidad || 'CITA_UNICA',
         clasificacion: clasificacion || (clienteId ? 'PRODUCTIVA' : 'PERSONAL'),
         promotorId: promotorFinal,
+        invitacionEstado,
+        invitacionRespondidaEn: invitacionEstado === 'ACEPTADA' ? new Date() : null,
         estado: 'PROGRAMADA',
         fechaHoraInicio: inicioInstancia, fechaHoraFin: finInstancia,
         ubicacion: ubicacion || null, recordatorioMinutos: recordatorioMinutos ?? 60,
@@ -254,7 +263,136 @@ router.post('/', asyncHandler(async (req, res) => {
       ...(creadas.length > 1 ? { repeticiones: creadas.length } : {}),
     });
   }
+  // Aviso al promotor invitado (mejor esfuerzo, como el mailer): si no tiene
+  // suscripción push o falla el envío, la invitación igual queda registrada y
+  // la verá en su calendario — nunca bloquea la respuesta.
+  if (invitacionEstado === 'PENDIENTE' && promotorFinal) {
+    try {
+      const { sendPushToUser } = await import('../services/push.js');
+      const quien = `${req.user.nombre} ${req.user.apellidoP || ''}`.trim();
+      await sendPushToUser(promotorFinal, {
+        title: 'Nueva invitación de acompañamiento',
+        body: creadas.length > 1
+          ? `${quien} te invitó a ${creadas.length} citas: "${titulo}". Ábrelas para aceptar o rechazar.`
+          : `${quien} te invitó a "${titulo}" el ${primera.fechaHoraInicio.toLocaleString('es-MX')}. Ábrela para aceptar o rechazar.`,
+        tag: `invitacion-cita-${primera.id}`,
+        data: { url: '/citas' },
+      });
+    } catch (err) {
+      console.error('No se pudo notificar la invitación al promotor:', err.message);
+    }
+  }
+
   res.status(201).json({ cita: primera, citas: creadas, omitidas: omitidas.length ? omitidas : undefined });
+}));
+
+// Respuesta del promotor a una invitación de acompañamiento. Solo el promotor
+// invitado puede responder (ni el asesor que agendó, ni otro admin).
+router.patch('/:id/invitacion', asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { respuesta, ignorarEmpalme } = req.body || {};
+  if (!['ACEPTADA', 'RECHAZADA'].includes(respuesta)) {
+    return res.status(400).json({ error: 'respuesta debe ser ACEPTADA o RECHAZADA' });
+  }
+  const cita = await prisma.cita.findUnique({
+    where: { id },
+    include: {
+      asesor: { select: { id: true, nombre: true, apellidoP: true } },
+      cliente: { select: { id: true, nombre: true, apellidoP: true } },
+      candidato: { select: { id: true, nombre: true, apellidoP: true } },
+    },
+  });
+  if (!cita) return res.status(404).json({ error: 'Cita no encontrada' });
+  if (!cita.promotorId) return res.status(400).json({ error: 'Esta cita no tiene promotor invitado' });
+  if (cita.promotorId !== req.user.id) return res.status(403).json({ error: 'Solo el promotor invitado puede responder' });
+
+  // Al aceptar, la cita pasa a ocupar la agenda del promotor: se avisa si ya
+  // tiene algo a esa hora (se puede aceptar de todos modos, igual que el alta).
+  if (respuesta === 'ACEPTADA' && ignorarEmpalme !== true) {
+    const solapada = await prisma.cita.findFirst({
+      where: {
+        id: { not: id },
+        estado: { in: ['PROGRAMADA', 'CONFIRMADA'] },
+        fechaHoraInicio: { lt: cita.fechaHoraFin },
+        fechaHoraFin: { gt: cita.fechaHoraInicio },
+        OR: [
+          { asesorId: req.user.id },
+          { promotorId: req.user.id, invitacionEstado: 'ACEPTADA' },
+        ],
+      },
+      select: { id: true, titulo: true, fechaHoraInicio: true, fechaHoraFin: true },
+    });
+    if (solapada) return res.status(409).json({ error: 'Ya tienes una cita a esa hora', empalme: solapada });
+
+    // Además del CRM, se consulta su Google Calendar (si conectó su cuenta):
+    // "agendarse si tiene el espacio libre". Si no se puede consultar
+    // (null) no se bloquea: el CRM manda.
+    const disponible = await horarioLibre(req.user.id, cita.fechaHoraInicio, cita.fechaHoraFin);
+    if (disponible && disponible.libre === false) {
+      return res.status(409).json({
+        error: 'Tu Google Calendar ya tiene algo a esa hora',
+        empalme: {
+          id: null,
+          titulo: 'Evento en tu Google Calendar',
+          fechaHoraInicio: disponible.ocupadoDe,
+          fechaHoraFin: disponible.ocupadoA,
+        },
+      });
+    }
+  }
+
+  const actualizada = await prisma.cita.update({
+    where: { id },
+    data: {
+      invitacionEstado: respuesta,
+      invitacionRespondidaEn: new Date(),
+      // Rechazar libera al promotor pero conserva la cita del asesor.
+      ...(respuesta === 'RECHAZADA' ? { promotorId: null } : {}),
+    },
+    include: {
+      cliente: { select: { id: true, nombre: true, apellidoP: true, telefono: true } },
+      candidato: { select: { id: true, nombre: true, apellidoP: true, telefono: true } },
+      asesor: { select: { id: true, nombre: true, apellidoP: true } },
+      promotor: { select: { id: true, nombre: true, apellidoP: true } },
+    },
+  });
+
+  // Espejo en el Google Calendar del promotor (mejor esfuerzo, nunca bloquea):
+  // al aceptar se crea el evento; al rechazar se borra si existía.
+  if (respuesta === 'ACEPTADA' && !cita.googleEventId) {
+    const eventId = await crearEvento(req.user.id, cita);
+    if (eventId) {
+      await prisma.cita.update({
+        where: { id },
+        data: { googleEventId: eventId, googleEventUsuarioId: req.user.id },
+      });
+      actualizada.googleEventId = eventId;
+    }
+  } else if (respuesta === 'RECHAZADA' && cita.googleEventId) {
+    await borrarEvento(cita.googleEventUsuarioId || req.user.id, cita.googleEventId);
+    await prisma.cita.update({
+      where: { id },
+      data: { googleEventId: null, googleEventUsuarioId: null },
+    });
+  }
+
+  // Avisar al asesor que agendó (mejor esfuerzo).
+  try {
+    const { sendPushToUser } = await import('../services/push.js');
+    const quien = `${req.user.nombre} ${req.user.apellidoP || ''}`.trim();
+    await sendPushToUser(cita.asesorId, {
+      title: respuesta === 'ACEPTADA' ? 'Acompañamiento confirmado' : 'Acompañamiento rechazado',
+      body: respuesta === 'ACEPTADA'
+        ? `${quien} aceptó acompañarte en "${cita.titulo}".`
+        : `${quien} no podrá acompañarte en "${cita.titulo}". Agenda con otro promotor u horario.`,
+      tag: `respuesta-cita-${cita.id}`,
+      data: { url: '/citas' },
+    });
+  } catch (err) {
+    console.error('No se pudo notificar la respuesta al asesor:', err.message);
+  }
+
+  res.json(actualizada);
 }));
 
 router.patch('/:id', asyncHandler(async (req, res) => {
@@ -311,6 +449,13 @@ router.patch('/:id', asyncHandler(async (req, res) => {
     }
   }
 
+  // Cancelar una cita con espejo en Google también libera esa hora allá.
+  if (data.estado === 'CANCELADA' && existente.googleEventId) {
+    await borrarEvento(existente.googleEventUsuarioId || existente.promotorId, existente.googleEventId);
+    data.googleEventId = null;
+    data.googleEventUsuarioId = null;
+  }
+
   const cita = await prisma.cita.update({
     where: { id },
     data,
@@ -329,6 +474,11 @@ router.delete('/:id', asyncHandler(async (req, res) => {
   const existente = await prisma.cita.findUnique({ where: { id } });
   if (!existente) return res.status(404).json({ error: 'Cita no encontrada' });
   if (req.user.rol === 'ASESOR' && existente.asesorId !== req.user.id) return res.status(403).json({ error: 'Sin acceso a esta cita' });
+  // Si había espejo en el Google Calendar del promotor, se retira también
+  // (mejor esfuerzo): borrar la cita aquí no debe dejarle un evento fantasma.
+  if (existente.googleEventId) {
+    await borrarEvento(existente.googleEventUsuarioId || existente.promotorId, existente.googleEventId);
+  }
   await prisma.cita.delete({ where: { id } });
   res.json({ ok: true });
 }));

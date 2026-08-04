@@ -22,9 +22,17 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [conWebGL] = useState(soportaWebGL);
+  // Aviso (no error) cuando se llegó aquí por una sesión vencida: lo marca el
+  // interceptor de axios antes de redirigir. Se consume una sola vez.
+  const [sesionExpirada, setSesionExpirada] = useState(() => {
+    const v = sessionStorage.getItem('sesionExpirada') === '1';
+    if (v) sessionStorage.removeItem('sesionExpirada');
+    return v;
+  });
 
   const submit = async (e) => {
     e.preventDefault();
+    setSesionExpirada(false);
     setError('');
     setLoading(true);
     try {
@@ -59,6 +67,12 @@ export default function Login() {
           <img src="/origen-blanco.png" alt="Origen" className="h-20 w-auto object-contain" />
         </div>
         <p className="text-sm text-slate-400 mt-2 text-center">Inicia sesión para continuar</p>
+
+        {sesionExpirada && (
+          <p className="mt-4 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-200">
+            Tu sesión expiró por seguridad. Vuelve a iniciar sesión para continuar.
+          </p>
+        )}
 
         <form onSubmit={submit} className="mt-6 space-y-4">
           <div>
