@@ -208,6 +208,10 @@ router.patch('/:id', esAdmin, permiteSeccion('asesores'), asyncHandler(async (re
 // esas relaciones son onDelete: Cascade en el schema y un borrado directo se
 // llevaría esos registros consigo sin avisar; en ese caso se rechaza y se
 // sugiere desactivar la cuenta en su lugar (conserva el historial).
+// Excepción: SUPERADMIN puede forzar el borrado (con `forzar: true` en el
+// body) y llevarse en cascada toda esa cartera — pensado para dar de baja
+// definitivamente a un asesor que ya no sigue en la promotora. ADMIN nunca
+// puede forzarlo, solo SUPERADMIN.
 router.delete('/:id', esAdmin, permiteSeccion('asesores'), asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (id === req.user.id) return res.status(400).json({ error: 'No puedes eliminarte a ti mismo' });
@@ -227,14 +231,25 @@ router.delete('/:id', esAdmin, permiteSeccion('asesores'), asyncHandler(async (r
     prisma.referido.count({ where: { asesorId: id } }),
     prisma.documentoCliente.count({ where: { asesorId: id } }),
   ]);
-  if (clientes || ventas || citas || actividad || targets || bonos || notas || referidos || documentos) {
-    return res.status(409).json({ error: 'No se puede eliminar: el usuario ya tiene clientes, pólizas, citas u otra actividad registrada. Desactiva la cuenta en su lugar para conservar el historial.' });
+  const conteos = { clientes, ventas, citas, actividad, targets, bonos, notas, referidos, documentos };
+  const tieneDatos = Object.values(conteos).some((n) => n > 0);
+
+  if (tieneDatos) {
+    const puedeForzar = req.user.rol === 'SUPERADMIN';
+    if (!puedeForzar || !req.body?.forzar) {
+      return res.status(409).json({
+        error: 'No se puede eliminar: el usuario ya tiene clientes, pólizas, citas u otra actividad registrada. Desactiva la cuenta en su lugar para conservar el historial.',
+        conteos,
+        puedeForzar,
+      });
+    }
   }
 
   await prisma.usuario.delete({ where: { id } });
   await logPermiso(req.user, 'USUARIO_ELIMINADO', {
     usuarioId: usuario.id,
     usuarioNombre: `${usuario.nombre} ${usuario.apellidoP || ''}`.trim(),
+    ...(tieneDatos ? { forzado: true, conteos } : {}),
   });
   res.json({ ok: true });
 }));

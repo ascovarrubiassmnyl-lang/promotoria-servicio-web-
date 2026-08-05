@@ -174,7 +174,7 @@ const linkInvitacion = (token) => `${window.location.origin}/invitacion/${token}
 //.Tab "Equipo": CRUD de usuarios similar a la antigua Usuarios.jsx
 function EquipoTab() {
   const qc = useQueryClient();
-  const { user } = useAuth();
+  const { user, esSuperadmin } = useAuth();
   const [rol, setRol] = useState('');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -186,6 +186,10 @@ function EquipoTab() {
   const [toDelete, setToDelete] = useState(null);
   const [eliminando, setEliminando] = useState(false);
   const [errEliminar, setErrEliminar] = useState('');
+  // Cuando el servidor rechaza el borrado por datos asociados pero el actor
+  // es SUPERADMIN, guarda los conteos para ofrecer el paso de forzado (nunca
+  // para ADMIN, que solo ve el error genérico de errEliminar).
+  const [bloqueo, setBloqueo] = useState(null); // { conteos }
 
   const { data: usuarios } = useQuery({
     queryKey: ['usuarios', rol],
@@ -232,15 +236,26 @@ function EquipoTab() {
 
   // Borrado permanente: el servidor lo rechaza (409) si el usuario ya tiene
   // clientes/pólizas/citas/actividad — en ese caso hay que desactivarlo en
-  // vez de eliminarlo, para no perder el historial de negocio.
-  const confirmarEliminar = async () => {
+  // vez de eliminarlo, para no perder el historial de negocio. Excepción:
+  // SUPERADMIN puede forzarlo (segundo paso explícito, ver `bloqueo`) y se
+  // lleva en cascada toda esa cartera — irreversible.
+  const confirmarEliminar = async (forzar = false) => {
     if (!toDelete) return;
     setEliminando(true); setErrEliminar('');
     try {
-      await api.delete(`/usuarios/${toDelete.id}`);
+      await api.delete(`/usuarios/${toDelete.id}`, forzar ? { data: { forzar: true } } : undefined);
       setToDelete(null);
+      setBloqueo(null);
       qc.invalidateQueries(['usuarios']);
-    } catch (e) { setErrEliminar(handleError(e)); } finally { setEliminando(false); }
+    } catch (e) {
+      const conteos = e?.response?.data?.conteos;
+      const puedeForzar = e?.response?.data?.puedeForzar;
+      if (e?.response?.status === 409 && conteos && puedeForzar && esSuperadmin()) {
+        setBloqueo({ conteos });
+      } else {
+        setErrEliminar(handleError(e));
+      }
+    } finally { setEliminando(false); }
   };
 
   return (
@@ -274,7 +289,7 @@ function EquipoTab() {
                         !u.activo && { label: 'Invitar', onClick: () => invitar(u) },
                         { label: u.activo ? 'Desactivar' : 'Activar', onClick: () => toggleActivo(u) },
                         u.rol !== 'SUPERADMIN' && u.id !== user?.id && 'sep',
-                        u.rol !== 'SUPERADMIN' && u.id !== user?.id && { label: 'Eliminar definitivamente', onClick: () => { setErrEliminar(''); setToDelete(u); }, danger: true },
+                        u.rol !== 'SUPERADMIN' && u.id !== user?.id && { label: 'Eliminar definitivamente', onClick: () => { setErrEliminar(''); setBloqueo(null); setToDelete(u); }, danger: true },
                       ]}
                     />
                   </td>
@@ -346,9 +361,10 @@ function EquipoTab() {
 
       {/* Borrado real de la fila (no confundir con Desactivar, que conserva
           el historial): el servidor lo rechaza si el usuario ya tiene datos
-          de negocio asociados. */}
-      <Modal open={!!toDelete} onClose={() => setToDelete(null)} title="Eliminar usuario definitivamente">
-        {toDelete && (
+          de negocio asociados, salvo que SUPERADMIN lo fuerce (segundo paso
+          con conteos, ver `bloqueo`) — ahí sí se lleva todo en cascada. */}
+      <Modal open={!!toDelete} onClose={() => { setToDelete(null); setBloqueo(null); }} title="Eliminar usuario definitivamente">
+        {toDelete && !bloqueo && (
           <div className="space-y-4">
             <p className="text-sm text-slate-700 dark:text-slate-300">
               ¿Seguro que deseas eliminar a <strong>{toDelete.nombre} {toDelete.apellidoP}</strong> ({toDelete.email})?
@@ -358,8 +374,35 @@ function EquipoTab() {
             {errEliminar && <p className="text-sm text-red-600">{errEliminar}</p>}
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" onClick={() => setToDelete(null)} className="btn-secondary">Cancelar</button>
-              <button type="button" onClick={confirmarEliminar} disabled={eliminando} className="btn-danger">
+              <button type="button" onClick={() => confirmarEliminar(false)} disabled={eliminando} className="btn-danger">
                 {eliminando ? 'Eliminando…' : 'Eliminar definitivamente'}
+              </button>
+            </div>
+          </div>
+        )}
+        {toDelete && bloqueo && (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-700 dark:text-slate-300">
+              <strong>{toDelete.nombre} {toDelete.apellidoP}</strong> todavía tiene datos de negocio registrados:
+            </p>
+            <ul className="text-sm text-slate-700 dark:text-slate-300 list-disc pl-5 space-y-0.5">
+              {[
+                ['clientes', 'clientes'], ['ventas', 'pólizas'], ['citas', 'citas'],
+                ['actividad', 'actividades'], ['targets', 'metas'], ['bonos', 'bonos'],
+                ['notas', 'notas'], ['referidos', 'referidos'], ['documentos', 'documentos'],
+              ].filter(([k]) => bloqueo.conteos[k] > 0).map(([k, label]) => (
+                <li key={k}>{bloqueo.conteos[k]} {label}</li>
+              ))}
+            </ul>
+            <p className="text-sm font-medium text-red-600">
+              Como Súper Admin puedes forzar el borrado, pero se eliminará todo lo anterior en cascada de forma
+              permanente e irrecuperable. Si solo quieres que deje de tener acceso, cancela y usa Desactivar.
+            </p>
+            {errEliminar && <p className="text-sm text-red-600">{errEliminar}</p>}
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => { setToDelete(null); setBloqueo(null); }} className="btn-secondary">Cancelar</button>
+              <button type="button" onClick={() => confirmarEliminar(true)} disabled={eliminando} className="btn-danger">
+                {eliminando ? 'Eliminando…' : 'Sí, eliminar todo permanentemente'}
               </button>
             </div>
           </div>
