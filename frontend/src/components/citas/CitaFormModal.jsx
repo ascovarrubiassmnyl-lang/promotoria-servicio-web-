@@ -23,6 +23,12 @@ const sumarMinutos = (isoLocal, min) => {
 //  - candidatoId: fija el candidato y oculta su selector (perfil del candidato).
 //  - preModalidad: modalidad preseleccionada (entrevista según la etapa del candidato).
 //  - prePromotorId: promotor preseleccionado (al agendar desde su disponibilidad).
+//    Si el asesor elige "Acompañamiento" sin haber pasado por ahí y solo hay un
+//    promotor en el sistema, se autoselecciona igual (ver efecto más abajo);
+//    con varios, el selector de este modal lo deja elegir. En cualquier caso,
+//    con un promotor elegido este modal consulta su disponibilidad del día y
+//    bloquea guardar si el horario cae en un bloque ocupado (no es un aviso
+//    tipo "empalme": no tiene sentido invitarlo si ya está tomado).
 export default function CitaFormModal({ open, onClose, onSaved, cita = null, clienteId = null, asesorId = null, preFecha = null, candidatoId = null, preModalidad = null, prePromotorId = null }) {
   const { esAdmin, user } = useAuth();
   const qc = useQueryClient();
@@ -142,6 +148,51 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
     ) || null;
   }, [citasDia, form?.fechaHoraInicio, form?.fechaHoraFin, inicioValido, finValido]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Acompañamiento: si el asesor no llegó con un promotor ya elegido (ej. desde
+  // la vista de disponibilidad), se autoselecciona en cuanto hay uno solo en la
+  // lista — hoy la promotoría solo tiene a Diana, y preguntarle al asesor "con
+  // qué promotor" cuando no hay de otra es fricción sin propósito. Con varios
+  // promotores el selector de arriba sigue disponible para elegir.
+  useEffect(() => {
+    if (!open || esAdmin() || editando) return;
+    if (form?.modalidad === 'ACOMPANAMIENTO' && !form.promotorId && promotores?.length === 1) {
+      setForm((f) => (f && f.modalidad === 'ACOMPANAMIENTO' && !f.promotorId ? { ...f, promotorId: promotores[0].id } : f));
+    }
+  }, [open, esAdmin, editando, form?.modalidad, form?.promotorId, promotores]);
+
+  // Disponibilidad del promotor elegido, para el día de la cita: mismo
+  // endpoint/uso que la capa del calendario (GET /citas/disponibilidad), aquí
+  // acotado a un único día para decidir si el horario elegido cae libre. Nunca
+  // para admin (el promotor no necesita ver su propia disponibilidad).
+  const promotorElegido = !esAdmin() && form?.modalidad === 'ACOMPANAMIENTO' ? form.promotorId : '';
+  const { data: dispPromotor, isFetching: cargandoDisp } = useQuery({
+    queryKey: ['disponibilidad-form', promotorElegido, diaInicio],
+    queryFn: async () => {
+      const desde = new Date(`${diaInicio}T00:00`);
+      const hasta = new Date(`${diaInicio}T23:59:59`);
+      return (await api.get('/citas/disponibilidad', {
+        params: { usuarioId: promotorElegido, desde: desde.toISOString(), hasta: hasta.toISOString() },
+      })).data;
+    },
+    enabled: open && !!promotorElegido && !!diaInicio,
+  });
+
+  // ¿El horario elegido cae dentro de un bloque ocupado del promotor? Bloquea
+  // guardar — a diferencia del empalme entre asesores (que solo advierte), aquí
+  // no hay nada que "guardar de todas formas": si el promotor ya está ocupado,
+  // invitarlo de todos modos no tiene sentido, se le pide elegir otra hora.
+  const chocaConPromotor = useMemo(() => {
+    if (!promotorElegido || !inicioValido || !finValido || !dispPromotor) return null;
+    const ini = new Date(form.fechaHoraInicio); const fin = new Date(form.fechaHoraFin);
+    // Al reagendar una cita que el propio promotor ya aceptó, su bloque original
+    // aparece en la respuesta — se ignora si coincide exactamente con el horario
+    // ya guardado de esta misma cita, para no bloquear "guardar sin cambios".
+    return (dispPromotor.bloques || []).find((b) => {
+      if (editando && cita && new Date(b.inicio).getTime() === new Date(cita.fechaHoraInicio).getTime() && new Date(b.fin).getTime() === new Date(cita.fechaHoraFin).getTime()) return false;
+      return new Date(b.inicio) < fin && new Date(b.fin) > ini;
+    }) || null;
+  }, [promotorElegido, dispPromotor, form?.fechaHoraInicio, form?.fechaHoraFin, inicioValido, finValido, editando, cita]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!form) return null;
 
   const canal = infoCanal(form.tipo);
@@ -163,6 +214,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
     if (!editando && !esPersonal && !modalidadPropia && !form.clienteId) { setErr('Selecciona el cliente'); return; }
     if (!form.titulo || !form.fechaHoraInicio) { setErr('Título e inicio son requeridos'); return; }
     if (!finDespuesDeInicio) { setErr('El fin debe ser posterior al inicio'); return; }
+    if (promotorElegido && chocaConPromotor) { setErr('El promotor ya está ocupado a esa hora — elige otro horario libre.'); return; }
     if (!editando && form.recurrenciaTipo !== 'NO_REPITE') {
       if (!form.recurrenciaHasta) { setErr('Indica hasta cuándo se repite'); return; }
       if (form.recurrenciaHasta < form.fechaHoraInicio.slice(0, 10)) { setErr('"Hasta" debe ser posterior al inicio'); return; }
@@ -286,9 +338,35 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
             {form.modalidad === 'ACOMPANAMIENTO' && (
               <Field label="Promotor que acompaña">
                 <select className="input" value={form.promotorId} onChange={(e) => setForm({ ...form, promotorId: e.target.value })}>
-                  <option value="">Sin asignar (luego lo elige el promotor)</option>
+                  {esAdmin() && <option value="">Sin asignar (luego lo elige el promotor)</option>}
+                  {!esAdmin() && !promotores?.length && <option value="">Sin promotores disponibles</option>}
                   {promotores?.map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellidoP}</option>)}
                 </select>
+                {/* Disponibilidad del promotor para el día elegido: si no hay
+                    huecos libres, se avisa aquí mismo y submit() bloquea guardar
+                    (a diferencia del empalme entre asesores, que solo advierte). */}
+                {promotorElegido && diaInicio && (
+                  <div className="mt-2 rounded-lg border border-slate-200 dark:border-slate-600 px-3 py-2">
+                    {cargandoDisp ? (
+                      <p className="text-xs text-slate-400 dark:text-slate-500">Consultando disponibilidad…</p>
+                    ) : chocaConPromotor ? (
+                      <p className="text-xs font-medium text-red-600 dark:text-red-400">
+                        ⚠ {promotores?.find((p) => p.id === promotorElegido)?.nombre || 'El promotor'} está ocupado de {hora(chocaConPromotor.inicio)} a {hora(chocaConPromotor.fin)}. Elige otro horario libre para poder agendar.
+                      </p>
+                    ) : (
+                      <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                        ✓ Horario libre para {promotores?.find((p) => p.id === promotorElegido)?.nombre || 'el promotor'}.
+                      </p>
+                    )}
+                    {!!dispPromotor?.bloques?.length && (
+                      <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                        Ese día ya tiene: {dispPromotor.bloques.map((b, i) => (
+                          <span key={i}>{i > 0 ? ', ' : ''}{hora(b.inicio)}–{hora(b.fin)}</span>
+                        ))}.
+                      </p>
+                    )}
+                  </div>
+                )}
               </Field>
             )}
             {modalidadPropia && !candidatoId && (
@@ -438,7 +516,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
         {err && <p className="text-sm text-red-600">{err}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={onClose} className="btn-secondary">Cancelar</button>
-          <button type="submit" disabled={saving} className="btn-primary">
+          <button type="submit" disabled={saving || !!(promotorElegido && chocaConPromotor)} className="btn-primary disabled:opacity-50">
             {saving ? 'Guardando…' : empalme ? 'Guardar de todas formas' : editando ? 'Guardar cambios' : 'Agendar cita'}
           </button>
         </div>

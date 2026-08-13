@@ -396,7 +396,20 @@ conservan sus nombres históricos; la traducción a UI vive en el **mapa único*
   disponibilidad activa, el panel lateral "Citas · [fecha]" del día
   seleccionado (`CalendarioView.jsx`, desktop) también lista los tramos
   ocupado/libre de 8:00 a 20:00 con un botón "Agendar" en cada hueco libre —
-  no hace falta ir a la vista Semana a buscar la celda vacía.
+  no hace falta ir a la vista Semana a buscar la celda vacía. **También dentro
+  de `CitaFormModal` sin pasar por esa vista**: al elegir Tipo de cita =
+  "Acompañamiento con promotor" sin un `prePromotorId` ya fijado, se
+  autoselecciona el promotor si `GET /usuarios/promotores` devuelve uno solo
+  (hoy el sistema siembra dos, así que en la práctica el selector se muestra;
+  la autoselección cubre el caso real de un solo promotor en la promotoría).
+  Con un promotor elegido (autoseleccionado o manual) el modal consulta su
+  disponibilidad del día vía el mismo `GET /citas/disponibilidad` y muestra
+  si el horario elegido está libre u ocupado; a diferencia del empalme entre
+  asesores (que solo advierte), **si choca con un bloque del promotor el botón
+  de guardar queda deshabilitado** — no tiene sentido invitarlo "de todas
+  formas" a una hora que ya no tiene libre. Al reagendar una cita ya
+  ACEPTADA por ese promotor, su propio bloque original se excluye del choque
+  para no bloquear "guardar sin cambiar el horario".
 - **Sugerir otro horario (2026-08-12)**: además de Aceptar/Rechazar, el
   promotor invitado a un acompañamiento puede responder `PATCH
   /api/citas/:id/invitacion` con `respuesta: 'SUGERIDA'` +
