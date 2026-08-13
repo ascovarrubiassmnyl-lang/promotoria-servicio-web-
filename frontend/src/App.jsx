@@ -17,6 +17,7 @@ import Puntos from './pages/Puntos.jsx';
 import Clinica from './pages/Clinica.jsx';
 import Candidatos from './pages/Candidatos.jsx';
 import CandidatoDetalle from './pages/CandidatoDetalle.jsx';
+import Notificaciones from './pages/Notificaciones.jsx';
 
 export default function App() {
   return (
@@ -47,6 +48,10 @@ export default function App() {
             en el servidor; la política del rol Asesor nunca la concede. */}
         <Route path="/candidatos" element={<SeccionRoute seccion="candidatos"><Candidatos /></SeccionRoute>} />
         <Route path="/candidatos/:id" element={<SeccionRoute seccion="candidatos"><CandidatoDetalle /></SeccionRoute>} />
+        {/* Notificaciones: bandeja personal, self-service como /api/push — no
+            es sección RBAC, todo usuario autenticado ve exclusivamente las
+            suyas (el servidor fuerza destinatarioId, sin excepción de admin). */}
+        <Route path="/notificaciones" element={<Notificaciones />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

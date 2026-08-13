@@ -622,17 +622,36 @@ push sobre esa fila ya guardada.
   401/403 = VAPID rotada). **400 queda fuera a propósito**: suele ser un
   payload mal armado nuestro y borraría suscripciones sanas.
 - **API self-service** (`routes/notificaciones.js`, solo `authenticate`, sin
-  `permiteSeccion` — igual que `/api/push`): `GET /` (lista + `noLeidas`),
-  `GET /no-leidas` (solo el conteo, lo consulta la campana cada 30s),
-  `PATCH /leer-todas` (declarada **antes** de `/:id`), `PATCH /:id`. Siempre
-  `destinatarioId = req.user.id`, **sin excepción de admin**: un promotor no
-  lee las notificaciones de sus asesores (403 si intenta marcar una ajena).
-- **UI**: `components/notificaciones/CampanaNotificaciones.jsx` en
-  `Layout.jsx` — barra superior en móvil y footer del sidebar en escritorio
-  (oculta con el sidebar colapsado: el panel de 20rem no cabe junto a 68px).
-  Datos vía `hooks/useNotificaciones.js` (react-query con `refetchInterval`;
-  no hay WebSockets en el proyecto). Click en una fila marca leída y navega a
+  `permiteSeccion` — igual que `/api/push`): `GET /` (lista **paginada** +
+  `total`/`paginas`/`noLeidas`/`conteos` por tipo, filtros `estado`
+  (`no-leidas`/`leidas`) y `tipo`; un `tipo` fuera del catálogo canónico se
+  ignora en vez de devolver vacío), `GET /no-leidas` (solo el conteo, lo
+  consulta el badge del nav cada 30s), `PATCH /leer-todas` (declarada
+  **antes** de `/:id`), `PATCH /:id` (`{leida}` — permite marcar leída y
+  devolver a no leída) y `DELETE /:id`. Siempre `destinatarioId =
+  req.user.id`, **sin excepción de admin**: un promotor no lee ni borra las
+  notificaciones de sus asesores (403 si lo intenta). Los `conteos` de los
+  chips se calculan sobre **toda** la bandeja, no sobre la página actual, para
+  que el número del chip no cambie al paginar.
+- **UI = sección completa, no un panel flotante.** `pages/Notificaciones.jsx`
+  (`/notificaciones`) es una vista de pleno derecho como cualquier otra del
+  CRM: KPIs (`.kpi`), filtros de estado, **chips de tipo como filtro** con
+  conteo (mismo patrón que Clientes y Actividad), lista agrupada por día
+  (Hoy/Ayer/fecha, igual que `ActivityTimeline`), paginación y acciones por
+  fila en menú ⋯ (Abrir / Marcar leída o no leída / Eliminar con
+  confirmación). **No es sección RBAC**: la ruta va sin `SeccionRoute` porque
+  es dato personal self-service (mismo criterio que la API) — todo usuario
+  autenticado tiene la suya.
+- `components/notificaciones/CampanaNotificaciones.jsx` es solo el **enlace de
+  navegación** a esa sección con el badge de no leídas (`NavLink`, no un
+  dropdown): footer del sidebar en escritorio (también colapsado) y barra
+  superior en móvil, más una entrada en la hoja "Más". Datos vía
+  `hooks/useNotificaciones.js` (react-query con `refetchInterval`; no hay
+  WebSockets en el proyecto). Abrir una fila la marca leída y navega a
   `datos.url`, la misma URL que usa el service worker al tocar la push.
+- **Borrado de una notificación es físico**, no lógico (a diferencia de
+  Cliente/Candidato): es un aviso ya entregado, no dato de negocio — la cita o
+  el recordatorio que lo originó queda intacto.
 
 ## Sección Configuración (rediseño 2026-07)
 
