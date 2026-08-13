@@ -40,6 +40,67 @@ router.get('/', asyncHandler(async (req, res) => {
   res.json(citas);
 }));
 
+// Disponibilidad (ocupado/libre) de un promotor, para que un asesor sepa
+// cuándo invitarlo a un acompañamiento sin tener que preguntarle. Deliberadamente
+// separado de GET /: devuelve SOLO rangos horarios, sin include ni un campo más
+// —- el asesor nunca debe saber con quién ni por qué está ocupado el promotor
+// (otro asesor, un cliente, un candidato, un asunto personal). Va antes de
+// GET /:id para que Express no resuelva "disponibilidad" como un id.
+const DIAS_MAX_DISPONIBILIDAD = 62; // cubre la vista Mes con margen, sin permitir barridos arbitrarios
+
+router.get('/disponibilidad', asyncHandler(async (req, res) => {
+  const { usuarioId, desde, hasta } = req.query;
+  if (!usuarioId || !desde || !hasta) {
+    return res.status(400).json({ error: 'usuarioId, desde y hasta son requeridos' });
+  }
+  const inicio = new Date(desde);
+  const fin = new Date(hasta);
+  if (Number.isNaN(inicio.getTime()) || Number.isNaN(fin.getTime()) || fin <= inicio) {
+    return res.status(400).json({ error: 'Rango de fechas inválido' });
+  }
+  if ((fin - inicio) / 86400000 > DIAS_MAX_DISPONIBILIDAD) {
+    return res.status(400).json({ error: `El rango no puede exceder ${DIAS_MAX_DISPONIBILIDAD} días` });
+  }
+
+  const promotor = await prisma.usuario.findUnique({
+    where: { id: usuarioId },
+    select: { id: true, rol: true },
+  });
+  if (!promotor) return res.status(404).json({ error: 'Usuario no encontrado' });
+  // Solo se expone la disponibilidad de un promotor: este endpoint no es un
+  // free/busy genérico, así un asesor no puede usarlo para espiar la agenda de
+  // un compañero pasando su id.
+  if (promotor.rol !== 'ADMIN' && promotor.rol !== 'SUPERADMIN') {
+    return res.status(400).json({ error: 'Solo se puede consultar disponibilidad de un promotor' });
+  }
+
+  // Lo que realmente ocupa la agenda de un promotor: sus propias citas (como
+  // dueño: reclutamiento, eventos personales) más los acompañamientos que ya
+  // ACEPTÓ. Mismo criterio que valida el empalme en PATCH /:id/invitacion —
+  // una invitación PENDIENTE todavía no lo ocupa, así que ese hueco sigue
+  // ofreciéndose como libre hasta que responde.
+  const citas = await prisma.cita.findMany({
+    where: {
+      estado: { in: ['PROGRAMADA', 'CONFIRMADA'] },
+      fechaHoraInicio: { lt: fin },
+      fechaHoraFin: { gt: inicio },
+      OR: [
+        { asesorId: usuarioId },
+        { promotorId: usuarioId, invitacionEstado: 'ACEPTADA' },
+      ],
+    },
+    select: { fechaHoraInicio: true, fechaHoraFin: true },
+    orderBy: { fechaHoraInicio: 'asc' },
+  });
+
+  res.json({
+    usuarioId,
+    desde: inicio,
+    hasta: fin,
+    bloques: citas.map((c) => ({ inicio: c.fechaHoraInicio, fin: c.fechaHoraFin })),
+  });
+}));
+
 router.get('/:id', asyncHandler(async (req, res) => {
   const { id } = req.params;
   const cita = await prisma.cita.findUnique({

@@ -145,3 +145,14 @@ export const INVITACIONES = {
 };
 
 export const infoInvitacion = (v) => INVITACIONES[v] || null;
+
+// Bloque de disponibilidad ajena: la agenda ocupada de un promotor vista por un
+// asesor (para saber cuándo invitarlo a un acompañamiento). Nunca usa los
+// colores de CLASIFICACIONES —- no es una cita propia y no debe insinuar de qué
+// se trata, solo que ese rango está tomado. Mapa único: no duplicar las clases
+// en CalendarioView.jsx ni CalendarioMovil.jsx.
+export const DISPONIBILIDAD_ESTILO = {
+  bloque: 'bg-slate-400/30 dark:bg-slate-500/30 border border-dashed border-slate-400 dark:border-slate-500',
+  texto: 'text-slate-600 dark:text-slate-300',
+  label: 'Ocupado',
+};

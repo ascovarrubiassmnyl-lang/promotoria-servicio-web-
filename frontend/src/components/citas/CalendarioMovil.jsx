@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Modal, CitaBadge } from '../ui.jsx';
-import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, infoCanal, infoTipoCita, colorCita, infoInvitacion } from './tipos.js';
+import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, DISPONIBILIDAD_ESTILO, infoCanal, infoTipoCita, colorCita, infoInvitacion } from './tipos.js';
 import CitaFormModal from './CitaFormModal.jsx';
 import { hora, nombreMes } from '../../lib/format.js';
 
@@ -135,10 +135,13 @@ export default function CalendarioMovil() {
   const [fEstado, setFEstado] = useState('');
   const [fClasif, setFClasif] = useState('');
   const [fAsesor, setFAsesor] = useState('');
+  // Promotor cuya agenda ocupada se superpone en la vista Día (solo asesores).
+  const [fPromotor, setFPromotor] = useState('');
   const [sheetFiltros, setSheetFiltros] = useState(false);
   const [detalle, setDetalle] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [preFecha, setPreFecha] = useState(null);
+  const [prePromotor, setPrePromotor] = useState(null);
   const [citaEdit, setCitaEdit] = useState(null);
   const [toDelete, setToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -149,6 +152,14 @@ export default function CalendarioMovil() {
     queryKey: ['asesores-list'],
     queryFn: async () => (await api.get('/usuarios/asesores')).data,
     enabled: esAdmin(),
+  });
+
+  // Espejo del filtro de asesor: el promotor filtra por asesor, el asesor
+  // consulta la disponibilidad de un promotor. Cada rol ve solo uno de los dos.
+  const { data: promotores } = useQuery({
+    queryKey: ['promotores-list'],
+    queryFn: async () => (await api.get('/usuarios/promotores')).data,
+    enabled: !esAdmin(),
   });
 
   // Rango visible: Día y Agenda navegan por semana; Mes por mes.
@@ -189,10 +200,37 @@ export default function CalendarioMovil() {
     return m;
   }, [filtradas]);
 
+  // Agenda ocupada del promotor elegido: solo rangos, sin detalle (el endpoint
+  // no lo expone). Se pinta como capa de fondo en el timeline del día.
+  const { data: disponibilidad } = useQuery({
+    queryKey: ['disponibilidad-cal', desde.toISOString(), hasta.toISOString(), fPromotor],
+    queryFn: async () => (await api.get('/citas/disponibilidad', {
+      params: { usuarioId: fPromotor, desde: desde.toISOString(), hasta: hasta.toISOString() },
+    })).data,
+    enabled: !!fPromotor,
+  });
+
+  const ocupadoPorDia = useMemo(() => {
+    const m = {};
+    (disponibilidad?.bloques || []).forEach((b) => { (m[dayKey(new Date(b.inicio))] ||= []).push(b); });
+    return m;
+  }, [disponibilidad]);
+
+  const promotorVisto = useMemo(
+    () => (promotores || []).find((p) => p.id === fPromotor) || null,
+    [promotores, fPromotor]
+  );
+
   const esHoy = (d) => d.toDateString() === hoy.toDateString();
-  const hayFiltros = !!(fCanal || fEstado || fClasif || fAsesor);
+  const hayFiltros = !!(fCanal || fEstado || fClasif || fAsesor || fPromotor);
   const selKey = dayKey(selDay);
   const listaDia = porDia[selKey] || [];
+  // Memoizado (no un array nuevo por render): alimenta las dependencias del
+  // timeline, que sí se recalcula caro.
+  const ocupadoDia = useMemo(
+    () => (fPromotor ? (ocupadoPorDia[selKey] || []) : []),
+    [fPromotor, ocupadoPorDia, selKey]
+  );
 
   useEffect(() => { setExpandido(new Set()); }, [selKey]);
 
@@ -262,7 +300,14 @@ export default function CalendarioMovil() {
     } catch (e) { alert(handleError(e)); } finally { setDeleting(false); }
   };
 
-  const abrirAgendar = (fecha = null) => { setCitaEdit(null); setPreFecha(fecha); setModalOpen(true); };
+  // Con la disponibilidad de un promotor a la vista, agendar significa casi
+  // siempre "acompañamiento con él": se prellena para no repetir la elección.
+  const abrirAgendar = (fecha = null) => {
+    setCitaEdit(null);
+    setPreFecha(fecha);
+    setPrePromotor(fPromotor || null);
+    setModalOpen(true);
+  };
   const abrirReagendar = (c) => { setDetalle(null); setCitaEdit(c); setPreFecha(null); setModalOpen(true); };
 
   // ---------- Tira de días (semana del día seleccionado) ----------
@@ -273,9 +318,19 @@ export default function CalendarioMovil() {
 
   // ---------- Vista Día: timeline con rango dinámico y horas colapsadas ----------
   const tl = useMemo(() => {
-    if (!listaDia.length) return null;
-    const hIni = Math.floor(minutosDe(listaDia[0].fechaHoraInicio) / 60);
-    const finMax = Math.max(...listaDia.map((c) => Math.max(minutosDe(c.fechaHoraFin), minutosDe(c.fechaHoraInicio) + 30)));
+    // El timeline se dibuja si hay algo que situar en él: citas propias o, con
+    // la disponibilidad activa, los bloques ocupados del promotor (si no, un día
+    // sin citas propias no tendría dónde pintarlos).
+    const inicios = [
+      ...listaDia.map((c) => minutosDe(c.fechaHoraInicio)),
+      ...ocupadoDia.map((b) => minutosDe(b.inicio)),
+    ];
+    if (!inicios.length) return null;
+    const hIni = Math.floor(Math.min(...inicios) / 60);
+    const finMax = Math.max(
+      ...listaDia.map((c) => Math.max(minutosDe(c.fechaHoraFin), minutosDe(c.fechaHoraInicio) + 30)),
+      ...ocupadoDia.map((b) => Math.max(minutosDe(b.fin), minutosDe(b.inicio) + 30)),
+    );
     const hFin = Math.ceil(finMax / 60);
     // 1 h antes de la primera cita → 1 h después de la última, acotado a 7–21
     // (salvo citas fuera de ese rango, que siempre se muestran).
@@ -285,6 +340,13 @@ export default function CalendarioMovil() {
     listaDia.forEach((c) => {
       const a = Math.floor(minutosDe(c.fechaHoraInicio) / 60);
       const b = Math.max(Math.ceil(Math.max(minutosDe(c.fechaHoraFin), minutosDe(c.fechaHoraInicio) + 30) / 60), a + 1);
+      for (let h = a; h < b; h++) ocupada.add(h);
+    });
+    // Las horas que el promotor tiene tomadas no se colapsan como "Sin citas":
+    // son justo las que el asesor necesita ver para elegir el hueco.
+    ocupadoDia.forEach((bl) => {
+      const a = Math.floor(minutosDe(bl.inicio) / 60);
+      const b = Math.max(Math.ceil(Math.max(minutosDe(bl.fin), minutosDe(bl.inicio) + 30) / 60), a + 1);
       for (let h = a; h < b; h++) ocupada.add(h);
     });
     const segs = [];
@@ -301,7 +363,24 @@ export default function CalendarioMovil() {
     }
     flush();
     return { segs, pos, altoTotal: top };
-  }, [listaDia, expandido]);
+  }, [listaDia, ocupadoDia, expandido]);
+
+  // Bloques ocupados del promotor situados en el timeline (misma conversión
+  // hora→píxel que las citas propias, para que ambas capas coincidan).
+  const ocupadoEventos = useMemo(() => {
+    if (!tl) return [];
+    return ocupadoDia
+      .map((b) => {
+        const ini = minutosDe(b.inicio);
+        const fin = Math.max(minutosDe(b.fin), ini + 15);
+        const sh = Math.floor(ini / 60);
+        const base = tl.pos[sh];
+        if (base == null) return null;
+        const y = base + ((ini - sh * 60) / 60) * ALTO_HORA;
+        return { y: y + 2, alto: Math.max(14, ((fin - ini) / 60) * ALTO_HORA - 4) };
+      })
+      .filter(Boolean);
+  }, [tl, ocupadoDia]);
 
   // Solapamientos: máximo 2 columnas; a partir de la tercera cita simultánea,
   // la segunda tarjeta acumula "+N más".
@@ -438,6 +517,20 @@ export default function CalendarioMovil() {
 
       {/* ---- Contenido ---- */}
       <div className="pb-28 pt-3">
+        {/* La capa de disponibilidad necesita el timeline por hora, que solo
+            existe en la vista Día: si se activa desde Mes/Agenda hay que
+            decirlo, o parecería que el promotor no tiene nada ocupado. */}
+        {fPromotor && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11.5px] text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+            <span className={`inline-block h-3 w-5 rounded ${DISPONIBILIDAD_ESTILO.bloque}`} />
+            <span>
+              Horarios ocupados de <strong className="font-semibold">{promotorVisto ? `${promotorVisto.nombre} ${promotorVisto.apellidoP}` : 'el promotor'}</strong>, sin el detalle.
+            </span>
+            {view !== 'dia' && (
+              <button onClick={() => setView('dia')} className={`font-bold text-brand-600 dark:text-brand-400 ${focoAnillo}`}>Ver en la vista Día</button>
+            )}
+          </div>
+        )}
         {isLoading ? (
           <div className="py-10 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</div>
         ) : view === 'dia' ? (
@@ -483,6 +576,19 @@ export default function CalendarioMovil() {
 
                 {/* Citas posicionadas sobre las horas visibles */}
                 <div className="pointer-events-none absolute inset-y-0" style={{ left: COL_HORA + 6, right: 8 }}>
+                  {/* Agenda ocupada del promotor: sin pointer-events-auto (a
+                      diferencia de las citas), así queda de solo lectura. */}
+                  {ocupadoEventos.map((b, i) => (
+                    <div
+                      key={`ocupado-${i}`}
+                      className={`absolute inset-x-0 rounded-lg px-2 py-0.5 ${DISPONIBILIDAD_ESTILO.bloque}`}
+                      style={{ top: b.y, height: b.alto }}
+                    >
+                      {b.alto >= 22 && (
+                        <div className={`text-[10.5px] font-semibold ${DISPONIBILIDAD_ESTILO.texto}`}>{DISPONIBILIDAD_ESTILO.label}</div>
+                      )}
+                    </div>
+                  ))}
                   {eventosDia.map((e, i) => {
                     const canal = infoCanal(e.c.tipo);
                     const color = colorCita(e.c);
@@ -617,6 +723,18 @@ export default function CalendarioMovil() {
             </select>
           </>
         )}
+        {!esAdmin() && (
+          <>
+            <h4 className="mb-2 mt-2 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Ver disponibilidad de</h4>
+            <select className="input" value={fPromotor} onChange={(e) => setFPromotor(e.target.value)}>
+              <option value="">Nadie</option>
+              {promotores?.map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellidoP}</option>)}
+            </select>
+            <p className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+              Marca sus horarios ocupados en la vista Día, para invitarlo a un acompañamiento cuando esté libre.
+            </p>
+          </>
+        )}
         <h4 className="mb-2 mt-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Clasificación</h4>
         <div className="flex flex-wrap gap-2">
           <OpcionChip on={!fClasif} onClick={() => setFClasif('')}>Todas</OpcionChip>
@@ -747,6 +865,8 @@ export default function CalendarioMovil() {
         onClose={() => setModalOpen(false)}
         cita={citaEdit}
         preFecha={preFecha}
+        preModalidad={prePromotor ? 'ACOMPANAMIENTO' : undefined}
+        prePromotorId={prePromotor}
         asesorId={esAdmin() && fAsesor && fAsesor !== '__mios__' ? fAsesor : null}
       />
 

@@ -22,7 +22,8 @@ const sumarMinutos = (isoLocal, min) => {
 //  - preFecha: Date para prellenar el inicio (día seleccionado en el calendario).
 //  - candidatoId: fija el candidato y oculta su selector (perfil del candidato).
 //  - preModalidad: modalidad preseleccionada (entrevista según la etapa del candidato).
-export default function CitaFormModal({ open, onClose, onSaved, cita = null, clienteId = null, asesorId = null, preFecha = null, candidatoId = null, preModalidad = null }) {
+//  - prePromotorId: promotor preseleccionado (al agendar desde su disponibilidad).
+export default function CitaFormModal({ open, onClose, onSaved, cita = null, clienteId = null, asesorId = null, preFecha = null, candidatoId = null, preModalidad = null, prePromotorId = null }) {
   const { esAdmin, user } = useAuth();
   const qc = useQueryClient();
   const editando = !!cita;
@@ -70,7 +71,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
         // Las entrevistas de reclutamiento no generan dinero directo: nacen
         // como Gestión (el color puede cambiarse antes de guardar).
         clasificacion: preModalidad && MODALIDADES_PROMOTOR.includes(preModalidad) ? 'GESTION' : 'PRODUCTIVA',
-        promotorId: '',
+        promotorId: prePromotorId || '',
         tipo: 'PRESENCIAL',
         fechaHoraInicio: inicio,
         fechaHoraFin: sumarMinutos(inicio, DURACION_DEFAULT_MIN),

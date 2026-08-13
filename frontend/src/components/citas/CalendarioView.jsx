@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Card, Modal, CitaBadge, EmptyState, MenuAcciones, Field } from '../ui.jsx';
-import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, infoCanal, infoTipoCita, colorCita, infoInvitacion } from './tipos.js';
+import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, DISPONIBILIDAD_ESTILO, infoCanal, infoTipoCita, colorCita, infoInvitacion } from './tipos.js';
 import CitaFormModal from './CitaFormModal.jsx';
 import CalendarioMovil from './CalendarioMovil.jsx';
 import useIsMobile from '../../hooks/useIsMobile.js';
@@ -282,8 +282,12 @@ function CalendarioEscritorio() {
   const [fEstado, setFEstado] = useState('');
   const [fClasif, setFClasif] = useState('');
   const [fAsesor, setFAsesor] = useState('');
+  // Promotor cuya disponibilidad se superpone en la vista Semana (solo asesores):
+  // sirve para elegir la hora de un acompañamiento sin preguntarle antes.
+  const [fPromotor, setFPromotor] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [preFecha, setPreFecha] = useState(null);
+  const [prePromotor, setPrePromotor] = useState(null);
   const [citaEdit, setCitaEdit] = useState(null);
   const [toDelete, setToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -296,6 +300,14 @@ function CalendarioEscritorio() {
     queryKey: ['asesores-list'],
     queryFn: async () => (await api.get('/usuarios/asesores')).data,
     enabled: esAdmin(),
+  });
+
+  // Espejo del selector de asesor: el promotor filtra por asesor, el asesor
+  // consulta la disponibilidad de un promotor. Cada rol ve solo uno de los dos.
+  const { data: promotores } = useQuery({
+    queryKey: ['promotores-list'],
+    queryFn: async () => (await api.get('/usuarios/promotores')).data,
+    enabled: !esAdmin(),
   });
 
   // Rango visible: Semana navega por semana; Mes y Agenda por mes.
@@ -333,6 +345,27 @@ function CalendarioEscritorio() {
     Object.values(m).forEach((l) => l.sort((a, b) => new Date(a.fechaHoraInicio) - new Date(b.fechaHoraInicio)));
     return m;
   }, [filtradas]);
+
+  // Agenda ocupada del promotor elegido: solo rangos, sin detalle (el endpoint
+  // no lo expone). Se pinta como capa de fondo en la vista Semana.
+  const { data: disponibilidad } = useQuery({
+    queryKey: ['disponibilidad-cal', desde.toISOString(), hasta.toISOString(), fPromotor],
+    queryFn: async () => (await api.get('/citas/disponibilidad', {
+      params: { usuarioId: fPromotor, desde: desde.toISOString(), hasta: hasta.toISOString() },
+    })).data,
+    enabled: !!fPromotor,
+  });
+
+  const ocupadoPorDia = useMemo(() => {
+    const m = {};
+    (disponibilidad?.bloques || []).forEach((b) => { (m[dayKey(new Date(b.inicio))] ||= []).push(b); });
+    return m;
+  }, [disponibilidad]);
+
+  const promotorVisto = useMemo(
+    () => (promotores || []).find((p) => p.id === fPromotor) || null,
+    [promotores, fPromotor]
+  );
 
   const esHoy = (d) => d.toDateString() === hoy.toDateString();
   const citasDiaSel = selectedDay ? (porDia[dayKey(selectedDay)] || []) : [];
@@ -385,7 +418,15 @@ function CalendarioEscritorio() {
     } catch (e) { alert(handleError(e)); } finally { setDeleting(false); }
   };
 
-  const abrirAgendar = (fecha = null) => { setCitaEdit(null); setPreFecha(fecha); setModalOpen(true); };
+  // Con la disponibilidad de un promotor a la vista, agendar significa casi
+  // siempre "acompañamiento con él a esta hora": se prellena para no repetir la
+  // elección (el modal deja cambiar todo antes de guardar).
+  const abrirAgendar = (fecha = null) => {
+    setCitaEdit(null);
+    setPreFecha(fecha);
+    setPrePromotor(fPromotor || null);
+    setModalOpen(true);
+  };
   const abrirReagendar = (c) => { setCitaEdit(c); setPreFecha(null); setModalOpen(true); };
 
   // ---------- Celdas / chips ----------
@@ -496,6 +537,27 @@ function CalendarioEscritorio() {
                   title="Clic para agendar a esta hora"
                 />
               ))}
+              {/* Capa de agenda ocupada del promotor: va antes de los eventos
+                  propios (que así quedan encima) y sin capturar el puntero, para
+                  que el clic siga cayendo en la franja horaria y abra "Agendar". */}
+              {fPromotor && (ocupadoPorDia[dayKey(d)] || []).map((b, i) => {
+                const ini = new Date(b.inicio); const fin = new Date(b.fin);
+                const minIni = Math.max(ini.getHours() * 60 + ini.getMinutes(), HORA_INI * 60);
+                const minFin = Math.min(Math.max(fin.getHours() * 60 + fin.getMinutes(), minIni + 15), (HORA_FIN + 1) * 60);
+                const top = ((minIni - HORA_INI * 60) / 60) * ALTO_HORA;
+                const alto = ((minFin - minIni) / 60) * ALTO_HORA;
+                return (
+                  <div
+                    key={`ocupado-${i}`}
+                    className={`pointer-events-none absolute left-0.5 right-0.5 rounded-md px-1.5 py-0.5 ${DISPONIBILIDAD_ESTILO.bloque}`}
+                    style={{ top, height: Math.max(alto, 12) }}
+                  >
+                    {alto >= 20 && (
+                      <div className={`text-[10px] font-semibold ${DISPONIBILIDAD_ESTILO.texto}`}>{DISPONIBILIDAD_ESTILO.label}</div>
+                    )}
+                  </div>
+                );
+              })}
               {items.map((c) => {
                 const color = colorCita(c);
                 const ini = new Date(c.fechaHoraInicio); const fin = new Date(c.fechaHoraFin);
@@ -600,6 +662,12 @@ function CalendarioEscritorio() {
             {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
           </select>
         )}
+        {!esAdmin() && (
+          <select className="input w-auto" value={fPromotor} onChange={(e) => setFPromotor(e.target.value)}>
+            <option value="">Ver disponibilidad de…</option>
+            {promotores?.map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellidoP}</option>)}
+          </select>
+        )}
         <select className="input w-auto" value={fClasif} onChange={(e) => setFClasif(e.target.value)}>
           <option value="">Todas las clasificaciones</option>
           {Object.values(CLASIFICACIONES).map((cl) => <option key={cl.value} value={cl.value}>{cl.label}</option>)}
@@ -621,6 +689,22 @@ function CalendarioEscritorio() {
           ))}
         </div>
       </div>
+
+      {/* La capa de disponibilidad necesita la rejilla por hora, que solo existe
+          en Semana: si el asesor la activa desde Mes/Agenda hay que decírselo,
+          o parecería que el promotor no tiene nada ocupado. */}
+      {fPromotor && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+          <span className={`inline-block h-3 w-5 rounded ${DISPONIBILIDAD_ESTILO.bloque}`} />
+          <span>
+            Horarios ocupados de <strong className="font-semibold">{promotorVisto ? `${promotorVisto.nombre} ${promotorVisto.apellidoP}` : 'el promotor'}</strong>.
+            Solo indican que ya tiene algo agendado, no de qué se trata.
+          </span>
+          {view === 'semana'
+            ? <span className="text-slate-500 dark:text-slate-400">Clic en un hueco libre para invitarlo a un acompañamiento.</span>
+            : <button onClick={() => setView('semana')} className="font-semibold text-brand-600 underline dark:text-brand-400">Ver en la vista Semana</button>}
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-2">
@@ -723,6 +807,8 @@ function CalendarioEscritorio() {
         onClose={() => setModalOpen(false)}
         cita={citaEdit}
         preFecha={preFecha}
+        preModalidad={prePromotor ? 'ACOMPANAMIENTO' : undefined}
+        prePromotorId={prePromotor}
         asesorId={esAdmin() && fAsesor && fAsesor !== '__mios__' ? fAsesor : null}
       />
 

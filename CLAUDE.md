@@ -374,6 +374,25 @@ conservan sus nombres históricos; la traducción a UI vive en el **mapa único*
   (`GET /api/citas?promotorId=`). Las citas de acompañamiento son visibles
   para el asesor dueño y para el promotor involucrado. Tres capas fallando
   cerrado, como el resto del sistema.
+- **Disponibilidad del promotor (ocupado/libre, 2026-08-12)**: el asesor puede
+  ver en qué horarios está ocupado un promotor para invitarlo a un
+  acompañamiento sin preguntarle antes, vía `GET /api/citas/disponibilidad`
+  (`usuarioId` + `desde`/`hasta`, tope 62 días). Endpoint **deliberadamente
+  separado** de `GET /api/citas`: devuelve solo `bloques: [{inicio, fin}]`, sin
+  includes ni un campo más — el asesor nunca sabe con quién ni por qué está
+  ocupado el promotor (otro asesor, cliente, candidato o asunto personal), y
+  por eso tampoco se expone el motivo ni el tipo. **Rechaza con 400 cualquier
+  `usuarioId` que no sea ADMIN/SUPERADMIN**: no es un free/busy genérico, así
+  un asesor no puede espiar la agenda de un compañero. Ocupan agenda las citas
+  propias del promotor más los acompañamientos que ya **ACEPTÓ** (mismo
+  criterio que el empalme de `PATCH /:id/invitacion`): una invitación
+  PENDIENTE no bloquea el hueco, coherente con el resto del sistema. En la UI
+  es una capa gris de solo lectura (`pointer-events-none`, estilo único
+  `DISPONIBILIDAD_ESTILO` en `citas/tipos.js`, nunca los colores de
+  `CLASIFICACIONES`) superpuesta a la vista Semana (escritorio) / Día (móvil),
+  activada con el selector "Ver disponibilidad de" — espejo del filtro de
+  asesor, visible solo para no-admins. Agendar con la capa activa prellena
+  `preModalidad='ACOMPANAMIENTO'` + `prePromotorId` en `CitaFormModal`.
 
 ## Sección Metas / Targets (rediseño 2026-07)
 
@@ -440,7 +459,22 @@ planeación por semana, lunes como inicio).
   (upsert del día, guarda al salir de cada celda), `PUT /puntos/plan`,
   `GET /puntos/resumen` (solo promotores: ranking semanal por asesor). El
   asesor solo se ve a sí mismo (el parámetro `asesorId` se ignora); el
-  promotor captura/consulta por asesor con el selector.
+  promotor **consulta** por asesor con el selector, pero ya no puede
+  **capturar/editar** el formato de nadie más que el suyo.
+- **Candado anti-falsificación** (2026-08-05, acordado con Diana/Israel):
+  `PUT /puntos/dia` y `PUT /puntos/plan` siempre escriben sobre
+  `req.user.id` (ignoran cualquier `asesorId` del body) y `PUT /puntos/dia`
+  rechaza con 409 cualquier `fecha` anterior a "hoy" — calculado en el
+  servidor con `Intl.DateTimeFormat(..., { timeZone: 'America/Mexico_City' })`,
+  nunca con el reloj/zona del navegador. En cuanto el día cierra, ni el
+  propio asesor ni el promotor pueden modificarlo, sin excepciones de rol
+  (ni SUPERADMIN). `GET /puntos/semana` regresa `hoy` y `soloLectura`
+  (`true` cuando el que consulta no es el dueño del formato) para que el
+  frontend deshabilite las celdas antes de intentar guardar
+  (`frontend/src/pages/Puntos.jsx`). El candado aplica solo al registro
+  diario de puntos (`RegistroPuntos`); las listas de `PlanSemanal` no tienen
+  candado por fecha, solo el candado de autoría (cada quien edita solo lo
+  suyo).
 - Semana lunes–domingo con helpers compartidos en `frontend/src/lib/semana.js`
   (`rangoSemana`, `labelSemana`, `isoDia`) — mismos que usa Clínica.
 
