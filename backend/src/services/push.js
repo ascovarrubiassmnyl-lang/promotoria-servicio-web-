@@ -55,12 +55,32 @@ export async function removeSubscription(usuarioId, endpoint) {
 // 404/410 = endpoint inexistente o expirado; 401/403 = credenciales VAPID
 // rechazadas para ese endpoint (típico tras rotar las claves) — el navegador
 // tiene que volver a suscribirse, así que conservar la fila solo hace que
-// cada envío posterior falle en silencio. NO se incluye 400: ese suele ser un
-// payload/header mal armado nuestro y borraría suscripciones sanas.
+// cada envío posterior falle en silencio.
 const CODIGOS_SUSCRIPCION_INVALIDA = [401, 403, 404, 410];
 
+// 400 normalmente sí es "payload/header mal armado nuestro" — pero Apple Web
+// Push (endpoint web.push.apple.com, Safari/iOS/macOS) usa 400 en vez de
+// 401/403 para decir "la VAPID public key con la que firmaste no es la que
+// esta suscripción tiene registrada" (reason: VapidPkHashMismatch). Pasa
+// siempre que las claves VAPID se generaron/rotaron después de que ese
+// dispositivo se suscribió: la suscripción vieja queda muerta para siempre,
+// fallando en cada envío — hay que limpiarla igual que 401/403, o el usuario
+// nunca vuelve a recibir nada aunque el resto del sistema funcione bien.
+const RAZONES_400_INVALIDAS = ['VapidPkHashMismatch'];
+
+function esSuscripcionInvalida(err) {
+  if (CODIGOS_SUSCRIPCION_INVALIDA.includes(err.statusCode)) return true;
+  if (err.statusCode === 400) {
+    try {
+      const body = typeof err.body === 'string' ? JSON.parse(err.body) : err.body;
+      if (body && RAZONES_400_INVALIDAS.includes(body.reason)) return true;
+    } catch { /* body no era JSON parseable: no lo tratamos como inválida */ }
+  }
+  return false;
+}
+
 // Envía una push a todas las suscripciones de un usuario. Elimina las que el
-// push service reporte como inválidas (ver CODIGOS_SUSCRIPCION_INVALIDA).
+// push service reporte como inválidas (ver esSuscripcionInvalida).
 export async function sendPushToUser(usuarioId, payload) {
   if (!configured) return { enviadas: 0, eliminadas: 0, error: 'web-push no configurado' };
   const subs = await prisma.pushSubscription.findMany({ where: { usuarioId } });
@@ -75,7 +95,7 @@ export async function sendPushToUser(usuarioId, payload) {
       await webPush.sendNotification(subObj, payloadStr);
       enviadas += 1;
     } catch (err) {
-      if (CODIGOS_SUSCRIPCION_INVALIDA.includes(err.statusCode)) {
+      if (esSuscripcionInvalida(err)) {
         await prisma.pushSubscription.delete({ where: { id: s.id } }).catch(() => {});
         eliminadas += 1;
       } else {

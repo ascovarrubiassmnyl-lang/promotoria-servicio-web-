@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { soportaWebGL, Silencioso } from './decor/util3d.jsx';
 import CampanaNotificaciones from './notificaciones/CampanaNotificaciones.jsx';
+import BannerActivarPush from './notificaciones/BannerActivarPush.jsx';
 import { useNoLeidas } from '../hooks/useNotificaciones.js';
 
 // Fondo 3D decorativo del panel (solo modo oscuro): mismo patrón que el login
@@ -263,6 +264,7 @@ export default function Layout() {
 
         <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
           <div className="max-w-7xl mx-auto p-4 pb-8 sm:p-6 md:pb-6">
+            <BannerActivarPush />
             <Outlet />
           </div>
         </main>

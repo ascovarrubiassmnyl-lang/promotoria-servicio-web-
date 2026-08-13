@@ -15,6 +15,7 @@ const STATUS = {
 export function usePushNotifications({ enabled = true } = {}) {
   const [status, setStatus] = useState(STATUS.DEFAULT);
   const [subscription, setSubscription] = useState(null);
+  const [rota, setRota] = useState(false); // el navegador cree tener suscripción, pero el servidor no la tiene (se limpió por inválida)
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -34,11 +35,29 @@ export function usePushNotifications({ enabled = true } = {}) {
         await reg.update();
         let sub = await reg.pushManager.getSubscription();
         if (sub) {
-          setSubscription(sub);
-          // Asegura que el backend conozca esta suscripción (idempotente): en
-          // recargas getSubscription la reencuentra localmente, pero el backend
-          // podría no tenerla guardada y entonces /push/test no enviaría nada.
-          try { await api.post('/push/subscribe', sub.toJSON()); } catch {}
+          // El navegador tiene una suscripción local, pero el servidor pudo
+          // haberla borrado (VAPID rotada, endpoint muerto — ver
+          // sendPushToUser): confirmar contra el servidor antes de darla
+          // por "Activa". Sin esto, un usuario con la suscripción muerta
+          // veía "Activa ✓" para siempre y nunca recibía nada.
+          try {
+            const { data } = await api.post('/push/estado', { endpoint: sub.endpoint });
+            if (data.registrada) {
+              setSubscription(sub);
+              setRota(false);
+            } else {
+              // El servidor no la tiene: reenviar el mismo endpoint no basta
+              // (fue creado con una VAPID key vieja, por eso se limpió) —
+              // hace falta des-suscribir y crear una nueva, y eso pide
+              // interacción del usuario (subscribeUser). Se marca "rota"
+              // para que la UI lo muestre como inactivo, no como activo.
+              setSubscription(sub);
+              setRota(true);
+            }
+          } catch {
+            // Sin poder confirmar con el servidor, no afirmar "Activa".
+            setSubscription(sub);
+          }
           return;
         }
         // No forzar suscripción automática; pedir después con subscribeUser()
@@ -63,6 +82,15 @@ export function usePushNotifications({ enabled = true } = {}) {
       if (permission !== 'granted') { setError('Permiso no concedido'); return false; }
       const reg = await navigator.serviceWorker.ready;
       let sub = await reg.pushManager.getSubscription();
+      // Suscripción "rota": el navegador la tiene pero fue creada con una
+      // VAPID public key distinta a la actual del servidor (por eso el
+      // servidor la había limpiado). Reusarla repite el mismo endpoint y el
+      // mismo fallo — hay que des-suscribir y crear una nueva contra la key
+      // vigente.
+      if (sub && rota) {
+        await sub.unsubscribe().catch(() => {});
+        sub = null;
+      }
       if (!sub) {
         const { data } = await api.get('/push/vapid-public-key');
         const appServerKey = urlBase64ToUint8Array(data.publicKey);
@@ -70,6 +98,7 @@ export function usePushNotifications({ enabled = true } = {}) {
       }
       await api.post('/push/subscribe', sub.toJSON());
       setSubscription(sub);
+      setRota(false);
       return true;
     } catch (err) {
       setError(err?.message || 'Error al suscribirse');
@@ -83,6 +112,7 @@ export function usePushNotifications({ enabled = true } = {}) {
     try {
       const ok = await subscription.unsubscribe();
       setSubscription(null);
+      setRota(false);
       try { await api.post('/push/unsubscribe', { endpoint: subscription.endpoint }); } catch {}
       return ok;
     } catch (err) {
@@ -96,8 +126,12 @@ export function usePushNotifications({ enabled = true } = {}) {
       const { data } = await api.post('/push/test');
       // El backend responde {enviadas, eliminadas}: si no envió ninguna, la
       // suscripción no está registrada en el servidor — no mentir con éxito.
+      // Si además "eliminadas" > 0, sendPushToUser ya la limpió (inválida) en
+      // este mismo intento: reflejarlo como rota para que el botón cambie a
+      // "Activar" en vez de seguir ofreciendo "Enviar prueba"/"Desactivar".
       if (data && typeof data.enviadas === 'number' && data.enviadas === 0) {
-        setError('No hay suscripción activa en el servidor. Desactiva y vuelve a activar las notificaciones.');
+        if (data.eliminadas > 0) { setRota(true); setSubscription(null); }
+        setError('No hay suscripción activa en el servidor. Vuelve a activar las notificaciones.');
         return false;
       }
       return true;
@@ -107,7 +141,7 @@ export function usePushNotifications({ enabled = true } = {}) {
     }
   }
 
-  return { status, subscription, error, subscribeUser, unsubscribeUser, sendTest };
+  return { status, subscription, rota, error, subscribeUser, unsubscribeUser, sendTest };
 }
 
 function urlBase64ToUint8Array(base64String) {

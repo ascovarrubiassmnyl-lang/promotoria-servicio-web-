@@ -267,7 +267,7 @@ function GoogleCalendarPanel() {
 // ---------- Pestaña 2: notificaciones push (panel existente, se conserva) ----------
 
 function NotificacionesTab() {
-  const { status, subscription, error, subscribeUser, unsubscribeUser, sendTest } = useNotif();
+  const { status, subscription, rota, error, subscribeUser, unsubscribeUser, sendTest } = useNotif();
   const { esAdmin } = useAuth();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
@@ -276,7 +276,12 @@ function NotificacionesTab() {
   const revoke = async () => { setBusy(true); setMsg(''); const ok = await unsubscribeUser(); setMsg(ok ? 'Des-suscrito' : 'Error al desuscribir'); setBusy(false); };
   const test = async () => { setBusy(true); setMsg(''); const ok = await sendTest(); setMsg(ok ? 'Prueba enviada — revisa el navegador' : (error || 'No se pudo enviar')); setBusy(false); };
 
-  const activa = !!subscription;
+  // "Activa" exige que el servidor tenga la suscripción, no solo que el
+  // navegador crea tenerla — una suscripción "rota" (el servidor la limpió
+  // por inválida, ej. VAPID rotada) se trata como inactiva: mostrarla como
+  // activa es justo el bug que hacía que el push pareciera fallar "de vez
+  // en cuando" sin ningún aviso.
+  const activa = !!subscription && !rota;
 
   return (
     <Card>
@@ -290,14 +295,20 @@ function NotificacionesTab() {
         no se entregue.
       </p>
 
+      {rota && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+          Tu suscripción dejó de funcionar (el servidor renovó su clave de seguridad y este dispositivo se quedó con la anterior). No estás recibiendo avisos push aunque el navegador diga que sí — pulsa "Activar notificaciones" para renovarla.
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
         <Estado label="Soporte" valor={status === 'unsupported' ? 'No soportado' : 'Soportado'} color={status === 'unsupported' ? 'red' : 'green'} />
         <Estado label="Permiso" valor={status === 'granted' ? 'Concedido' : status === 'denied' ? 'Bloqueado' : 'Pendiente'} color={status === 'granted' ? 'green' : status === 'denied' ? 'red' : 'amber'} />
-        <Estado label="Suscripción" valor={activa ? 'Activa' : 'Inactiva'} color={activa ? 'green' : 'slate'} />
+        <Estado label="Suscripción" valor={activa ? 'Activa' : rota ? 'Necesita renovarse' : 'Inactiva'} color={activa ? 'green' : rota ? 'amber' : 'slate'} />
       </div>
 
       {/* Los botones reflejan el estado real: con suscripción activa se ofrece
-          probar/desactivar; sin ella, solo activar. */}
+          probar/desactivar; sin ella (inactiva o rota), solo activar. */}
       <div className="flex flex-wrap gap-2">
         {activa ? (
           <>

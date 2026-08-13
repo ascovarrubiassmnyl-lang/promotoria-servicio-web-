@@ -9,7 +9,7 @@ const NotifContext = createContext(null);
 export function NotifProvider({ children }) {
   const { user } = useAuth();
   const push = usePushNotifications({ enabled: !!user });
-  const { subscription, subscribeUser } = push;
+  const { subscription, rota, subscribeUser } = push;
   // Corre el auto-suscribe UNA sola vez por sesión: si no, el efecto se
   // dispararía en cada render y volvería a suscribir justo después de que el
   // usuario pulsa "Desactivar" (lo re-activaba al instante).
@@ -21,9 +21,13 @@ export function NotifProvider({ children }) {
     if (!('Notification' in window)) return;
     if (Notification.permission !== 'granted') return;
     autoHecho.current = true;
-    // Con suscripción ya presente el hook la persiste solo; si no, la crea.
-    if (!subscription) subscribeUser();
-  }, [user, subscription, subscribeUser]);
+    // Con suscripción ya presente y sana el hook la persiste solo; si no hay
+    // suscripción, o el servidor la marcó rota (VAPID rotada — ver
+    // usePushNotifications), la crea de nuevo automáticamente: el usuario ya
+    // había concedido el permiso una vez, no debería tener que volver a
+    // Configuración a notar que dejó de funcionar.
+    if (!subscription || rota) subscribeUser();
+  }, [user, subscription, rota, subscribeUser]);
 
   return <NotifContext.Provider value={push}>{children}</NotifContext.Provider>;
 }

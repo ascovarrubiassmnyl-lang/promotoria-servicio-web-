@@ -617,10 +617,35 @@ push sobre esa fila ya guardada.
   aviso quedó guardado" (`reminderJob.js`): antes se marcaba `true` pasara lo
   que pasara y el recordatorio se perdía para siempre; ahora solo se marca si
   `notificar()` persistió, así un fallo se reintenta en la siguiente corrida.
-- **Suscripciones inválidas**: `sendPushToUser` borra la fila con
-  `CODIGOS_SUSCRIPCION_INVALIDA = [401, 403, 404, 410]` (antes solo 410/404;
-  401/403 = VAPID rotada). **400 queda fuera a propósito**: suele ser un
-  payload mal armado nuestro y borraría suscripciones sanas.
+- **Suscripciones inválidas**: `sendPushToUser` borra la fila cuando
+  `esSuscripcionInvalida(err)` (`backend/src/services/push.js`) es cierto:
+  `CODIGOS_SUSCRIPCION_INVALIDA = [401, 403, 404, 410]` (401/403 = VAPID
+  rotada) **más** un 400 cuyo body trae `reason: "VapidPkHashMismatch"` —
+  la forma en que Apple Web Push (`web.push.apple.com`, Safari/iOS/macOS)
+  reporta el mismo caso de VAPID rotada, con un código distinto al resto.
+  Detectado en 2026-08-13 por logs de producción: era la causa de que el
+  push a un iPhone "funcionara de vez en cuando" — en realidad fallaba
+  siempre desde que las claves VAPID de Railway se generaron, pero la
+  suscripción muerta nunca se limpiaba. Un 400 con otra `reason` (o sin body
+  parseable) sigue sin limpiarse: normalmente es payload mal armado nuestro,
+  no un problema de la suscripción.
+- **El navegador no se entera solo de que su suscripción fue limpiada.**
+  `usePushNotifications` (`frontend/src/hooks/usePushNotifications.js`)
+  confirma contra `POST /api/push/estado` si el endpoint que tiene localmente
+  sigue registrado en el servidor; si no, la marca `rota` (no "Activa") y
+  `NotifContext` la vuelve a crear sola en el siguiente login si el permiso
+  del navegador ya estaba concedido — el usuario no tiene que notar el fallo
+  ni volver a Configuración a mano. `subscribeUser()` sabe que una
+  suscripción `rota` no se puede reenviar tal cual (quedó atada a la VAPID
+  key vieja): primero des-suscribe del navegador y crea una nueva contra la
+  key vigente.
+- **Activar push ya no depende de encontrar el botón en Configuración.**
+  `components/notificaciones/BannerActivarPush.jsx` se muestra en toda vista
+  del panel (montado una vez en `Layout.jsx`, arriba del `Outlet`) mientras
+  el permiso del navegador siga en `default` (nunca decidido); un clic activa
+  igual que el botón de Configuración. Se descarta por sesión con "Ahora no"
+  (`sessionStorage`), nunca permanentemente. Motivo: de 8 usuarios activos en
+  producción, solo 2 habían encontrado y usado el botón original.
 - **API self-service** (`routes/notificaciones.js`, solo `authenticate`, sin
   `permiteSeccion` — igual que `/api/push`): `GET /` (lista **paginada** +
   `total`/`paginas`/`noLeidas`/`conteos` por tipo, filtros `estado`
