@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { Modal, CitaBadge } from '../ui.jsx';
 import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, DISPONIBILIDAD_ESTILO, infoCanal, infoTipoCita, colorCita, infoInvitacion } from './tipos.js';
 import CitaFormModal from './CitaFormModal.jsx';
-import { hora, nombreMes } from '../../lib/format.js';
+import { hora, fechaCorta, nombreMes, isoLocalInput } from '../../lib/format.js';
 
 // Calendario SOLO para móvil (< md). Paradigma distinto al de escritorio: nada
 // de cuadrícula semanal de 7 columnas — vistas Día / Agenda / Mes con tira de
@@ -139,6 +139,9 @@ export default function CalendarioMovil() {
   const [fPromotor, setFPromotor] = useState('');
   const [sheetFiltros, setSheetFiltros] = useState(false);
   const [detalle, setDetalle] = useState(null);
+  // Formulario inline de "sugerir otra hora" (promotor invitado) dentro del sheet de detalle.
+  const [sugiriendo, setSugiriendo] = useState(false);
+  const [sugerencia, setSugerencia] = useState({ inicio: '', fin: '', nota: '' });
   const [modalOpen, setModalOpen] = useState(false);
   const [preFecha, setPreFecha] = useState(null);
   const [prePromotor, setPrePromotor] = useState(null);
@@ -233,6 +236,7 @@ export default function CalendarioMovil() {
   );
 
   useEffect(() => { setExpandido(new Set()); }, [selKey]);
+  useEffect(() => { setSugiriendo(false); }, [detalle?.id]);
 
   // ---------- Navegación ----------
   const step = (dir) => {
@@ -282,6 +286,44 @@ export default function CalendarioMovil() {
         const ok = window.confirm(`Ya tienes "${otra.titulo}" a esa hora (${hora(otra.fechaHoraInicio)} – ${hora(otra.fechaHoraFin)}).\n\n¿Aceptar de todos modos?`);
         if (!ok) return;
         await api.patch(`/citas/${c.id}/invitacion`, { respuesta, ignorarEmpalme: true });
+      }
+      setDetalle(null);
+      qc.invalidateQueries(['citas-cal']);
+      qc.invalidateQueries(['citas']);
+    } catch (e2) { alert(handleError(e2)); }
+  };
+
+  // Propuesta de otro horario (promotor invitado): la cita conserva su horario
+  // original hasta que el asesor la acepte.
+  const enviarSugerencia = async (c) => {
+    if (!sugerencia.inicio || !sugerencia.fin) { alert('Indica inicio y fin de la propuesta'); return; }
+    if (new Date(sugerencia.fin) <= new Date(sugerencia.inicio)) { alert('El fin debe ser posterior al inicio'); return; }
+    try {
+      await api.patch(`/citas/${c.id}/invitacion`, {
+        respuesta: 'SUGERIDA',
+        sugerenciaInicio: new Date(sugerencia.inicio).toISOString(),
+        sugerenciaFin: new Date(sugerencia.fin).toISOString(),
+        sugerenciaNota: sugerencia.nota.trim() || undefined,
+      });
+      setSugiriendo(false);
+      setDetalle(null);
+      qc.invalidateQueries(['citas-cal']);
+      qc.invalidateQueries(['citas']);
+    } catch (e2) { alert(handleError(e2)); }
+  };
+
+  // Respuesta del asesor dueño de la cita a la sugerencia del promotor.
+  const responderSugerencia = async (c, aceptar) => {
+    try {
+      try {
+        await api.patch(`/citas/${c.id}/invitacion/sugerencia`, { aceptar });
+      } catch (e) {
+        const empalme = e?.response?.status === 409 && e?.response?.data?.empalme;
+        if (!empalme) throw e;
+        const otra = e.response.data.empalme;
+        const ok = window.confirm(`Ya tienes "${otra.titulo}" a esa hora (${hora(otra.fechaHoraInicio)} – ${hora(otra.fechaHoraFin)}).\n\n¿Aceptar de todos modos?`);
+        if (!ok) return;
+        await api.patch(`/citas/${c.id}/invitacion/sugerencia`, { aceptar, ignorarEmpalme: true });
       }
       setDetalle(null);
       qc.invalidateQueries(['citas-cal']);
@@ -809,8 +851,9 @@ export default function CalendarioMovil() {
               )}
             </div>
             {/* Invitación de acompañamiento: el promotor invitado responde
-                aquí; los demás solo ven el estado. Mientras esté pendiente la
-                cita no ocupa su agenda. */}
+                (aceptar / rechazar / sugerir otra hora) o el asesor dueño
+                responde una sugerencia; los demás solo ven el estado. Mientras
+                no quede ACEPTADA, la cita no ocupa la agenda del promotor. */}
             {detalle.invitacionEstado && (
               detalle.promotorId === user?.id && detalle.invitacionEstado === 'PENDIENTE' ? (
                 <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-900/25">
@@ -818,23 +861,60 @@ export default function CalendarioMovil() {
                     {detalle.asesor?.nombre} {detalle.asesor?.apellidoP} te invitó a acompañar esta cita.
                   </p>
                   <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">Hasta que la aceptes no ocupa tu agenda.</p>
+                  {!sugiriendo ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        onClick={() => responderInvitacion(detalle, 'ACEPTADA')}
+                        className={`${btnAccion} flex-1 border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-400`}
+                      >✓ Aceptar</button>
+                      <button
+                        onClick={() => responderInvitacion(detalle, 'RECHAZADA')}
+                        className={`${btnAccion} flex-1 border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300`}
+                      >Rechazar</button>
+                      <button
+                        onClick={() => { setSugiriendo(true); setSugerencia({ inicio: isoLocalInput(new Date(detalle.fechaHoraInicio)), fin: isoLocalInput(new Date(detalle.fechaHoraFin)), nota: '' }); }}
+                        className={`${btnAccion} w-full border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300`}
+                      >↻ Sugerir otra hora</button>
+                    </div>
+                  ) : (
+                    <div className="mt-2 space-y-2 rounded-lg border border-amber-200 bg-white/60 p-2.5 dark:border-amber-800 dark:bg-transparent">
+                      <label className="block text-xs font-medium text-slate-500 dark:text-slate-400">Nuevo inicio*
+                        <input type="datetime-local" className="input mt-1" value={sugerencia.inicio} onChange={(e) => setSugerencia({ ...sugerencia, inicio: e.target.value })} />
+                      </label>
+                      <label className="block text-xs font-medium text-slate-500 dark:text-slate-400">Nuevo fin*
+                        <input type="datetime-local" className="input mt-1" value={sugerencia.fin} onChange={(e) => setSugerencia({ ...sugerencia, fin: e.target.value })} />
+                      </label>
+                      <label className="block text-xs font-medium text-slate-500 dark:text-slate-400">Nota (opcional)
+                        <input className="input mt-1" value={sugerencia.nota} onChange={(e) => setSugerencia({ ...sugerencia, nota: e.target.value })} placeholder="Ej. Tengo junta, ¿te va mejor a esta hora?" />
+                      </label>
+                      <div className="flex gap-2">
+                        <button onClick={() => enviarSugerencia(detalle)} className={`${btnAccion} flex-1 border-brand-300 text-brand-700 dark:border-brand-700 dark:text-brand-400`}>Enviar propuesta</button>
+                        <button onClick={() => setSugiriendo(false)} className={`${btnAccion} flex-1 border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300`}>Cancelar</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : detalle.asesorId === user?.id && detalle.invitacionEstado === 'SUGERIDA' && detalle.sugerenciaInicio ? (
+                <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-900/25">
+                  <p className="text-[13px] font-semibold text-amber-900 dark:text-amber-200">
+                    {detalle.promotor?.nombre} {detalle.promotor?.apellidoP} propuso otro horario:
+                  </p>
+                  <p className="mt-0.5 text-[13px] font-semibold text-amber-900 dark:text-amber-200">
+                    {fechaCorta(detalle.sugerenciaInicio)} · {hora(detalle.sugerenciaInicio)} – {hora(detalle.sugerenciaFin)}
+                  </p>
+                  {detalle.sugerenciaNota && <p className="mt-0.5 text-xs italic text-amber-700 dark:text-amber-300">"{detalle.sugerenciaNota}"</p>}
                   <div className="mt-2 flex gap-2">
-                    <button
-                      onClick={() => responderInvitacion(detalle, 'ACEPTADA')}
-                      className={`${btnAccion} flex-1 border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-400`}
-                    >✓ Aceptar</button>
-                    <button
-                      onClick={() => responderInvitacion(detalle, 'RECHAZADA')}
-                      className={`${btnAccion} flex-1 border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300`}
-                    >Rechazar</button>
+                    <button onClick={() => responderSugerencia(detalle, true)} className={`${btnAccion} flex-1 border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-400`}>✓ Aceptar nuevo horario</button>
+                    <button onClick={() => responderSugerencia(detalle, false)} className={`${btnAccion} flex-1 border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300`}>No me sirve</button>
                   </div>
                 </div>
               ) : (
                 <p className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[13px] font-medium ${
                   detalle.invitacionEstado === 'ACEPTADA' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-                  : detalle.invitacionEstado === 'PENDIENTE' ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-                  : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>
+                  : detalle.invitacionEstado === 'RECHAZADA' ? 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                  : 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'}`}>
                   {infoInvitacion(detalle.invitacionEstado)?.icono} {infoInvitacion(detalle.invitacionEstado)?.label}
+                  {detalle.invitacionEstado === 'SUGERIDA' && detalle.sugerenciaInicio ? ` · propone ${fechaCorta(detalle.sugerenciaInicio)} ${hora(detalle.sugerenciaInicio)}` : ''}
                 </p>
               )
             )}

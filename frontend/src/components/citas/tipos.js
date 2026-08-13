@@ -136,12 +136,13 @@ export const infoRecurrencia = (v) => RECURRENCIAS[v] || RECURRENCIAS.NO_REPITE;
 export const DIAS_SEMANA_LABEL = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
 // Invitación al promotor en citas de acompañamiento (2026-08). Mientras esté
-// PENDIENTE la cita no ocupa la agenda del promotor: se le muestra punteada
-// ("por confirmar") hasta que acepte. Mapa único de labels/estilos.
+// PENDIENTE o SUGERIDA la cita no ocupa la agenda del promotor: se le muestra
+// punteada ("por confirmar") hasta que quede ACEPTADA. Mapa único de labels/estilos.
 export const INVITACIONES = {
   PENDIENTE: { value: 'PENDIENTE', label: 'Invitación por confirmar', badge: 'amber', icono: '⏳' },
   ACEPTADA: { value: 'ACEPTADA', label: 'Acompañamiento confirmado', badge: 'green', icono: '✓' },
   RECHAZADA: { value: 'RECHAZADA', label: 'Invitación rechazada', badge: 'red', icono: '✕' },
+  SUGERIDA: { value: 'SUGERIDA', label: 'Otro horario propuesto', badge: 'amber', icono: '↻' },
 };
 
 export const infoInvitacion = (v) => INVITACIONES[v] || null;

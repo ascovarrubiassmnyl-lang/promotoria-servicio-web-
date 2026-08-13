@@ -349,11 +349,18 @@ router.post('/', asyncHandler(async (req, res) => {
 
 // Respuesta del promotor a una invitación de acompañamiento. Solo el promotor
 // invitado puede responder (ni el asesor que agendó, ni otro admin).
+// SUGERIDA: en vez de aceptar/rechazar tal cual, el promotor propone otro
+// horario (sugerenciaInicio/Fin/Nota) — la cita conserva su horario original
+// hasta que el asesor la acepte en PATCH /:id/invitacion/sugerencia.
 router.patch('/:id/invitacion', asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { respuesta, ignorarEmpalme } = req.body || {};
-  if (!['ACEPTADA', 'RECHAZADA'].includes(respuesta)) {
-    return res.status(400).json({ error: 'respuesta debe ser ACEPTADA o RECHAZADA' });
+  const { respuesta, ignorarEmpalme, sugerenciaInicio, sugerenciaFin, sugerenciaNota } = req.body || {};
+  if (!['ACEPTADA', 'RECHAZADA', 'SUGERIDA'].includes(respuesta)) {
+    return res.status(400).json({ error: 'respuesta debe ser ACEPTADA, RECHAZADA o SUGERIDA' });
+  }
+  if (respuesta === 'SUGERIDA') {
+    if (!sugerenciaInicio || !sugerenciaFin) return res.status(400).json({ error: 'sugerenciaInicio y sugerenciaFin son requeridos' });
+    if (new Date(sugerenciaFin) <= new Date(sugerenciaInicio)) return res.status(400).json({ error: 'sugerenciaFin debe ser posterior a sugerenciaInicio' });
   }
   const cita = await prisma.cita.findUnique({
     where: { id },
@@ -406,9 +413,12 @@ router.patch('/:id/invitacion', asyncHandler(async (req, res) => {
     where: { id },
     data: {
       invitacionEstado: respuesta,
-      invitacionRespondidaEn: new Date(),
+      invitacionRespondidaEn: respuesta === 'SUGERIDA' ? null : new Date(),
       // Rechazar libera al promotor pero conserva la cita del asesor.
       ...(respuesta === 'RECHAZADA' ? { promotorId: null } : {}),
+      ...(respuesta === 'SUGERIDA'
+        ? { sugerenciaInicio: new Date(sugerenciaInicio), sugerenciaFin: new Date(sugerenciaFin), sugerenciaNota: sugerenciaNota || null }
+        : { sugerenciaInicio: null, sugerenciaFin: null, sugerenciaNota: null }),
     },
     include: {
       cliente: { select: { id: true, nombre: true, apellidoP: true, telefono: true } },
@@ -441,16 +451,97 @@ router.patch('/:id/invitacion', asyncHandler(async (req, res) => {
   try {
     const { sendPushToUser } = await import('../services/push.js');
     const quien = `${req.user.nombre} ${req.user.apellidoP || ''}`.trim();
+    const titulos = { ACEPTADA: 'Acompañamiento confirmado', RECHAZADA: 'Acompañamiento rechazado', SUGERIDA: 'Diana propuso otro horario' };
+    const cuerpos = {
+      ACEPTADA: `${quien} aceptó acompañarte en "${cita.titulo}".`,
+      RECHAZADA: `${quien} no podrá acompañarte en "${cita.titulo}". Agenda con otro promotor u horario.`,
+      SUGERIDA: `${quien} propuso otro horario para "${cita.titulo}": ${new Date(sugerenciaInicio).toLocaleString('es-MX')}. Revisa y responde.`,
+    };
     await sendPushToUser(cita.asesorId, {
-      title: respuesta === 'ACEPTADA' ? 'Acompañamiento confirmado' : 'Acompañamiento rechazado',
-      body: respuesta === 'ACEPTADA'
-        ? `${quien} aceptó acompañarte en "${cita.titulo}".`
-        : `${quien} no podrá acompañarte en "${cita.titulo}". Agenda con otro promotor u horario.`,
+      title: titulos[respuesta],
+      body: cuerpos[respuesta],
       tag: `respuesta-cita-${cita.id}`,
       data: { url: '/citas' },
     });
   } catch (err) {
     console.error('No se pudo notificar la respuesta al asesor:', err.message);
+  }
+
+  res.json(actualizada);
+}));
+
+// Respuesta del asesor a la sugerencia de horario del promotor: acepta (la
+// cita se mueve a ese horario, queda ACEPTADA y sí ocupa la agenda del
+// promotor) o la descarta (vuelve a PENDIENTE, a la espera de otra respuesta
+// del promotor, conservando el horario original). Solo el asesor dueño de la
+// cita puede responder — ni el promotor, ni otro admin.
+router.patch('/:id/invitacion/sugerencia', asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { aceptar, ignorarEmpalme } = req.body || {};
+  if (typeof aceptar !== 'boolean') return res.status(400).json({ error: 'aceptar (boolean) es requerido' });
+  const cita = await prisma.cita.findUnique({
+    where: { id },
+    include: { promotor: { select: { id: true, nombre: true, apellidoP: true } } },
+  });
+  if (!cita) return res.status(404).json({ error: 'Cita no encontrada' });
+  if (cita.asesorId !== req.user.id) return res.status(403).json({ error: 'Solo el asesor dueño de la cita puede responder' });
+  if (cita.invitacionEstado !== 'SUGERIDA' || !cita.sugerenciaInicio || !cita.sugerenciaFin) {
+    return res.status(400).json({ error: 'Esta cita no tiene una sugerencia de horario pendiente' });
+  }
+
+  if (aceptar && ignorarEmpalme !== true) {
+    const solapada = await buscarEmpalme(cita.asesorId, cita.sugerenciaInicio, cita.sugerenciaFin, cita.id);
+    if (solapada) return res.status(409).json({ error: 'Ya tienes una cita a esa hora', empalme: solapada });
+  }
+
+  const actualizada = await prisma.cita.update({
+    where: { id },
+    data: aceptar
+      ? {
+          fechaHoraInicio: cita.sugerenciaInicio,
+          fechaHoraFin: cita.sugerenciaFin,
+          invitacionEstado: 'ACEPTADA',
+          invitacionRespondidaEn: new Date(),
+          sugerenciaInicio: null, sugerenciaFin: null, sugerenciaNota: null,
+        }
+      : {
+          // No acepta la propuesta: vuelve a PENDIENTE con el horario original,
+          // a la espera de que el promotor responda de nuevo.
+          invitacionEstado: 'PENDIENTE',
+          sugerenciaInicio: null, sugerenciaFin: null, sugerenciaNota: null,
+        },
+    include: {
+      cliente: { select: { id: true, nombre: true, apellidoP: true, telefono: true } },
+      candidato: { select: { id: true, nombre: true, apellidoP: true, telefono: true } },
+      asesor: { select: { id: true, nombre: true, apellidoP: true } },
+      promotor: { select: { id: true, nombre: true, apellidoP: true } },
+    },
+  });
+
+  if (aceptar && !cita.googleEventId && cita.promotorId) {
+    const eventId = await crearEvento(cita.promotorId, actualizada);
+    if (eventId) {
+      await prisma.cita.update({ where: { id }, data: { googleEventId: eventId, googleEventUsuarioId: cita.promotorId } });
+      actualizada.googleEventId = eventId;
+    }
+  }
+
+  // Avisar al promotor (mejor esfuerzo).
+  if (cita.promotorId) {
+    try {
+      const { sendPushToUser } = await import('../services/push.js');
+      const quien = `${req.user.nombre} ${req.user.apellidoP || ''}`.trim();
+      await sendPushToUser(cita.promotorId, {
+        title: aceptar ? 'Nuevo horario confirmado' : 'Sugerencia no aceptada',
+        body: aceptar
+          ? `${quien} aceptó tu propuesta de horario para "${cita.titulo}".`
+          : `${quien} no aceptó tu propuesta de horario para "${cita.titulo}". Vuelve a proponer o responde la invitación.`,
+        tag: `sugerencia-cita-${cita.id}`,
+        data: { url: '/citas' },
+      });
+    } catch (err) {
+      console.error('No se pudo notificar la respuesta a la sugerencia:', err.message);
+    }
   }
 
   res.json(actualizada);

@@ -232,6 +232,11 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
             </span>
           </label>
         )}
+        {esPersonal && !editando && (
+          <p className="-mt-1 rounded-lg bg-slate-50 dark:bg-slate-700/40 px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+            Para bloquear un horario fijo (ej. la hora de comida todos los días), marca <strong>Repetir</strong> más abajo — cada día bloqueado queda como una cita independiente que puedes mover o borrar sin afectar a las demás.
+          </p>
+        )}
         {necesitaAsesor && !esPersonal && (
           <Field label="Asesor*">
             <select className="input" required value={form.asesorId} onChange={(e) => setForm({ ...form, asesorId: e.target.value, clienteId: '' })}>
@@ -355,9 +360,11 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
         )}
 
         {/* Repetir: solo al agendar. Cada instancia generada es una cita
-            independiente (se edita/cancela sola, sin afectar a las demás). */}
+            independiente (se edita/cancela sola, sin afectar a las demás).
+            Combinado con "Evento personal" es la forma de bloquear un horario
+            fijo recurrente (ej. hora de comida): no hace falta un modelo aparte. */}
         {!editando && (
-          <Field label="Repetir">
+          <Field label={esPersonal ? 'Repetir este bloqueo' : 'Repetir'}>
             <select
               className="input"
               value={form.recurrenciaTipo}

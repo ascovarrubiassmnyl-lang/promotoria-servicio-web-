@@ -70,11 +70,14 @@ enum ClasificacionCita {
 
 // Respuesta del promotor a la invitación de acompañar una cita. Mientras esté
 // PENDIENTE la cita no ocupa su agenda; ACEPTADA la vuelve firme (y sí bloquea);
-// RECHAZADA la libera y el asesor debe buscar otro promotor u horario.
+// RECHAZADA la libera y el asesor debe buscar otro promotor u horario;
+// SUGERIDA = el promotor propuso otro horario (ver Cita.sugerenciaInicio/Fin) y
+// espera que el asesor la acepte o la descarte — tampoco bloquea la agenda.
 enum EstadoInvitacionCita {
   PENDIENTE
   ACEPTADA
   RECHAZADA
+  SUGERIDA
 }
 
 // ——— Módulo de Candidatos (reclutamiento de asesores) ———
@@ -340,6 +343,14 @@ model Cita {
   // invitación (cita sin promotor o creada antes de esta función).
   invitacionEstado    EstadoInvitacionCita?
   invitacionRespondidaEn DateTime?
+  // Sugerencia de otro horario (2026-08): el promotor invitado propone un
+  // horario distinto en vez de aceptar/rechazar tal cual. Solo tienen sentido
+  // mientras invitacionEstado = SUGERIDA; se limpian al aceptar/rechazar (por
+  // el asesor) o al volver a invitar. La cita conserva su fechaHoraInicio/Fin
+  // original hasta que el asesor acepta la sugerencia (ahí sí se mueve).
+  sugerenciaInicio    DateTime?
+  sugerenciaFin       DateTime?
+  sugerenciaNota      String?
   // Id del evento espejo en el Google Calendar del promotor (2026-08). Se crea
   // al ACEPTAR la invitación y se borra al rechazar/cancelar. Null = no hay
   // evento en Google (no conectó su cuenta o no aplica).

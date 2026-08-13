@@ -43,6 +43,11 @@ function FichaCita({ cita, onClose, onReagendar, onEliminar, onCambiarEstado, es
   const [guardando, setGuardando] = useState(false);
   const [err, setErr] = useState('');
   const [respondiendo, setRespondiendo] = useState(false);
+  // Formulario inline de "sugerir otra hora" (visto solo por el promotor invitado).
+  const [sugiriendo, setSugiriendo] = useState(false);
+  const [sugerencia, setSugerencia] = useState({ inicio: '', fin: '', nota: '' });
+
+  const invalidarCitas = () => { qc.invalidateQueries(['citas-cal']); qc.invalidateQueries(['citas']); };
 
   // Responder la invitación de acompañamiento: solo la ve el promotor invitado
   // mientras esté pendiente (el backend vuelve a validarlo).
@@ -60,8 +65,50 @@ function FichaCita({ cita, onClose, onReagendar, onEliminar, onCambiarEstado, es
         if (!ok) { setRespondiendo(false); return; }
         await api.patch(`/citas/${cita.id}/invitacion`, { respuesta, ignorarEmpalme: true });
       }
-      qc.invalidateQueries(['citas-cal']);
-      qc.invalidateQueries(['citas']);
+      invalidarCitas();
+      onClose();
+    } catch (e2) {
+      setErr(handleError(e2));
+    } finally { setRespondiendo(false); }
+  };
+
+  // Enviar la propuesta de otro horario (promotor). La cita conserva su
+  // horario original hasta que el asesor la acepte.
+  const enviarSugerencia = async () => {
+    if (!sugerencia.inicio || !sugerencia.fin) { setErr('Indica inicio y fin de la propuesta'); return; }
+    if (new Date(sugerencia.fin) <= new Date(sugerencia.inicio)) { setErr('El fin debe ser posterior al inicio'); return; }
+    setRespondiendo(true);
+    setErr('');
+    try {
+      await api.patch(`/citas/${cita.id}/invitacion`, {
+        respuesta: 'SUGERIDA',
+        sugerenciaInicio: new Date(sugerencia.inicio).toISOString(),
+        sugerenciaFin: new Date(sugerencia.fin).toISOString(),
+        sugerenciaNota: sugerencia.nota.trim() || undefined,
+      });
+      invalidarCitas();
+      onClose();
+    } catch (e2) {
+      setErr(handleError(e2));
+    } finally { setRespondiendo(false); }
+  };
+
+  // Responder a la sugerencia del promotor (asesor dueño de la cita).
+  const responderSugerencia = async (aceptar) => {
+    setRespondiendo(true);
+    setErr('');
+    try {
+      try {
+        await api.patch(`/citas/${cita.id}/invitacion/sugerencia`, { aceptar });
+      } catch (e) {
+        const empalme = e?.response?.status === 409 && e?.response?.data?.empalme;
+        if (!empalme) throw e;
+        const otra = e.response.data.empalme;
+        const ok = window.confirm(`Ya tienes "${otra.titulo}" a esa hora (${hora(otra.fechaHoraInicio)} – ${hora(otra.fechaHoraFin)}).\n\n¿Aceptar de todos modos?`);
+        if (!ok) { setRespondiendo(false); return; }
+        await api.patch(`/citas/${cita.id}/invitacion/sugerencia`, { aceptar, ignorarEmpalme: true });
+      }
+      invalidarCitas();
       onClose();
     } catch (e2) {
       setErr(handleError(e2));
@@ -78,6 +125,7 @@ function FichaCita({ cita, onClose, onReagendar, onEliminar, onCambiarEstado, es
   useEffect(() => {
     if (!cita) { setForm(null); return; }
     setErr('');
+    setSugiriendo(false);
     setForm({
       titulo: cita.titulo || '',
       fechaHoraInicio: paraInput(cita.fechaHoraInicio),
@@ -160,8 +208,9 @@ function FichaCita({ cita, onClose, onReagendar, onEliminar, onCambiarEstado, es
           )}
         </div>
 
-        {/* Invitación de acompañamiento: el promotor invitado responde aquí;
-            los demás solo ven en qué estado va. */}
+        {/* Invitación de acompañamiento: el promotor invitado responde (aceptar /
+            rechazar / sugerir otra hora); el asesor dueño responde una sugerencia
+            del promotor; los demás solo ven en qué estado va. */}
         {cita.invitacionEstado && (
           soyElInvitado && cita.invitacionEstado === 'PENDIENTE' ? (
             <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 dark:border-amber-700 dark:bg-amber-900/25">
@@ -171,17 +220,53 @@ function FichaCita({ cita, onClose, onReagendar, onEliminar, onCambiarEstado, es
               <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">
                 Hasta que la aceptes no ocupa tu agenda.
               </p>
+              {!sugiriendo ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button type="button" disabled={respondiendo} onClick={() => responder('ACEPTADA')} className="rounded-lg border border-emerald-300 bg-white px-3 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-700 dark:bg-transparent dark:text-emerald-400">✓ Aceptar</button>
+                  <button type="button" disabled={respondiendo} onClick={() => responder('RECHAZADA')} className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-transparent dark:text-slate-300">Rechazar</button>
+                  <button type="button" disabled={respondiendo} onClick={() => { setSugiriendo(true); setSugerencia({ inicio: paraInput(cita.fechaHoraInicio), fin: paraInput(cita.fechaHoraFin), nota: '' }); }} className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-transparent dark:text-slate-300">↻ Sugerir otra hora</button>
+                </div>
+              ) : (
+                <div className="mt-2 space-y-2 rounded-lg border border-amber-200 bg-white/60 p-2.5 dark:border-amber-800 dark:bg-transparent">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Nuevo inicio*">
+                      <input type="datetime-local" className="input" value={sugerencia.inicio} onChange={(e) => setSugerencia({ ...sugerencia, inicio: e.target.value })} />
+                    </Field>
+                    <Field label="Nuevo fin*">
+                      <input type="datetime-local" className="input" value={sugerencia.fin} onChange={(e) => setSugerencia({ ...sugerencia, fin: e.target.value })} />
+                    </Field>
+                  </div>
+                  <Field label="Nota (opcional)">
+                    <input className="input" value={sugerencia.nota} onChange={(e) => setSugerencia({ ...sugerencia, nota: e.target.value })} placeholder="Ej. Tengo junta, ¿te va mejor a esta hora?" />
+                  </Field>
+                  <div className="flex gap-2">
+                    <button type="button" disabled={respondiendo} onClick={enviarSugerencia} className="rounded-lg border border-brand-300 bg-white px-3 py-1 text-xs font-semibold text-brand-700 hover:bg-brand-50 disabled:opacity-50 dark:border-brand-700 dark:bg-transparent dark:text-brand-400">Enviar propuesta</button>
+                    <button type="button" disabled={respondiendo} onClick={() => setSugiriendo(false)} className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:bg-transparent dark:text-slate-300">Cancelar</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : !soyElInvitado && cita.asesorId === usuarioId && cita.invitacionEstado === 'SUGERIDA' && cita.sugerenciaInicio ? (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 dark:border-amber-700 dark:bg-amber-900/25">
+              <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                {cita.promotor?.nombre} {cita.promotor?.apellidoP} propuso otro horario:
+              </p>
+              <p className="mt-0.5 text-sm font-semibold text-amber-900 dark:text-amber-200">
+                {fechaCorta(cita.sugerenciaInicio)} · {hora(cita.sugerenciaInicio)} – {hora(cita.sugerenciaFin)}
+              </p>
+              {cita.sugerenciaNota && <p className="mt-0.5 text-xs italic text-amber-700 dark:text-amber-300">"{cita.sugerenciaNota}"</p>}
               <div className="mt-2 flex gap-2">
-                <button type="button" disabled={respondiendo} onClick={() => responder('ACEPTADA')} className="rounded-lg border border-emerald-300 bg-white px-3 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-700 dark:bg-transparent dark:text-emerald-400">✓ Aceptar</button>
-                <button type="button" disabled={respondiendo} onClick={() => responder('RECHAZADA')} className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-transparent dark:text-slate-300">Rechazar</button>
+                <button type="button" disabled={respondiendo} onClick={() => responderSugerencia(true)} className="rounded-lg border border-emerald-300 bg-white px-3 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-700 dark:bg-transparent dark:text-emerald-400">✓ Aceptar nuevo horario</button>
+                <button type="button" disabled={respondiendo} onClick={() => responderSugerencia(false)} className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-transparent dark:text-slate-300">No me sirve</button>
               </div>
             </div>
           ) : (
             <p className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium ${
               cita.invitacionEstado === 'ACEPTADA' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-              : cita.invitacionEstado === 'PENDIENTE' ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-              : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>
+              : cita.invitacionEstado === 'RECHAZADA' ? 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+              : 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'}`}>
               {infoInvitacion(cita.invitacionEstado)?.icono} {infoInvitacion(cita.invitacionEstado)?.label}
+              {cita.invitacionEstado === 'SUGERIDA' && cita.sugerenciaInicio ? ` · propone ${fechaCorta(cita.sugerenciaInicio)} ${hora(cita.sugerenciaInicio)}` : ''}
             </p>
           )
         )}
@@ -266,6 +351,59 @@ function FichaCita({ cita, onClose, onReagendar, onEliminar, onCambiarEstado, es
         </div>
       </form>
     </Modal>
+  );
+}
+
+// Franja horaria del calendario (8:00–20:00, ver HORA_INI/HORA_FIN) partida en
+// "ocupado" (bloques del promotor) y "libre" (huecos entre ellos, incluidos los
+// extremos del día). Cada hueco libre agenda directo un acompañamiento a esa
+// hora — el asesor no tiene que ir a buscar la celda vacía en la grilla.
+function BloquesOcupadosDelDia({ dia, bloques, promotor, onAgendar }) {
+  const segmentos = useMemo(() => {
+    const ini = new Date(dia); ini.setHours(HORA_INI, 0, 0, 0);
+    const fin = new Date(dia); fin.setHours(HORA_FIN, 0, 0, 0);
+    const ocupados = [...bloques]
+      .map((b) => ({ inicio: new Date(b.inicio), fin: new Date(b.fin) }))
+      .sort((a, b) => a.inicio - b.inicio);
+    const out = [];
+    let cursor = ini;
+    for (const b of ocupados) {
+      const bIni = b.inicio < ini ? ini : b.inicio;
+      const bFin = b.fin > fin ? fin : b.fin;
+      if (bFin <= cursor) continue; // fuera de rango o ya cubierto
+      if (bIni > cursor) out.push({ tipo: 'libre', inicio: cursor, fin: bIni });
+      out.push({ tipo: 'ocupado', inicio: bIni, fin: bFin });
+      cursor = bFin > cursor ? bFin : cursor;
+    }
+    if (cursor < fin) out.push({ tipo: 'libre', inicio: cursor, fin });
+    return out;
+  }, [dia, bloques]);
+
+  return (
+    <div className="mb-3 space-y-1.5 border-b border-slate-100 dark:border-slate-700 pb-3">
+      <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+        Horarios de {promotor ? `${promotor.nombre} ${promotor.apellidoP}` : 'el promotor'}
+      </p>
+      {segmentos.length === 0 ? (
+        <p className="text-xs text-slate-400 dark:text-slate-500">Sin información en el horario de 8:00 a 20:00.</p>
+      ) : (
+        <ul className="space-y-1">
+          {segmentos.map((s, i) => (
+            <li key={i} className="flex items-center justify-between gap-2 text-xs">
+              <span className={`inline-flex items-center gap-1.5 ${s.tipo === 'ocupado' ? 'text-slate-500 dark:text-slate-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
+                <span className={`w-2 h-2 rounded-full ${s.tipo === 'ocupado' ? 'bg-slate-400 dark:bg-slate-500' : 'bg-emerald-500'}`} />
+                {hora(s.inicio)} – {hora(s.fin)} · {s.tipo === 'ocupado' ? DISPONIBILIDAD_ESTILO.label : 'Libre'}
+              </span>
+              {s.tipo === 'libre' && (
+                <button type="button" onClick={() => onAgendar(s.inicio)} className="text-xs font-semibold text-brand-600 hover:underline dark:text-brand-400">
+                  Agendar
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -712,11 +850,22 @@ function CalendarioEscritorio() {
         </Card>
 
         <Card title={selectedDay ? `Citas · ${fechaCorta(selectedDay)}` : 'Selecciona un día'}>
+          {/* Horarios ocupados del promotor elegido, para este día: se ven aquí
+              también (no solo superpuestos en la grilla Semana), y cada hueco
+              libre entre bloques permite agendar el acompañamiento directo. */}
+          {fPromotor && selectedDay && (
+            <BloquesOcupadosDelDia
+              dia={selectedDay}
+              bloques={ocupadoPorDia[dayKey(selectedDay)] || []}
+              promotor={promotorVisto}
+              onAgendar={(fecha) => abrirAgendar(fecha)}
+            />
+          )}
           {isLoading ? <div className="py-6 text-center text-slate-400 dark:text-slate-500">Cargando…</div> :
             !selectedDay ? <EmptyState message="Selecciona un día del calendario" /> :
             citasDiaSel.length === 0 ? (
               <div className="space-y-3">
-                <EmptyState message="Sin citas este día" />
+                {!fPromotor && <EmptyState message="Sin citas este día" />}
                 <button onClick={() => abrirAgendar(selectedDay)} className="btn-primary text-xs w-full">Agendar para este día</button>
               </div>
             ) : (

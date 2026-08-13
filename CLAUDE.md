@@ -392,7 +392,31 @@ conservan sus nombres históricos; la traducción a UI vive en el **mapa único*
   `CLASIFICACIONES`) superpuesta a la vista Semana (escritorio) / Día (móvil),
   activada con el selector "Ver disponibilidad de" — espejo del filtro de
   asesor, visible solo para no-admins. Agendar con la capa activa prellena
-  `preModalidad='ACOMPANAMIENTO'` + `prePromotorId` en `CitaFormModal`.
+  `preModalidad='ACOMPANAMIENTO'` + `prePromotorId` en `CitaFormModal`. Con la
+  disponibilidad activa, el panel lateral "Citas · [fecha]" del día
+  seleccionado (`CalendarioView.jsx`, desktop) también lista los tramos
+  ocupado/libre de 8:00 a 20:00 con un botón "Agendar" en cada hueco libre —
+  no hace falta ir a la vista Semana a buscar la celda vacía.
+- **Sugerir otro horario (2026-08-12)**: además de Aceptar/Rechazar, el
+  promotor invitado a un acompañamiento puede responder `PATCH
+  /api/citas/:id/invitacion` con `respuesta: 'SUGERIDA'` +
+  `sugerenciaInicio`/`sugerenciaFin`/`sugerenciaNota` (nuevo valor del enum
+  `EstadoInvitacionCita` + esos 3 campos en `Cita`, migración
+  `20260812120000_cita_sugerencia_horario`) — la cita **conserva su horario
+  original** y sigue sin ocupar la agenda del promotor mientras esté
+  SUGERIDA, igual que PENDIENTE. El asesor dueño responde con `PATCH
+  /api/citas/:id/invitacion/sugerencia` (`{aceptar: boolean}`): aceptar
+  mueve la cita al horario propuesto y la deja ACEPTADA (sí bloquea, valida
+  empalme igual que aceptar una invitación normal); rechazar vuelve a
+  PENDIENTE conservando el horario original, a la espera de que el promotor
+  responda de nuevo. Ambas respuestas notifican por push a la otra parte
+  (mejor esfuerzo). Solo el promotor invitado sugiere; solo el asesor dueño
+  de la cita responde la sugerencia — nadie más.
+- **Bloquear un horario recurrente** (ej. "hora de comida"): no es un modelo
+  aparte — se resuelve combinando el checkbox "Evento personal" con
+  "Repetir" al agendar (ambos ya existían). El copy de `CitaFormModal` lo
+  deja explícito. Aplica igual para un asesor bloqueando su propia agenda o
+  para el promotor.
 
 ## Sección Metas / Targets (rediseño 2026-07)
 
