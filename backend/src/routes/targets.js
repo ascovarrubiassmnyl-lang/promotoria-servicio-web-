@@ -24,6 +24,19 @@ const GANADA = { estado: { in: ['APROBADA', 'PAGADA'] } };
 const CAMPOS_META = ['metaVentasNum', 'metaPrimaMonto', 'metaCitasNum', 'metaProspectosNum', 'metaReferidosNum', 'metaLlamadasNum'];
 const camposMeta = (body = {}) => Object.fromEntries(CAMPOS_META.map((c) => [c, body[c] ?? null]));
 
+// `metaIngresoMonto` (PRP, 2026-08-05) es exclusiva de Target: no existe
+// columna en TargetEquipo, así que se maneja aparte de CAMPOS_META.
+const metaIngreso = (body = {}) => (body.metaIngresoMonto !== undefined ? { metaIngresoMonto: body.metaIngresoMonto ?? null } : {});
+
+// Comisión promedio histórica por póliza ganada de cada asesor (todo el
+// histórico, sin acotar al mes en curso): es la base para traducir la meta
+// de ingreso deseado en "pólizas necesarias" del resumen. `null` si el
+// asesor aún no tiene ninguna venta ganada (no hay con qué proyectar).
+async function promedioComisionPorAsesor() {
+  const filas = await prisma.venta.groupBy({ by: ['asesorId'], where: GANADA, _avg: { comisionMonto: true } });
+  return Object.fromEntries(filas.map((f) => [f.asesorId, f._avg.comisionMonto || null]));
+}
+
 // Actuales del periodo agrupados por asesor:
 //  ventas/prima  → ventas APROBADA/PAGADA creadas en el mes (= Pólizas),
 //  citas         → citas COMPLETADA cuyo inicio cae en el mes,
@@ -67,7 +80,7 @@ router.get('/', asyncHandler(async (req, res) => {
 router.get('/resumen', asyncHandler(async (req, res) => {
   const { mes, anio, ini, fin } = periodo(req);
   const soloYo = req.user.rol === 'ASESOR';
-  const [asesores, targets, actuales] = await Promise.all([
+  const [asesores, targets, actuales, promedioComision] = await Promise.all([
     prisma.usuario.findMany({
       where: soloYo ? { id: req.user.id } : { rol: 'ASESOR', activo: true },
       select: { id: true, nombre: true, apellidoP: true },
@@ -75,16 +88,29 @@ router.get('/resumen', asyncHandler(async (req, res) => {
     }),
     prisma.target.findMany({ where: { mes, anio, ...(soloYo ? { asesorId: req.user.id } : {}) } }),
     actualesPorAsesor(ini, fin),
+    promedioComisionPorAsesor(),
   ]);
   const metaPor = Object.fromEntries(targets.map((t) => [t.asesorId, t]));
   res.json({
     mes, anio,
-    asesores: asesores.map((a) => ({
-      id: a.id,
-      nombre: `${a.nombre} ${a.apellidoP}`.trim(),
-      meta: metaPor[a.id] || null,
-      actual: actuales[a.id] || { ventas: 0, prima: 0, citas: 0, prospectos: 0, referidos: 0, llamadas: 0 },
-    })),
+    asesores: asesores.map((a) => {
+      const meta = metaPor[a.id] || null;
+      const promedio = promedioComision[a.id] || null;
+      // Pólizas necesarias para alcanzar la meta de ingreso, con la comisión
+      // promedio histórica del propio asesor (redondeo hacia arriba: nunca
+      // "casi alcanza"). Sin meta de ingreso o sin historial → null.
+      const polizasParaMeta = meta?.metaIngresoMonto && promedio
+        ? Math.ceil(meta.metaIngresoMonto / promedio)
+        : null;
+      return {
+        id: a.id,
+        nombre: `${a.nombre} ${a.apellidoP}`.trim(),
+        meta,
+        actual: actuales[a.id] || { ventas: 0, prima: 0, citas: 0, prospectos: 0, referidos: 0, llamadas: 0 },
+        promedioComisionPoliza: promedio,
+        polizasParaMeta,
+      };
+    }),
   });
 }));
 
@@ -93,7 +119,7 @@ router.post('/', esAdmin, asyncHandler(async (req, res) => {
   if (!asesorId || !mes || !anio) return res.status(400).json({ error: 'asesorId, mes y anio son requeridos' });
   const m = parseInt(mes), a = parseInt(anio);
   if (m < 1 || m > 12) return res.status(400).json({ error: 'mes debe ser 1-12' });
-  const metas = camposMeta(req.body);
+  const metas = { ...camposMeta(req.body), ...metaIngreso(req.body) };
   const target = await prisma.target.upsert({
     where: { asesorId_mes_anio: { asesorId, mes: m, anio: a } },
     create: { asesorId, mes: m, anio: a, ...metas },

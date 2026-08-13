@@ -70,6 +70,33 @@ function CamposMeta({ valores, onChange, autoFocus = false }) {
 const valoresDe = (t) => Object.fromEntries(METRICAS.map((m) => [m.key, t?.[m.campo] ?? '']));
 const payloadDe = (valores) => Object.fromEntries(METRICAS.map((m) => [m.campo, valores[m.key] === '' ? null : +valores[m.key]]));
 
+// Meta de ingreso (PRP): campo personal aparte de las 6 métricas, solo en
+// Target (no se reconcilia contra la meta de equipo). El backend la traduce
+// a "pólizas necesarias" con la comisión promedio histórica del asesor
+// (GET /targets/resumen → promedioComisionPoliza/polizasParaMeta).
+function MetaIngresoNota({ fila }) {
+  const meta = fila?.meta?.metaIngresoMonto;
+  if (!meta) return <span className="text-xs italic text-slate-400 dark:text-slate-500">Sin meta de ingreso</span>;
+  if (!fila.promedioComisionPoliza) {
+    return (
+      <>
+        <div className="font-semibold tabular-nums text-slate-700 dark:text-slate-200">{mxn(meta)}</div>
+        <div className="text-xs text-slate-400 dark:text-slate-500">Aún sin pólizas ganadas para proyectar</div>
+      </>
+    );
+  }
+  const faltan = Math.max(0, (fila.polizasParaMeta || 0) - fila.actual.ventas);
+  return (
+    <>
+      <div className="font-semibold tabular-nums text-slate-700 dark:text-slate-200">{mxn(meta)}/mes</div>
+      <div className="text-xs text-slate-500 dark:text-slate-400">
+        ≈ {fila.polizasParaMeta} pólizas ({mxn(fila.promedioComisionPoliza)} prom.){' '}
+        {faltan > 0 ? <span className="font-semibold text-amber-600 dark:text-amber-400">· faltan {faltan}</span> : <span className="font-semibold text-emerald-600 dark:text-emerald-400">· cubierta</span>}
+      </div>
+    </>
+  );
+}
+
 // Grid de bloques grandes (meta de promotoría / "mi meta") en las 6 métricas.
 function BloquesMeta({ meta, actual, fraccion }) {
   return (
@@ -117,7 +144,8 @@ export default function Targets() {
   const guardarFila = async () => {
     setSaving(true); setErr('');
     try {
-      await api.post('/targets', { asesorId: editRow.asesorId, mes, anio, ...payloadDe(editRow.valores) });
+      const metaIngresoMonto = editRow.ingreso === '' ? null : +editRow.ingreso;
+      await api.post('/targets', { asesorId: editRow.asesorId, mes, anio, ...payloadDe(editRow.valores), metaIngresoMonto });
       setEditRow(null);
       invalidar();
     } catch (e) { setErr(handleError(e)); } finally { setSaving(false); }
@@ -213,6 +241,7 @@ export default function Targets() {
                     <th className="py-2 pr-3 w-10">#</th>
                     <th className="py-2 pr-4">Asesor</th>
                     {METRICAS.map((m) => <th key={m.key} className="py-2 pr-4">{m.corto}</th>)}
+                    <th className="py-2 pr-4">Meta ingreso (PRP)</th>
                     <th className="py-2 pr-4">Estado</th>
                     <th className="py-2 text-right">&nbsp;</th>
                   </tr>
@@ -242,6 +271,13 @@ export default function Targets() {
                                 />
                               </td>
                             ))}
+                            <td className="py-3 pr-4">
+                              <input
+                                type="number" min="0" className="input w-32" placeholder="Ingreso MXN"
+                                value={editRow.ingreso}
+                                onChange={(e) => setEditRow({ ...editRow, ingreso: e.target.value })}
+                              />
+                            </td>
                             <td className="py-3 pr-4" colSpan={2}>
                               <div className="flex justify-end gap-2">
                                 <button className="btn-primary" onClick={guardarFila} disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button>
@@ -258,11 +294,12 @@ export default function Targets() {
                                   : <span className="text-xs italic text-slate-400 dark:text-slate-500 tabular-nums whitespace-nowrap">{(m.money ? mxn : num)(f.actual[m.key])} / —</span>}
                               </td>
                             ))}
+                            <td className="py-3 pr-4"><MetaIngresoNota fila={f} /></td>
                             <td className="py-3 pr-4"><span className={`badge ${f.st.pill}`}>{f.st.label}</span></td>
                             <td className="py-3 text-right">
                               <button
                                 className="text-sm font-semibold text-brand-600 hover:underline dark:text-brand-400"
-                                onClick={() => { setEditRow({ asesorId: f.id, valores: valoresDe(f.meta) }); setErr(''); }}
+                                onClick={() => { setEditRow({ asesorId: f.id, valores: valoresDe(f.meta), ingreso: f.meta?.metaIngresoMonto ?? '' }); setErr(''); }}
                               >
                                 {f.sinMeta ? 'Asignar meta' : 'Editar meta'}
                               </button>
@@ -290,6 +327,12 @@ export default function Targets() {
             </p>
           )}
           <BloquesMeta meta={mio?.meta} actual={mio?.actual} fraccion={fraccion} />
+          {mio?.meta?.metaIngresoMonto ? (
+            <div className="mt-5 rounded-xl bg-slate-50 dark:bg-slate-700/40 px-4 py-3 text-sm">
+              <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">Meta de ingreso (PRP)</div>
+              <MetaIngresoNota fila={mio} />
+            </div>
+          ) : null}
         </Card>
       )}
     </div>

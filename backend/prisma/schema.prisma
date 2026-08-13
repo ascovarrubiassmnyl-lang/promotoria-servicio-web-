@@ -541,6 +541,11 @@ model Target {
   metaProspectosNum Int? // clientes nuevos creados en el mes
   metaReferidosNum  Int? // referidos registrados en el mes
   metaLlamadasNum   Int? // actividades tipo LLAMADA del mes
+  metaIngresoMonto  Float? // meta de ingreso (comisión) mensual deseada, ej. $60,000 MXN (PRP,
+  // 2026-08-05). Personal, no existe a nivel equipo. El backend la traduce a
+  // "pólizas necesarias" usando la comisión promedio histórica del propio
+  // asesor (GET /targets/resumen) — no es una meta más a sumar/reconciliar
+  // contra TargetEquipo como las otras 6.
   creadoEn          DateTime @default(now())
 
   @@unique([asesorId, mes, anio])
