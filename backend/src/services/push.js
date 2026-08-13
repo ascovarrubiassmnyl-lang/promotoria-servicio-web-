@@ -51,7 +51,16 @@ export async function removeSubscription(usuarioId, endpoint) {
   return prisma.pushSubscription.delete({ where: { id: sub.id } });
 }
 
-// Envía una push a todas las suscripciones de un usuario. Elimina las que fallen con 410/404.
+// Códigos con los que el push service dice "esta suscripción ya no sirve":
+// 404/410 = endpoint inexistente o expirado; 401/403 = credenciales VAPID
+// rechazadas para ese endpoint (típico tras rotar las claves) — el navegador
+// tiene que volver a suscribirse, así que conservar la fila solo hace que
+// cada envío posterior falle en silencio. NO se incluye 400: ese suele ser un
+// payload/header mal armado nuestro y borraría suscripciones sanas.
+const CODIGOS_SUSCRIPCION_INVALIDA = [401, 403, 404, 410];
+
+// Envía una push a todas las suscripciones de un usuario. Elimina las que el
+// push service reporte como inválidas (ver CODIGOS_SUSCRIPCION_INVALIDA).
 export async function sendPushToUser(usuarioId, payload) {
   if (!configured) return { enviadas: 0, eliminadas: 0, error: 'web-push no configurado' };
   const subs = await prisma.pushSubscription.findMany({ where: { usuarioId } });
@@ -66,8 +75,7 @@ export async function sendPushToUser(usuarioId, payload) {
       await webPush.sendNotification(subObj, payloadStr);
       enviadas += 1;
     } catch (err) {
-      // 410 Gone / 404 Not Found → suscripción inválida, eliminar
-      if (err.statusCode === 410 || err.statusCode === 404) {
+      if (CODIGOS_SUSCRIPCION_INVALIDA.includes(err.statusCode)) {
         await prisma.pushSubscription.delete({ where: { id: s.id } }).catch(() => {});
         eliminadas += 1;
       } else {
@@ -78,26 +86,7 @@ export async function sendPushToUser(usuarioId, payload) {
   return { enviadas, eliminadas };
 }
 
-// Dispara notificación de un recordatorio vencido a su asesor y marca notificacionEnviada=true.
-export async function notificarRecordatorio(nota) {
-  const esPago = nota.tipo === 'RECORDATORIO_PAGO';
-  const payload = {
-    title: esPago
-      ? 'Recordatorio de pago · Origen Promotoría'
-      : 'Recordatorio · Origen Promotoría',
-    body: nota.texto?.slice(0, 180) || 'Tienes un recordatorio pendiente',
-    tag: esPago ? `pago-${nota.ventaId || nota.id}` : `nota-${nota.id}`,
-    data: {
-      url: nota.ventaId
-        ? `${process.env.PUBLIC_URL || ''}/clientes/${nota.clienteId}`
-        : `${process.env.PUBLIC_URL || ''}/clientes/${nota.clienteId}`,
-      notaId: nota.id,
-      clienteId: nota.clienteId,
-      ventaId: nota.ventaId || null,
-      tipo: esPago ? 'RECORDATORIO_PAGO' : 'RECORDATORIO',
-    },
-    requerirInteraccion: esPago,
-    icon: '/origen-blanco.png',
-  };
-  await sendPushToUser(nota.asesorId, payload);
-}
+// El aviso de un recordatorio vencido vive ahora en
+// utils/notificaciones.js → notificarRecordatorioNota(): persiste la
+// notificación in-app y luego intenta el push. Este servicio se queda solo
+// con el transporte (suscripciones + envío).

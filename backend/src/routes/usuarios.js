@@ -81,11 +81,16 @@ router.get('/asesores', esAdmin, asyncHandler(async (_req, res) => {
   res.json(asesores);
 }));
 
-// Promotores (admin/superadmin) — accesible para todo autenticado.
-// Lo usa el asesor al agendar una cita de acompañamiento.
+// Promotores del negocio — accesible para todo autenticado. Lo usan el alta de
+// citas de acompañamiento, la capa de disponibilidad del calendario y el
+// selector de reclutador de candidatos.
+// Solo ADMIN: el SUPERADMIN es la cuenta de quien desarrolla el servicio, no
+// una promotora real, así que no debe ofrecerse como persona con quien agendar
+// (sí sigue visible en Asesores → Equipo y Configuración, que son pantallas de
+// administración de cuentas).
 router.get('/promotores', asyncHandler(async (_req, res) => {
   const promotores = await prisma.usuario.findMany({
-    where: { rol: { in: ['ADMIN', 'SUPERADMIN'] }, activo: true },
+    where: { rol: 'ADMIN', activo: true },
     select: { id: true, nombre: true, apellidoP: true, apellidoM: true },
     orderBy: { nombre: 'asc' },
   });

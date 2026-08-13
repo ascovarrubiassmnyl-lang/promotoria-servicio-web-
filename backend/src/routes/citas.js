@@ -5,6 +5,7 @@ import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion } from '../middleware/permisos.js';
 import { registrarActividad } from '../utils/actividad.js';
+import { notificar } from '../utils/notificaciones.js';
 import { crearEvento, borrarEvento, horarioLibre } from '../services/googleCalendar.js';
 
 const router = Router();
@@ -324,20 +325,26 @@ router.post('/', asyncHandler(async (req, res) => {
       ...(creadas.length > 1 ? { repeticiones: creadas.length } : {}),
     });
   }
-  // Aviso al promotor invitado (mejor esfuerzo, como el mailer): si no tiene
-  // suscripción push o falla el envío, la invitación igual queda registrada y
-  // la verá en su calendario — nunca bloquea la respuesta.
+  // Aviso al promotor invitado: queda en su campana (fuente de verdad) y se
+  // intenta la push. Si algo de esto falla la invitación igual está registrada
+  // y la verá en su calendario — nunca bloquea la respuesta.
   if (invitacionEstado === 'PENDIENTE' && promotorFinal) {
+    const quien = `${req.user.nombre} ${req.user.apellidoP || ''}`.trim();
+    const tituloAviso = 'Nueva invitación de acompañamiento';
+    const cuerpo = creadas.length > 1
+      ? `${quien} te invitó a ${creadas.length} citas: "${titulo}". Ábrelas para aceptar o rechazar.`
+      : `${quien} te invitó a "${titulo}" el ${primera.fechaHoraInicio.toLocaleString('es-MX')}. Ábrela para aceptar o rechazar.`;
     try {
-      const { sendPushToUser } = await import('../services/push.js');
-      const quien = `${req.user.nombre} ${req.user.apellidoP || ''}`.trim();
-      await sendPushToUser(promotorFinal, {
-        title: 'Nueva invitación de acompañamiento',
-        body: creadas.length > 1
-          ? `${quien} te invitó a ${creadas.length} citas: "${titulo}". Ábrelas para aceptar o rechazar.`
-          : `${quien} te invitó a "${titulo}" el ${primera.fechaHoraInicio.toLocaleString('es-MX')}. Ábrela para aceptar o rechazar.`,
-        tag: `invitacion-cita-${primera.id}`,
-        data: { url: '/citas' },
+      await notificar(promotorFinal, 'CITA_INVITACION', {
+        titulo: tituloAviso,
+        cuerpo,
+        datos: { url: '/citas', citaId: primera.id },
+        pushPayload: {
+          title: tituloAviso,
+          body: cuerpo,
+          tag: `invitacion-cita-${primera.id}`,
+          data: { url: '/citas' },
+        },
       });
     } catch (err) {
       console.error('No se pudo notificar la invitación al promotor:', err.message);
@@ -447,21 +454,29 @@ router.patch('/:id/invitacion', asyncHandler(async (req, res) => {
     });
   }
 
-  // Avisar al asesor que agendó (mejor esfuerzo).
+  // Avisar al asesor que agendó: campana + push.
   try {
-    const { sendPushToUser } = await import('../services/push.js');
     const quien = `${req.user.nombre} ${req.user.apellidoP || ''}`.trim();
-    const titulos = { ACEPTADA: 'Acompañamiento confirmado', RECHAZADA: 'Acompañamiento rechazado', SUGERIDA: 'Diana propuso otro horario' };
+    const titulos = {
+      ACEPTADA: 'Acompañamiento confirmado',
+      RECHAZADA: 'Acompañamiento rechazado',
+      SUGERIDA: `${quien} propuso otro horario`,
+    };
     const cuerpos = {
       ACEPTADA: `${quien} aceptó acompañarte en "${cita.titulo}".`,
       RECHAZADA: `${quien} no podrá acompañarte en "${cita.titulo}". Agenda con otro promotor u horario.`,
       SUGERIDA: `${quien} propuso otro horario para "${cita.titulo}": ${new Date(sugerenciaInicio).toLocaleString('es-MX')}. Revisa y responde.`,
     };
-    await sendPushToUser(cita.asesorId, {
-      title: titulos[respuesta],
-      body: cuerpos[respuesta],
-      tag: `respuesta-cita-${cita.id}`,
-      data: { url: '/citas' },
+    await notificar(cita.asesorId, 'CITA_INVITACION_RESPUESTA', {
+      titulo: titulos[respuesta],
+      cuerpo: cuerpos[respuesta],
+      datos: { url: '/citas', citaId: cita.id, respuesta },
+      pushPayload: {
+        title: titulos[respuesta],
+        body: cuerpos[respuesta],
+        tag: `respuesta-cita-${cita.id}`,
+        data: { url: '/citas' },
+      },
     });
   } catch (err) {
     console.error('No se pudo notificar la respuesta al asesor:', err.message);
@@ -526,18 +541,24 @@ router.patch('/:id/invitacion/sugerencia', asyncHandler(async (req, res) => {
     }
   }
 
-  // Avisar al promotor (mejor esfuerzo).
+  // Avisar al promotor: campana + push.
   if (cita.promotorId) {
     try {
-      const { sendPushToUser } = await import('../services/push.js');
       const quien = `${req.user.nombre} ${req.user.apellidoP || ''}`.trim();
-      await sendPushToUser(cita.promotorId, {
-        title: aceptar ? 'Nuevo horario confirmado' : 'Sugerencia no aceptada',
-        body: aceptar
-          ? `${quien} aceptó tu propuesta de horario para "${cita.titulo}".`
-          : `${quien} no aceptó tu propuesta de horario para "${cita.titulo}". Vuelve a proponer o responde la invitación.`,
-        tag: `sugerencia-cita-${cita.id}`,
-        data: { url: '/citas' },
+      const tituloAviso = aceptar ? 'Nuevo horario confirmado' : 'Sugerencia no aceptada';
+      const cuerpo = aceptar
+        ? `${quien} aceptó tu propuesta de horario para "${cita.titulo}".`
+        : `${quien} no aceptó tu propuesta de horario para "${cita.titulo}". Vuelve a proponer o responde la invitación.`;
+      await notificar(cita.promotorId, 'CITA_SUGERENCIA_RESPUESTA', {
+        titulo: tituloAviso,
+        cuerpo,
+        datos: { url: '/citas', citaId: cita.id, aceptada: aceptar },
+        pushPayload: {
+          title: tituloAviso,
+          body: cuerpo,
+          tag: `sugerencia-cita-${cita.id}`,
+          data: { url: '/citas' },
+        },
       });
     } catch (err) {
       console.error('No se pudo notificar la respuesta a la sugerencia:', err.message);

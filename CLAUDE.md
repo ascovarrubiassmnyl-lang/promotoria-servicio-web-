@@ -400,8 +400,7 @@ conservan sus nombres históricos; la traducción a UI vive en el **mapa único*
   de `CitaFormModal` sin pasar por esa vista**: al elegir Tipo de cita =
   "Acompañamiento con promotor" sin un `prePromotorId` ya fijado, se
   autoselecciona el promotor si `GET /usuarios/promotores` devuelve uno solo
-  (hoy el sistema siembra dos, así que en la práctica el selector se muestra;
-  la autoselección cubre el caso real de un solo promotor en la promotoría).
+  (con una sola promotora ADMIN esa es la situación normal, ver abajo).
   Con un promotor elegido (autoseleccionado o manual) el modal consulta su
   disponibilidad del día vía el mismo `GET /citas/disponibilidad` y muestra
   si el horario elegido está libre u ocupado; a diferencia del empalme entre
@@ -584,6 +583,56 @@ no extenderlo). Modelos: `Candidato` (datos del formulario SMNYL + `etapa` +
 - UI: `pages/Candidatos.jsx` (lista con chips de etapa/semáforo como filtro,
   archivar/restaurar) y `pages/CandidatoDetalle.jsx` (stepper, wizard de
   evaluación, citas). Archivado = borrado lógico, igual que clientes.
+
+## Notificaciones (campana in-app + push, 2026-08-13)
+
+**La notificación in-app es la fuente de verdad; la push es mejor esfuerzo.**
+Antes todo aviso salía solo por Web Push dentro de un `try/catch` que apenas
+loggeaba: si el navegador no estaba suscrito o el envío fallaba, el aviso se
+perdía sin dejar rastro (por eso "las notificaciones funcionaban de vez en
+cuando"). Ahora cada aviso se **persiste primero** y después se intenta la
+push sobre esa fila ya guardada.
+
+- **Modelo `Notificacion`** (migración `20260813120000_notificacion_in_app`):
+  `destinatarioId` (a quién va, no quién lo causó — a diferencia de
+  `Actividad.asesorId`, que es el actor), `tipo` canónico, `titulo`, `cuerpo`,
+  `datos` Json (`url`, `citaId`, `notaId`, `clienteId`, `ventaId`), `leida` +
+  `leidaEn`, y `pushIntentado`/`pushEnviado` solo como diagnóstico.
+- **Punto de entrada ÚNICO**: `notificar(destinatarioId, tipo, {titulo,
+  cuerpo, datos, pushPayload})` en `backend/src/utils/notificaciones.js`
+  (paralelo a `registrarActividad`). Nunca llamar `sendPushToUser` directo
+  desde una ruta: el único uso legítimo que queda es `POST /api/push/test`,
+  que prueba el transporte. El `create` **propaga** su error (si no se pudo
+  persistir no hay aviso en ningún lado); el push va en `try/catch` y su
+  fallo solo se refleja en `pushEnviado: false`.
+- **Tipos canónicos** (`TIPOS_NOTIFICACION`, alcance deliberadamente fijo —
+  solo lo que ya disparaba push): `CITA_INVITACION`,
+  `CITA_INVITACION_RESPUESTA`, `CITA_SUGERENCIA_RESPUESTA`, `RECORDATORIO`,
+  `RECORDATORIO_PAGO`. Espejo de presentación (label/color/icono) en
+  `frontend/src/components/notificaciones/tipos.jsx`, con los mismos colores
+  que Actividad usa para el mismo concepto (cita=violet, recordatorio=orange,
+  pago=cyan). No agregar tipos de negocio (pólizas, referidos, bonos) sin
+  decisión explícita.
+- **`Nota.notificacionEnviada` ya no significa "la push llegó"** sino "el
+  aviso quedó guardado" (`reminderJob.js`): antes se marcaba `true` pasara lo
+  que pasara y el recordatorio se perdía para siempre; ahora solo se marca si
+  `notificar()` persistió, así un fallo se reintenta en la siguiente corrida.
+- **Suscripciones inválidas**: `sendPushToUser` borra la fila con
+  `CODIGOS_SUSCRIPCION_INVALIDA = [401, 403, 404, 410]` (antes solo 410/404;
+  401/403 = VAPID rotada). **400 queda fuera a propósito**: suele ser un
+  payload mal armado nuestro y borraría suscripciones sanas.
+- **API self-service** (`routes/notificaciones.js`, solo `authenticate`, sin
+  `permiteSeccion` — igual que `/api/push`): `GET /` (lista + `noLeidas`),
+  `GET /no-leidas` (solo el conteo, lo consulta la campana cada 30s),
+  `PATCH /leer-todas` (declarada **antes** de `/:id`), `PATCH /:id`. Siempre
+  `destinatarioId = req.user.id`, **sin excepción de admin**: un promotor no
+  lee las notificaciones de sus asesores (403 si intenta marcar una ajena).
+- **UI**: `components/notificaciones/CampanaNotificaciones.jsx` en
+  `Layout.jsx` — barra superior en móvil y footer del sidebar en escritorio
+  (oculta con el sidebar colapsado: el panel de 20rem no cabe junto a 68px).
+  Datos vía `hooks/useNotificaciones.js` (react-query con `refetchInterval`;
+  no hay WebSockets en el proyecto). Click en una fila marca leída y navega a
+  `datos.url`, la misma URL que usa el service worker al tocar la push.
 
 ## Sección Configuración (rediseño 2026-07)
 

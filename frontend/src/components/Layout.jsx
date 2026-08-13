@@ -3,6 +3,7 @@ import { Suspense, lazy, useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { soportaWebGL, Silencioso } from './decor/util3d.jsx';
+import CampanaNotificaciones from './notificaciones/CampanaNotificaciones.jsx';
 
 // Fondo 3D decorativo del panel (solo modo oscuro): mismo patrón que el login
 // — lazy + Suspense (three no entra al bundle inicial), solo con WebGL y con
@@ -189,8 +190,12 @@ export default function Layout() {
           )}
         </nav>
 
-        {/* Footer: usuario + tema + logout */}
+        {/* Footer: notificaciones + usuario + tema + logout */}
         <div className="p-2 border-t border-slate-100 dark:border-slate-700 space-y-1">
+          {/* Colapsado el panel (20rem) no cabe junto a un sidebar de 68px:
+              se muestra solo expandido, igual que el bloque de usuario. */}
+          {!colapsado && <CampanaNotificaciones alineacion="izquierda" etiqueta="Notificaciones" />}
+
           <button
             onClick={alternar}
             className={`flex items-center gap-3 rounded-lg ${colapsado ? 'h-10 w-10 justify-center mx-auto' : 'px-3 py-2'} text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition`}
@@ -235,13 +240,16 @@ export default function Layout() {
         {/* Barra superior compacta — solo móvil (el sidebar cubre escritorio) */}
         <header className="md:hidden sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white/90 px-4 backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/70">
           <img src={logoSrc} alt="Origen" className="h-7 w-auto object-contain" />
-          <button
-            onClick={alternar}
-            className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700/60 transition"
-            aria-label={tema === 'dark' ? 'Activar modo claro' : 'Activar modo oscuro'}
-          >
-            {tema === 'dark' ? <IconSun className="w-5 h-5" /> : <IconMoon className="w-5 h-5" />}
-          </button>
+          <div className="flex items-center gap-0.5">
+            <CampanaNotificaciones />
+            <button
+              onClick={alternar}
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700/60 transition"
+              aria-label={tema === 'dark' ? 'Activar modo claro' : 'Activar modo oscuro'}
+            >
+              {tema === 'dark' ? <IconSun className="w-5 h-5" /> : <IconMoon className="w-5 h-5" />}
+            </button>
+          </div>
         </header>
 
         <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">

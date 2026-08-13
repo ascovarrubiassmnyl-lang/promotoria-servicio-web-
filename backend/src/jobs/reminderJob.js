@@ -1,5 +1,6 @@
 import { prisma } from '../prisma.js';
-import { initWebPush, notificarRecordatorio } from '../services/push.js';
+import { initWebPush } from '../services/push.js';
+import { notificarRecordatorioNota } from '../utils/notificaciones.js';
 import { registrarActividad } from '../utils/actividad.js';
 
 const INTERVALO_MS = 60 * 1000;
@@ -75,8 +76,14 @@ async function procesarRecordatoriosVencidos() {
 
     let enviados = 0;
     for (const nota of vencidos) {
+      // "Notificado" = la notificación in-app quedó persistida (eso es lo que
+      // el asesor verá en su campana), NO que la push haya llegado: el push es
+      // mejor esfuerzo y antes un fallo suyo marcaba la nota como enviada,
+      // perdiendo el recordatorio para siempre.
+      let notificacionPersistida = false;
       try {
-        await notificarRecordatorio(nota);
+        await notificarRecordatorioNota(nota);
+        notificacionPersistida = true;
         enviados += 1;
         // Si es de pago, genera el siguiente recordatorio automáticamente
         if (nota.tipo === 'RECORDATORIO_PAGO' && nota.ventaId) {
@@ -96,8 +103,11 @@ async function procesarRecordatoriosVencidos() {
       } catch (err) {
         console.warn(`[reminder-job] error al notificar nota ${nota.id}: ${err.message}`);
       }
-      // marcar enviado sin importar si la push llegó o no, para no spammear
-      await prisma.nota.update({ where: { id: nota.id }, data: { notificacionEnviada: true } });
+      // Solo si el aviso quedó guardado. Si no se pudo persistir (BD caída,
+      // etc.) la nota sigue pendiente y se reintenta en la próxima corrida.
+      if (notificacionPersistida) {
+        await prisma.nota.update({ where: { id: nota.id }, data: { notificacionEnviada: true } });
+      }
     }
     if (enviados > 0) console.log(`[reminder-job] ${enviados} recordatorio(s) notificados`);
   } catch (err) {

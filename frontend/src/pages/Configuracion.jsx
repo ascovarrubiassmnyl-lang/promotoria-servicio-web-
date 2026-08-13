@@ -281,8 +281,13 @@ function NotificacionesTab() {
   return (
     <Card>
       <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100 mb-2">Notificaciones push del navegador</h3>
-      <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">
+      <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">
         Recibe avisos de tus recordatorios programados en la ficha de cada cliente. Requiere que autorices notificaciones en este navegador.
+      </p>
+      <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">
+        Esto es solo el aviso del navegador o el celular: los mismos avisos
+        quedan guardados en la campana de notificaciones del panel aunque la
+        push no se entregue.
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
@@ -312,7 +317,9 @@ function NotificacionesTab() {
         <div className="mt-5 rounded-lg bg-slate-50 dark:bg-slate-700/40 p-3 text-xs text-slate-500 dark:text-slate-400">
           <p className="font-semibold mb-1">Cómo funciona el backend</p>
           <p>• Un job automático (cada 60s) revisa las <span className="font-mono">Notas</span> tipo <span className="font-mono">RECORDATORIO</span> con <span className="font-mono">fechaAviso</span> vencida y <span className="font-mono">notificacionEnviada=false</span>.</p>
-          <p>• Cuando vence, envía una push al asesor dueño de la nota y marca <span className="font-mono">notificacionEnviada=true</span>.</p>
+          <p>• Cuando vence, guarda la notificación del asesor dueño de la nota (la que se ve en la campana) y luego intenta la push.</p>
+          <p>• <span className="font-mono">notificacionEnviada=true</span> se marca al guardar esa notificación, no al entregar la push: si la push falla el aviso no se pierde, queda en la campana.</p>
+          <p>• Lo mismo aplica a las invitaciones de acompañamiento y sus respuestas.</p>
         </div>
       )}
     </Card>

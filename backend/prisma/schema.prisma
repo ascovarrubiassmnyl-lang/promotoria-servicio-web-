@@ -163,6 +163,7 @@ model Usuario {
   targets         Target[]
   notas           Nota[]
   pushSubs        PushSubscription[]
+  notificaciones  Notificacion[]
   googleCalendar  GoogleCalendarCuenta?
   referidos       Referido[]
   bonos           Bono[]
@@ -257,6 +258,35 @@ model PushSubscription {
 
   @@unique([endpoint])
   @@index([usuarioId])
+}
+
+// Notificación in-app: fuente de verdad de todo aviso que hoy también dispara
+// push (invitación de acompañamiento, respuestas, recordatorios). Se crea
+// SIEMPRE antes de intentar el push (ver utils/notificaciones.js) — así el
+// aviso nunca se pierde aunque la suscripción push falle o no exista. Cada
+// usuario ve EXCLUSIVAMENTE las suyas (destinatarioId = req.user.id, sin
+// excepción de admin: es dato personal, como PushSubscription, no una
+// sección RBAC).
+model Notificacion {
+  id             String    @id @default(cuid())
+  destinatarioId String
+  destinatario   Usuario   @relation(fields: [destinatarioId], references: [id], onDelete: Cascade)
+  // Tipo canónico (string, no Prisma enum — mismo criterio que Actividad.tipo).
+  // Única fuente: TIPOS_NOTIFICACION en backend/src/utils/notificaciones.js.
+  tipo           String
+  titulo         String
+  cuerpo         String
+  // Contexto para navegación/presentación: url, citaId, notaId, clienteId, ventaId…
+  datos          Json?
+  leida          Boolean   @default(false)
+  leidaEn        DateTime?
+  // Diagnóstico del intento de push asociado (no bloquea nada, solo para
+  // depurar suscripciones rotas / VAPID mal configurada).
+  pushIntentado  Boolean   @default(false)
+  pushEnviado    Boolean   @default(false)
+  creadoEn       DateTime  @default(now())
+
+  @@index([destinatarioId, leida, creadoEn])
 }
 
 model Cliente {
