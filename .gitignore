@@ -42,3 +42,4 @@ coverage/
 
 # Claude Code local
 .claude/
+**/.DS_Store

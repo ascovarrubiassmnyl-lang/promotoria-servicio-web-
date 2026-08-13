@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calendario móvil · Origen Asesores</title>
+<style>
+  :root{
+    --bg:#F4F6F9;
+    --surface:#FFFFFF;
+    --line:#E6E9EF;
+    --line-soft:#EFF1F5;
+    --ink:#0F172A;
+    --ink-2:#475569;
+    --ink-3:#94A3B8;
+    --brand:#1D4ED8;
+    --brand-soft:#EEF2FF;
+    --ch-tel:#2563EB;
+    --ch-pre:#0EA47A;
+    --ch-vid:#8B5CF6;
+    --radius:14px;
+    --hour-h:56px;
+    --gutter:16px;
+    --hour-col:46px;
+    font-family:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  body{background:#1a1d24;display:flex;justify-content:center;padding:24px 12px;color:var(--ink)}
+
+  /* ---- simulador de teléfono (solo para este mockup) ---- */
+  .phone{width:390px;height:844px;background:var(--bg);border-radius:36px;overflow:hidden;
+         display:flex;flex-direction:column;position:relative;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+  .statusbar{height:44px;display:flex;align-items:center;justify-content:space-between;
+             padding:0 22px;font-size:13px;font-weight:600;flex:0 0 auto}
+
+  /* ---- barra de marca ---- */
+  .brandbar{display:flex;align-items:center;justify-content:space-between;
+            padding:8px var(--gutter) 10px;background:var(--surface);border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:8px}
+  .brand-mark{width:22px;height:22px;border:1.8px solid var(--ink);border-radius:50%;
+              border-right-color:transparent;transform:rotate(-30deg)}
+  .brand-name{font-size:12px;letter-spacing:.14em;font-weight:600}
+  .brand-name small{display:block;font-size:8px;letter-spacing:.2em;color:var(--ink-3);font-weight:600}
+  .icon-btn{width:34px;height:34px;border-radius:10px;border:1px solid var(--line);background:var(--surface);
+            display:grid;place-items:center;color:var(--ink-2);font-size:15px}
+
+  /* ---- header pegajoso: título + vistas + navegación ---- */
+  .head{background:var(--surface);padding:12px var(--gutter) 10px;border-bottom:1px solid var(--line);flex:0 0 auto}
+  .head-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+  .h1{font-size:21px;font-weight:700;letter-spacing:-.02em}
+  .seg{display:flex;background:var(--bg);border-radius:10px;padding:3px;gap:2px}
+  .seg button{flex:1;border:0;background:transparent;font:inherit;font-size:12.5px;font-weight:600;
+              color:var(--ink-2);padding:6px 12px;border-radius:8px;transition:.15s}
+  .seg button[aria-selected="true"]{background:var(--surface);color:var(--brand);
+              box-shadow:0 1px 3px rgba(15,23,42,.12)}
+  .navrow{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .navrow .range{font-size:14px;font-weight:650;letter-spacing:-.01em}
+  .navrow .spacer{flex:1}
+  .nav-btn{width:32px;height:32px;border-radius:9px;border:1px solid var(--line);background:var(--surface);
+           display:grid;place-items:center;color:var(--ink-2);font-size:14px}
+  .today-btn{height:32px;padding:0 12px;border-radius:9px;border:1px solid var(--line);background:var(--surface);
+             font:inherit;font-size:12.5px;font-weight:600;color:var(--ink-2)}
+  .filter-btn{height:32px;padding:0 11px;border-radius:9px;border:1px solid var(--line);background:var(--surface);
+              font:inherit;font-size:12.5px;font-weight:600;color:var(--ink-2);display:flex;align-items:center;gap:6px}
+  .filter-btn .dot{width:6px;height:6px;border-radius:50%;background:var(--brand)}
+
+  /* ---- tira de días ---- */
+  .strip{display:flex;gap:2px;padding:10px 10px 12px;background:var(--surface);border-bottom:1px solid var(--line);flex:0 0 auto}
+  .day{flex:1;border:0;background:transparent;font:inherit;padding:6px 0 7px;border-radius:12px;
+       display:flex;flex-direction:column;align-items:center;gap:3px;transition:.15s}
+  .day .dw{font-size:10px;font-weight:700;letter-spacing:.06em;color:var(--ink-3);text-transform:uppercase}
+  .day .dn{font-size:16px;font-weight:650;color:var(--ink);line-height:1.1}
+  .day .pips{display:flex;gap:2.5px;height:5px;align-items:center}
+  .day .pips i{width:4.5px;height:4.5px;border-radius:50%;display:block}
+  .day.is-today .dn{color:var(--brand)}
+  .day.is-sel{background:var(--brand)}
+  .day.is-sel .dw,.day.is-sel .dn{color:#fff}
+  .day.is-sel .pips i{background:rgba(255,255,255,.85)!important}
+
+  /* ---- área de contenido ---- */
+  .scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .daybar{position:sticky;top:0;z-index:5;background:var(--bg);padding:12px var(--gutter) 8px;
+          display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+  .daybar h2{font-size:15px;font-weight:700;letter-spacing:-.01em;text-transform:capitalize}
+  .daybar span{font-size:12.5px;color:var(--ink-2);font-weight:550}
+
+  /* ---- línea de tiempo del día ---- */
+  .timeline{position:relative;padding:0 var(--gutter) 96px}
+  .tl-inner{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+            overflow:hidden}
+  .hour{position:relative;height:var(--hour-h);border-bottom:1px solid var(--line-soft);display:flex}
+  .hour:last-child{border-bottom:0}
+  .hour .label{width:var(--hour-col);flex:0 0 var(--hour-col);font-size:10.5px;font-weight:600;color:var(--ink-3);
+               padding:6px 8px 0 0;text-align:right;border-right:1px solid var(--line-soft)}
+  .hour .slot{flex:1}
+  .events{position:absolute;inset:0 8px 0 calc(var(--hour-col) + 8px);pointer-events:none}
+  .ev{position:absolute;left:0;right:0;pointer-events:auto;background:#fff;border:1px solid var(--line);
+      border-left:3px solid var(--ch-pre);border-radius:10px;padding:7px 10px;overflow:hidden;
+      box-shadow:0 1px 2px rgba(15,23,42,.06);display:flex;flex-direction:column;gap:1px}
+  .ev.tel{border-left-color:var(--ch-tel);background:#F5F8FF}
+  .ev.pre{border-left-color:var(--ch-pre);background:#F2FBF7}
+  .ev.vid{border-left-color:var(--ch-vid);background:#F8F5FF}
+  .ev .n{font-size:13px;font-weight:650;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ev .m{font-size:11.5px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ev.short{flex-direction:row;align-items:center;gap:8px;padding:0 10px}
+  .ev.short .m{flex:0 0 auto}
+  .now{position:absolute;left:calc(var(--hour-col) - 4px);right:0;height:0;z-index:3}
+  .now::before{content:"";position:absolute;left:0;top:-3.5px;width:7px;height:7px;border-radius:50%;background:#EF4444}
+  .now::after{content:"";position:absolute;left:6px;right:0;top:0;border-top:1.5px solid #EF4444}
+
+  .collapsed{display:flex;align-items:center;gap:10px;padding:9px 12px 9px calc(var(--hour-col) + 8px);
+             border-bottom:1px solid var(--line-soft);font-size:11.5px;color:var(--ink-3);font-weight:600;
+             background:repeating-linear-gradient(135deg,transparent 0 6px,rgba(148,163,184,.06) 6px 12px)}
+  .collapsed button{margin-left:auto;border:0;background:transparent;font:inherit;font-size:11.5px;
+                    font-weight:650;color:var(--brand)}
+
+  /* ---- agenda ---- */
+  .agenda{padding:4px var(--gutter) 96px;display:flex;flex-direction:column;gap:18px}
+  .ag-day{display:flex;flex-direction:column;gap:8px}
+  .ag-head{display:flex;align-items:center;gap:10px}
+  .ag-date{width:38px;flex:0 0 38px;text-align:center}
+  .ag-date .n{font-size:19px;font-weight:700;line-height:1}
+  .ag-date .w{font-size:9.5px;font-weight:700;letter-spacing:.08em;color:var(--ink-3);text-transform:uppercase}
+  .ag-head .rule{flex:1;border-top:1px solid var(--line)}
+  .ag-head .cnt{font-size:11.5px;color:var(--ink-3);font-weight:600}
+  .ag-day.is-today .ag-date .n{color:var(--brand)}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+        padding:12px 14px;display:flex;gap:12px;align-items:flex-start;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  .card .bar{width:3px;align-self:stretch;border-radius:2px;background:var(--ch-pre);flex:0 0 3px}
+  .card.tel .bar{background:var(--ch-tel)} .card.vid .bar{background:var(--ch-vid)}
+  .card .body{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+  .card .t{font-size:12.5px;font-weight:650;color:var(--ink-2);font-variant-numeric:tabular-nums}
+  .card .n{font-size:15px;font-weight:650;letter-spacing:-.01em}
+  .card .meta{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink-2);flex-wrap:wrap}
+  .chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:650;padding:2.5px 8px;
+        border-radius:99px;background:var(--brand-soft);color:var(--brand)}
+  .chip.pre{background:#E9F9F2;color:#0B7C5D} .chip.vid{background:#F3EDFF;color:#6D3FD1}
+  .chip.state{background:#EEF2F7;color:var(--ink-2)}
+  .card .go{color:var(--ink-3);font-size:17px;align-self:center}
+  .empty{background:var(--surface);border:1px dashed var(--line);border-radius:var(--radius);
+         padding:26px 16px;text-align:center;color:var(--ink-3);font-size:13px}
+  .empty b{display:block;color:var(--ink-2);font-size:13.5px;font-weight:650;margin-bottom:4px}
+  .empty button{margin-top:12px;border:1px solid var(--line);background:var(--surface);font:inherit;
+                font-size:13px;font-weight:650;color:var(--brand);padding:8px 16px;border-radius:10px}
+
+  /* ---- mes ---- */
+  .month{padding:4px var(--gutter) 96px}
+  .m-grid{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:8px 6px 10px}
+  .m-head,.m-row{display:grid;grid-template-columns:repeat(7,1fr)}
+  .m-head div{text-align:center;font-size:10px;font-weight:700;letter-spacing:.06em;color:var(--ink-3);padding:4px 0 8px}
+  .m-cell{aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+          border:0;background:transparent;font:inherit;border-radius:10px}
+  .m-cell .n{font-size:14px;font-weight:600}
+  .m-cell.out .n{color:var(--ink-3);opacity:.5}
+  .m-cell.is-today .n{color:var(--brand);font-weight:750}
+  .m-cell.is-sel{background:var(--brand)} .m-cell.is-sel .n{color:#fff}
+  .m-cell .pips{display:flex;gap:2.5px;height:5px}
+  .m-cell .pips i{width:4.5px;height:4.5px;border-radius:50%}
+  .m-cell.is-sel .pips i{background:rgba(255,255,255,.85)!important}
+  .m-list{margin-top:14px;display:flex;flex-direction:column;gap:8px}
+
+  /* ---- botón flotante ---- */
+  .fab{position:absolute;right:16px;bottom:78px;height:48px;padding:0 18px 0 15px;border-radius:26px;border:0;
+       background:var(--brand);color:#fff;font:inherit;font-size:14px;font-weight:650;display:flex;align-items:center;
+       gap:8px;box-shadow:0 8px 20px rgba(29,78,216,.35);z-index:20}
+
+  /* ---- nav inferior ---- */
+  .tabbar{flex:0 0 auto;background:var(--surface);border-top:1px solid var(--line);display:grid;
+          grid-template-columns:repeat(5,1fr);padding:8px 0 22px}
+  .tab{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10.5px;font-weight:600;
+       color:var(--ink-3);border:0;background:transparent;font-family:inherit}
+  .tab.on{color:var(--brand)}
+  .tab .g{font-size:17px;line-height:1}
+
+  /* ---- hoja de filtros ---- */
+  .sheet-bg{position:absolute;inset:0;background:rgba(15,23,42,.4);z-index:30;opacity:0;pointer-events:none;transition:.2s}
+  .sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:20px 20px 0 0;z-index:31;
+         padding:10px 16px 28px;transform:translateY(100%);transition:.25s cubic-bezier(.32,.72,0,1)}
+  .sheet.open,.sheet-bg.open{transform:none;opacity:1;pointer-events:auto}
+  .grab{width:36px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 14px}
+  .sheet h3{font-size:12px;font-weight:700;letter-spacing:.06em;color:var(--ink-3);text-transform:uppercase;margin:14px 0 8px}
+  .opts{display:flex;flex-wrap:wrap;gap:8px}
+  .opt{border:1px solid var(--line);background:var(--surface);font:inherit;font-size:13px;font-weight:600;
+       color:var(--ink-2);padding:8px 14px;border-radius:99px;display:flex;align-items:center;gap:7px}
+  .opt.on{border-color:var(--brand);background:var(--brand-soft);color:var(--brand)}
+  .opt i{width:7px;height:7px;border-radius:50%;display:block}
+  .sheet .apply{width:100%;margin-top:20px;height:46px;border:0;border-radius:12px;background:var(--brand);
+                color:#fff;font:inherit;font-size:14.5px;font-weight:650}
+  .hidden{display:none!important}
+  .caption{color:#8b93a5;font-size:12px;text-align:center;margin-top:14px;max-width:390px;line-height:1.5}
+</style>
+</head>
+<body>
+<div>
+<div class="phone">
+  <div class="statusbar"><span>3:04</span><span>▮▮▯ ⌁ ▰</span></div>
+
+  <div class="brandbar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div class="brand-name">ORIGEN<small>ASESORES</small></div>
+    </div>
+    <button class="icon-btn">☾</button>
+  </div>
+
+  <div class="head">
+    <div class="head-top">
+      <div class="h1">Calendario</div>
+      <div class="seg" id="seg">
+        <button data-v="dia" aria-selected="true">Día</button>
+        <button data-v="agenda" aria-selected="false">Agenda</button>
+        <button data-v="mes" aria-selected="false">Mes</button>
+      </div>
+    </div>
+    <div class="navrow">
+      <button class="nav-btn" id="prev">‹</button>
+      <button class="today-btn" id="today">Hoy</button>
+      <button class="nav-btn" id="next">›</button>
+      <div class="range" id="range">27 jul – 2 ago</div>
+      <div class="spacer"></div>
+      <button class="filter-btn" id="openFilters">Filtros</button>
+    </div>
+  </div>
+
+  <div class="strip" id="strip"></div>
+
+  <div class="scroll" id="scroll">
+    <!-- VISTA DÍA -->
+    <section id="v-dia">
+      <div class="daybar"><h2 id="dayTitle">miércoles 29</h2><span id="dayCount">1 cita</span></div>
+      <div class="timeline"><div class="tl-inner" id="tl"></div></div>
+    </section>
+
+    <!-- VISTA AGENDA -->
+    <section id="v-agenda" class="hidden">
+      <div class="daybar"><h2>Próximas citas</h2><span id="agCount">4 citas</span></div>
+      <div class="agenda" id="agenda"></div>
+    </section>
+
+    <!-- VISTA MES -->
+    <section id="v-mes" class="hidden">
+      <div class="daybar"><h2>Julio 2026</h2><span>6 citas</span></div>
+      <div class="month">
+        <div class="m-grid">
+          <div class="m-head"><div>D</div><div>L</div><div>M</div><div>M</div><div>J</div><div>V</div><div>S</div></div>
+          <div id="mgrid"></div>
+        </div>
+        <div class="m-list" id="mlist"></div>
+      </div>
+    </section>
+  </div>
+
+  <button class="fab">＋ Agendar</button>
+
+  <nav class="tabbar">
+    <button class="tab"><span class="g">▦</span>Panel</button>
+    <button class="tab"><span class="g">◉</span>Clientes</button>
+    <button class="tab on"><span class="g">▤</span>Citas</button>
+    <button class="tab"><span class="g">◇</span>Pólizas</button>
+    <button class="tab"><span class="g">☰</span>Más</button>
+  </nav>
+
+  <div class="sheet-bg" id="sheetBg"></div>
+  <div class="sheet" id="sheet">
+    <div class="grab"></div>
+    <h3>Canal</h3>
+    <div class="opts">
+      <button class="opt on">Todos</button>
+      <button class="opt"><i style="background:var(--ch-tel)"></i>Telefónica</button>
+      <button class="opt"><i style="background:var(--ch-pre)"></i>Presencial</button>
+      <button class="opt"><i style="background:var(--ch-vid)"></i>Videollamada</button>
+    </div>
+    <h3>Estado</h3>
+    <div class="opts">
+      <button class="opt on">Todos</button>
+      <button class="opt">Programada</button>
+      <button class="opt">Completada</button>
+      <button class="opt">Cancelada</button>
+    </div>
+    <button class="apply" id="applyF">Ver 4 citas</button>
+  </div>
+</div>
+<p class="caption">Mockup interactivo · toca Día / Agenda / Mes y los días de la tira superior.</p>
+</div>
+
+<script>
+const DAYS_W = ['dom','lun','mar','mié','jue','vie','sáb'];
+const DAYS_L = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+const CH = {tel:'Telefónica', pre:'Presencial', vid:'Videollamada'};
+
+// datos de ejemplo — clave = día de julio 2026
+const DATA = {
+  27:[],
+  28:[{s:'09:30',e:'10:00',n:'Roberto Aguilar Ruiz',c:'tel',st:'Programada'},
+      {s:'17:00',e:'18:00',n:'Familia Herrera Núñez',c:'pre',st:'Programada'}],
+  29:[{s:'10:00',e:'10:30',n:'Diana del Rocío Mata',c:'pre',st:'Programada'},
+      {s:'10:45',e:'11:30',n:'Miguel Ángel Torres',c:'vid',st:'Programada'},
+      {s:'16:00',e:'16:30',n:'Kike Villanueva',c:'tel',st:'Programada'}],
+  30:[{s:'12:00',e:'13:00',n:'Gerardo Sandoval',c:'pre',st:'Programada'}],
+  31:[], 1:[]
+};
+const MONTH_DAYS = [26,27,28,29,30,31,1];
+let sel = 29, view = 'dia';
+
+const toMin = t => (+t.slice(0,2))*60 + (+t.slice(3));
+const fmt = t => { let h=+t.slice(0,2), m=t.slice(3); const ap=h<12?'a.m.':'p.m.'; h=h%12||12; return `${h}:${m} ${ap}`; };
+const evs = d => DATA[d] || [];
+
+/* ---------- tira de días ---------- */
+function strip(){
+  const el = document.getElementById('strip'); el.innerHTML='';
+  MONTH_DAYS.forEach((d,i)=>{
+    const b=document.createElement('button');
+    b.className='day'+(d===sel?' is-sel':'')+(d===27?' is-today':'');
+    const pips = [...new Set(evs(d).map(e=>e.c))].slice(0,3)
+      .map(c=>`<i style="background:var(--ch-${c})"></i>`).join('');
+    b.innerHTML=`<span class="dw">${DAYS_W[i]}</span><span class="dn">${d}</span><span class="pips">${pips}</span>`;
+    b.onclick=()=>{sel=d; strip(); dayView(); month();};
+    el.appendChild(b);
+  });
+}
+
+/* ---------- vista día: horas vacías colapsadas ---------- */
+function dayView(){
+  const list = evs(sel).slice().sort((a,b)=>toMin(a.s)-toMin(b.s));
+  const idx = MONTH_DAYS.indexOf(sel);
+  document.getElementById('dayTitle').textContent = `${DAYS_L[idx]} ${sel} de julio`;
+  document.getElementById('dayCount').textContent = list.length===1?'1 cita':`${list.length} citas`;
+
+  const tl = document.getElementById('tl');
+  if(!list.length){
+    tl.outerHTML = `<div class="tl-inner" id="tl"><div class="empty" style="border:0">
+      <b>Sin citas este día</b>El día está libre de 8:00 a.m. a 8:00 p.m.
+      <br><button>Agendar para este día</button></div></div>`;
+    return;
+  }
+  // rango visible = 1 h antes de la primera cita → 1 h después de la última, acotado a 7–21
+  const first = Math.max(7, Math.floor(toMin(list[0].s)/60)-1);
+  const last  = Math.min(21, Math.ceil(toMin(list[list.length-1].e)/60)+1);
+  const busy  = new Set();
+  list.forEach(e=>{ for(let h=Math.floor(toMin(e.s)/60); h<Math.ceil(toMin(e.e)/60); h++) busy.add(h); });
+
+  let html='', hidden=[], top=0; const H=56;
+  const positions=[];
+  for(let h=first; h<last; h++){
+    const near = busy.has(h)||busy.has(h-1)||busy.has(h+1);
+    if(near){
+      if(hidden.length){ html+=collapsedRow(hidden); top+=34; hidden=[]; }
+      positions.push({h, top});
+      html+=`<div class="hour"><div class="label">${(h%12||12)} ${h<12?'am':'pm'}</div><div class="slot"></div></div>`;
+      top+=H;
+    } else hidden.push(h);
+  }
+  if(hidden.length){ html+=collapsedRow(hidden); }
+
+  // eventos posicionados sobre las horas visibles
+  let ev='';
+  list.forEach(e=>{
+    const sh=Math.floor(toMin(e.s)/60), p=positions.find(x=>x.h===sh); if(!p) return;
+    const y = p.top + (toMin(e.s)-sh*60)/60*H;
+    const dur = toMin(e.e)-toMin(e.s);
+    const hgt = Math.max(38, dur/60*H - 4);
+    const short = hgt<46 ? ' short':'';
+    ev+=`<div class="ev ${e.c}${short}" style="top:${y+2}px;height:${hgt}px">
+           <span class="n">${e.n}</span>
+           <span class="m">${fmt(e.s)} · ${CH[e.c]}</span></div>`;
+  });
+  tl.innerHTML = html + `<div class="events">${ev}</div>`;
+}
+function collapsedRow(hs){
+  const a=hs[0], b=hs[hs.length-1];
+  return `<div class="collapsed">Sin citas · ${(a%12||12)}${a<12?'am':'pm'} – ${((b+1)%12||12)}${(b+1)<12?'am':'pm'}
+          <button>Mostrar</button></div>`;
+}
+
+/* ---------- agenda ---------- */
+function agenda(){
+  const wrap=document.getElementById('agenda'); wrap.innerHTML=''; let total=0;
+  MONTH_DAYS.forEach((d,i)=>{
+    const list=evs(d).slice().sort((a,b)=>toMin(a.s)-toMin(b.s));
+    if(!list.length) return; total+=list.length;
+    const sec=document.createElement('div');
+    sec.className='ag-day'+(d===27?' is-today':'');
+    sec.innerHTML=`<div class="ag-head">
+        <div class="ag-date"><div class="n">${d}</div><div class="w">${DAYS_W[i]}</div></div>
+        <div class="rule"></div><div class="cnt">${list.length===1?'1 cita':list.length+' citas'}</div>
+      </div>` + list.map(e=>`
+      <div class="card ${e.c}">
+        <div class="bar"></div>
+        <div class="body">
+          <div class="t">${fmt(e.s)} – ${fmt(e.e)}</div>
+          <div class="n">${e.n}</div>
+          <div class="meta"><span class="chip ${e.c}">${CH[e.c]}</span><span class="chip state">${e.st}</span></div>
+        </div>
+        <div class="go">›</div>
+      </div>`).join('');
+    wrap.appendChild(sec);
+  });
+  document.getElementById('agCount').textContent = total+' citas';
+}
+
+/* ---------- mes ---------- */
+function month(){
+  const g=document.getElementById('mgrid'); g.innerHTML='';
+  const start=3; // 1 jul 2026 = miércoles
+  let day=1-start;
+  for(let r=0;r<5;r++){
+    const row=document.createElement('div'); row.className='m-row';
+    for(let c=0;c<7;c++,day++){
+      const b=document.createElement('button');
+      const out = day<1||day>31;
+      const n = out ? (day<1?30+day:day-31) : day;
+      b.className='m-cell'+(out?' out':'')+(!out&&day===sel?' is-sel':'')+(!out&&day===27?' is-today':'');
+      const pips = out?'':[...new Set(evs(day).map(e=>e.c))].slice(0,3)
+        .map(x=>`<i style="background:var(--ch-${x})"></i>`).join('');
+      b.innerHTML=`<span class="n">${n}</span><span class="pips">${pips}</span>`;
+      if(!out) b.onclick=(d=>()=>{sel=d; strip(); month(); dayView();})(day);
+      row.appendChild(b);
+    }
+    g.appendChild(row);
+  }
+  const list=evs(sel).slice().sort((a,b)=>toMin(a.s)-toMin(b.s));
+  document.getElementById('mlist').innerHTML = list.length ? list.map(e=>`
+    <div class="card ${e.c}"><div class="bar"></div><div class="body">
+      <div class="t">${fmt(e.s)} – ${fmt(e.e)}</div><div class="n">${e.n}</div>
+      <div class="meta"><span class="chip ${e.c}">${CH[e.c]}</span></div>
+    </div><div class="go">›</div></div>`).join('')
+    : `<div class="empty"><b>Sin citas el ${sel} de julio</b>Toca otro día o agenda uno nuevo.</div>`;
+}
+
+/* ---------- vistas ---------- */
+document.getElementById('seg').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  view=b.dataset.v;
+  [...document.querySelectorAll('#seg button')].forEach(x=>x.setAttribute('aria-selected', x===b));
+  document.getElementById('v-dia').classList.toggle('hidden',view!=='dia');
+  document.getElementById('v-agenda').classList.toggle('hidden',view!=='agenda');
+  document.getElementById('v-mes').classList.toggle('hidden',view!=='mes');
+  document.getElementById('strip').classList.toggle('hidden',view==='mes');
+  document.getElementById('range').textContent = view==='mes'?'Julio 2026':'27 jul – 2 ago';
+  document.getElementById('scroll').scrollTop=0;
+});
+const sheet=document.getElementById('sheet'), bg=document.getElementById('sheetBg');
+const close=()=>{sheet.classList.remove('open');bg.classList.remove('open');};
+document.getElementById('openFilters').onclick=()=>{sheet.classList.add('open');bg.classList.add('open');};
+bg.onclick=close; document.getElementById('applyF').onclick=close;
+document.getElementById('today').onclick=()=>{sel=27;strip();dayView();month();};
+
+strip(); dayView(); agenda(); month();
+</script>
+</body>
+</html>
