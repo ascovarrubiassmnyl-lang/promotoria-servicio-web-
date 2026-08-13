@@ -121,13 +121,21 @@ export default function Puntos() {
     return mejor;
   }, [filas, dias, valores]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Candado anti-falsificación: solo se edita el propio formato (nunca el de
+  // otro asesor, aunque el promotor lo esté consultando) y solo mientras el
+  // día siga siendo "hoy" según el servidor — en cuanto cierra, ni el
+  // asesor ni el promotor pueden tocarlo (backend/src/routes/puntos.js).
+  const soloLectura = !!data?.soloLectura;
+  const hoy = data?.hoy || isoDia(new Date());
+
   // Guardado por día al salir del campo (upsert idempotente en el servidor).
   const guardarDia = async (clave) => {
+    if (soloLectura || clave < hoy) return;
     const fila = filas[clave];
     if (!fila) return;
     try {
       setErr('');
-      const payload = { fecha: clave, asesorId: asesorId || undefined };
+      const payload = { fecha: clave };
       for (const campo of CAMPOS) payload[campo] = Number(fila[campo]) || 0;
       await api.put('/puntos/dia', payload);
       qc.invalidateQueries(['puntos-resumen']);
@@ -135,9 +143,10 @@ export default function Puntos() {
   };
 
   const guardarPlan = async () => {
+    if (soloLectura) return;
     try {
       setErr('');
-      const payload = { semanaInicio: inicioIso, asesorId: asesorId || undefined };
+      const payload = { semanaInicio: inicioIso };
       for (const [campo] of LISTAS_PLAN) payload[campo] = (plan[campo] || []).map((s) => s.trim());
       await api.put('/puntos/plan', payload);
     } catch (e) { setErr(handleError(e)); }
@@ -223,9 +232,15 @@ export default function Puntos() {
         </div>
       </div>
 
+      {soloLectura && (
+        <p className="scope-banner">
+          Modo consulta: estás viendo el formato de {nombreScope}. Solo la propia persona puede capturarlo.
+        </p>
+      )}
+
       <Card
         title="Registro diario"
-        subtitle="Captura al terminar el día; el puntaje se calcula solo. Se guarda al salir de cada celda."
+        subtitle="Captura al terminar el día; el puntaje se calcula solo. Se guarda al salir de cada celda. Al día siguiente el registro se cierra y ya no se puede modificar."
       >
         {isLoading ? (
           <div className="py-6 text-center text-slate-400 dark:text-slate-500">Cargando…</div>
@@ -254,12 +269,16 @@ export default function Puntos() {
                   const clave = isoDia(d);
                   const fila = filas[clave] || filaVacia();
                   const puntos = puntosDeFila(fila);
-                  const esHoy = isoDia(new Date()) === clave;
+                  const esHoy = hoy === clave;
+                  const cerrado = clave < hoy; // candado: día ya pasado, ni el asesor ni el promotor pueden tocarlo
+                  const bloqueado = soloLectura || cerrado;
                   return (
-                    <tr key={clave} className={`border-t border-slate-50 dark:border-slate-700/60 ${esHoy ? 'bg-brand-50/40 dark:bg-brand-900/10' : ''}`}>
+                    <tr key={clave} className={`border-t border-slate-50 dark:border-slate-700/60 ${esHoy ? 'bg-brand-50/40 dark:bg-brand-900/10' : ''} ${cerrado ? 'opacity-60' : ''}`}>
                       <td className="py-1.5 pr-2 whitespace-nowrap">
                         <span className={`text-xs font-semibold ${esHoy ? 'text-brand-700 dark:text-brand-300' : 'text-slate-700 dark:text-slate-200'}`}>{DIAS_LABEL[i]}</span>
-                        <span className="block text-[10px] text-slate-400 dark:text-slate-500">{d.getDate()}</span>
+                        <span className="block text-[10px] text-slate-400 dark:text-slate-500">
+                          {d.getDate()}{cerrado && <span title="Día cerrado: ya no se puede modificar"> 🔒</span>}
+                        </span>
                       </td>
                       {CAMPOS.map((campo) => (
                         <td key={campo} className="px-0.5 py-1">
@@ -267,8 +286,9 @@ export default function Puntos() {
                             type="number"
                             min="0"
                             step={campo === 'comision' ? '0.01' : '1'}
-                            className="input !px-1 !py-1 w-14 text-center tabular-nums text-xs"
+                            className="input !px-1 !py-1 w-14 text-center tabular-nums text-xs disabled:cursor-not-allowed disabled:bg-slate-50 dark:disabled:bg-slate-800/60"
                             value={fila[campo]}
+                            disabled={bloqueado}
                             onChange={(e) => setCelda(clave, campo, e.target.value)}
                             onBlur={() => guardarDia(clave)}
                             aria-label={`${campo} del ${DIAS_LABEL[i]}`}
@@ -315,8 +335,9 @@ export default function Puntos() {
                   <div key={i} className="flex items-center gap-2">
                     <span className="w-4 text-xs text-slate-400 dark:text-slate-500 tabular-nums">{i + 1}.</span>
                     <input
-                      className="input !py-1.5 text-sm"
+                      className="input !py-1.5 text-sm disabled:cursor-not-allowed disabled:bg-slate-50 dark:disabled:bg-slate-800/60"
                       value={v}
+                      disabled={soloLectura}
                       onChange={(e) => setPlan((p) => ({ ...p, [campo]: p[campo].map((x, j) => (j === i ? e.target.value : x)) }))}
                       onBlur={guardarPlan}
                     />

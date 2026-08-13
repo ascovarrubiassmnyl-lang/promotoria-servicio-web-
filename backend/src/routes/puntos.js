@@ -38,10 +38,15 @@ const fechaDia = (str) => {
   return Number.isNaN(d.getTime()) ? null : d;
 };
 
-// Alcance por rol: el asesor solo se ve a sí mismo (el parámetro se ignora);
-// el promotor puede consultar/capturar por cualquier asesor.
+// Alcance por rol para LECTURA: el asesor solo se ve a sí mismo (el
+// parámetro se ignora); el promotor puede consultar cualquier asesor.
 const asesorScope = (req, explicito) =>
   req.user.rol === 'ASESOR' ? req.user.id : (explicito || req.user.id);
+
+// 'YYYY-MM-DD' del día actual en la zona horaria de la promotoría (single
+// country: México). Es la referencia del candado anti-falsificación: nunca
+// se calcula "hoy" con el reloj/zona del navegador.
+const hoyISO = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date());
 
 // Semana del formato: 7 días a partir de `inicio` (lunes, como el resto del
 // sistema). Devuelve registros existentes, plan de la semana y el puntaje.
@@ -67,15 +72,26 @@ router.get('/semana', asyncHandler(async (req, res) => {
     valores: PUNTOS,
     metaDiaria: META_PUNTOS_DIARIA,
     totalSemana: conPuntos.reduce((acc, r) => acc + r.puntos, 0),
+    hoy: hoyISO(),
+    soloLectura: asesorId !== req.user.id, // viendo el formato de otro asesor: nunca editable
   });
 }));
 
 // Captura/edición del día (upsert). Solo campos conocidos, enteros >= 0.
+// Candado anti-falsificación (acordado 2026-08-05): cada quien captura
+// ÚNICAMENTE su propio registro (el promotor ya no puede editar por otro,
+// solo consultar en GET /semana) y solo el día de hoy — en cuanto el día
+// cierra, ni el asesor ni el promotor pueden tocarlo nunca más, sin
+// excepciones de rol. Evita "maquillar" el histórico de productividad.
 router.put('/dia', asyncHandler(async (req, res) => {
   const { fecha } = req.body || {};
   const dia = fechaDia(fecha);
   if (!dia) return res.status(400).json({ error: 'fecha (YYYY-MM-DD) es requerida' });
-  const asesorId = asesorScope(req, req.body.asesorId);
+  const asesorId = req.user.id;
+  const hoy = hoyISO();
+  if (String(fecha).slice(0, 10) < hoy) {
+    return res.status(409).json({ error: 'Ese día ya cerró y no se puede modificar (candado anti-falsificación de productividad).' });
+  }
 
   const data = {};
   for (const campo of CAMPOS) {
@@ -100,10 +116,11 @@ router.put('/dia', asyncHandler(async (req, res) => {
 
 // Listas de planeación de la semana (5 mejores prospectos, desarrollo
 // personal, oportunidades de venta y de servicio). Upsert por semana.
+// Mismo candado de autoría que /dia: cada quien edita solo lo suyo.
 router.put('/plan', asyncHandler(async (req, res) => {
   const inicio = fechaDia(req.body?.semanaInicio);
   if (!inicio) return res.status(400).json({ error: 'semanaInicio (YYYY-MM-DD) es requerida' });
-  const asesorId = asesorScope(req, req.body.asesorId);
+  const asesorId = req.user.id;
 
   const lista = (v) => (Array.isArray(v) ? v.slice(0, 5).map((s) => String(s).slice(0, 200)) : undefined);
   const data = {};
