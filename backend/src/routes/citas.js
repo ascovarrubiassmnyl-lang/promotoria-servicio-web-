@@ -133,6 +133,30 @@ async function buscarEmpalme(asesorId, inicio, fin, excluirId = null) {
   });
 }
 
+// Choque con la agenda YA OCUPADA de un promotor: mismo criterio que
+// GET /disponibilidad y que la validación de PATCH /:id/invitacion al
+// aceptar — cita propia del promotor, o acompañamiento que ya ACEPTÓ (una
+// invitación PENDIENTE todavía no ocupa el hueco). A diferencia del empalme
+// entre asesores, esto NUNCA se ignora con ignorarEmpalme: no tiene sentido
+// invitar al promotor "de todas formas" a una hora que ya no tiene libre —
+// el propio modal ya lo bloquea en el frontend, esto es la misma regla
+// aplicada en servidor, que es la que manda.
+async function buscarChoquePromotor(promotorId, inicio, fin, excluirId = null) {
+  return prisma.cita.findFirst({
+    where: {
+      ...(excluirId ? { id: { not: excluirId } } : {}),
+      estado: { in: ['PROGRAMADA', 'CONFIRMADA'] },
+      fechaHoraInicio: { lt: fin },
+      fechaHoraFin: { gt: inicio },
+      OR: [
+        { asesorId: promotorId },
+        { promotorId, invitacionEstado: 'ACEPTADA' },
+      ],
+    },
+    select: { id: true, titulo: true, fechaHoraInicio: true, fechaHoraFin: true },
+  });
+}
+
 // Recurrencia de citas (2026-08): al agendar se puede pedir que la cita se
 // repita; se materializan TODAS las instancias como filas Cita normales que
 // comparten `serieId` (sin lógica especial de cascada — cada una se edita,
@@ -270,6 +294,20 @@ router.post('/', asyncHandler(async (req, res) => {
     if (ignorarEmpalme !== true) {
       const solapada = await buscarEmpalme(asesorId, inicioInstancia, finInstancia);
       if (solapada) { omitidas.push({ fechaHoraInicio: inicioInstancia, empalme: solapada }); continue; }
+    }
+    // Invitar al promotor a un horario que ya tiene ocupado no tiene sentido:
+    // a diferencia del empalme entre asesores, esto bloquea siempre (no hay
+    // ignorarEmpalme para este caso). Solo aplica si de verdad queda PENDIENTE
+    // de su respuesta — si el propio promotor se agenda a sí mismo, ya se
+    // valida como su propio empalme más arriba.
+    if (promotorFinal && promotorFinal !== req.user.id) {
+      const choquePromotor = await buscarChoquePromotor(promotorFinal, inicioInstancia, finInstancia);
+      if (choquePromotor) {
+        return res.status(409).json({
+          error: 'El promotor ya tiene una cita a esa hora — elige otro horario libre.',
+          empalmePromotor: choquePromotor,
+        });
+      }
     }
     // El estado NO se recibe del cliente: toda cita nueva nace PROGRAMADA y
     // cambia después con las acciones del ciclo de vida (completar, cancelar, no asistió).
@@ -619,6 +657,33 @@ router.patch('/:id', asyncHandler(async (req, res) => {
     if (ignorarEmpalme !== true) {
       const solapada = await buscarEmpalme(existente.asesorId, inicio, fin, id);
       if (solapada) return res.status(409).json({ error: 'Se empalma con otra cita del asesor', empalme: solapada });
+    }
+  }
+
+  // Misma regla del alta: si la cita queda con una invitación todavía
+  // PENDIENTE (el promotor no la ha aceptado, así que aún no ocupa su
+  // agenda), reagendarla o reasignarle promotor no puede aterrizar en un
+  // horario que ese promotor ya tiene ocupado. Esto nunca se ignora con
+  // ignorarEmpalme — igual que en el alta.
+  {
+    const promotorEfectivo = data.promotorId !== undefined ? data.promotorId : existente.promotorId;
+    const invitacionEfectiva = promotorId !== undefined && promotorId !== existente.promotorId
+      ? (promotorEfectivo === req.user.id ? 'ACEPTADA' : 'PENDIENTE')
+      : existente.invitacionEstado;
+    if (promotorEfectivo && promotorEfectivo !== req.user.id && invitacionEfectiva === 'PENDIENTE') {
+      const inicio = data.fechaHoraInicio || existente.fechaHoraInicio;
+      const fin = data.fechaHoraFin || existente.fechaHoraFin;
+      const choquePromotor = await buscarChoquePromotor(promotorEfectivo, inicio, fin, id);
+      if (choquePromotor) {
+        return res.status(409).json({
+          error: 'El promotor ya tiene una cita a esa hora — elige otro horario libre.',
+          empalmePromotor: choquePromotor,
+        });
+      }
+    }
+    if (promotorId !== undefined && promotorId !== existente.promotorId) {
+      data.invitacionEstado = invitacionEfectiva;
+      data.invitacionRespondidaEn = invitacionEfectiva === 'ACEPTADA' ? new Date() : null;
     }
   }
 

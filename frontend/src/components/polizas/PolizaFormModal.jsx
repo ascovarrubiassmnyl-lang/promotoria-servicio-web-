@@ -4,19 +4,35 @@ import { api, handleError } from '../../api/client.js';
 import { Modal, Field, DatePicker } from '../ui.jsx';
 import {
   RAMOS, RAMOS_LABEL, FORMAS_PAGO, FORMAS_PAGO_LIST,
-  ESTADOS_VENTA, ESTADOS_VENTA_LABEL, isoLocalDateInput,
+  ESTADOS_VENTA, ESTADOS_VENTA_LABEL, isoLocalDateInput, mxn,
 } from '../../lib/format.js';
+import { MONEDAS, METODOS_PAGO, requiereTipoCambio, infoMoneda } from './tipos.js';
 
 const VACIO = {
   clienteId: '', ramo: 'VIDA', producto: '', productoCatalogoId: '',
   primaAnual: '', comisionPct: 10, estado: 'PENDIENTE_PAGAR', formaPago: 'ANUAL',
+  moneda: 'MXN', primaMoneda: '', tipoCambio: '',
+  domiciliada: false, metodoPago: '',
   sumaAsegurada: '', plazo: '', deducible: '', coaseguro: '',
-  fechaFirma: '', fechaInicioVigencia: '', fechaFinVigencia: '',
+  fechaFirma: '', fechaEmision: '', fechaInicioVigencia: '', fechaFinVigencia: '',
   fechaProximoPago: '', diaPago: '', montoPago: '', notas: '',
   coberturas: [], beneficiarios: [],
 };
 
 const d = (v) => (v ? isoLocalDateInput(new Date(v)) : '');
+
+// Fin de vigencia sugerido a partir del inicio. Los seguros de la promotoría
+// son de vigencia anual (se renuevan cada año); el plazo del producto ("20
+// pagos") es el periodo de PAGO, no el de cobertura. El asesor puede
+// sobrescribir la fecha: esto solo evita teclearla a mano en el caso normal.
+function finDeVigenciaSugerido(inicioISO) {
+  if (!inicioISO) return '';
+  const [a, m, dia] = inicioISO.split('-').map(Number);
+  if (!a || !m || !dia) return '';
+  const fin = new Date(a + 1, m - 1, dia);
+  fin.setDate(fin.getDate() - 1); // vence el día previo al aniversario
+  return isoLocalDateInput(fin);
+}
 
 // Modal único para crear (venta=null) o editar (venta=objeto) una póliza.
 // asesorId (opcional): scope de promotor — la póliza nueva se asigna a ese
@@ -42,11 +58,17 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
       comisionPct: venta.comisionPct ?? 10,
       estado: venta.estado,
       formaPago: venta.formaPago || 'ANUAL',
+      moneda: venta.moneda || 'MXN',
+      primaMoneda: venta.primaMoneda ?? '',
+      tipoCambio: venta.tipoCambio ?? '',
+      domiciliada: venta.domiciliada === true,
+      metodoPago: venta.metodoPago || '',
       sumaAsegurada: venta.sumaAsegurada ?? '',
       plazo: venta.plazo || '',
       deducible: venta.deducible ?? '',
       coaseguro: venta.coaseguro || '',
       fechaFirma: d(venta.fechaFirma),
+      fechaEmision: d(venta.fechaEmision),
       fechaInicioVigencia: d(venta.fechaInicioVigencia),
       fechaFinVigencia: d(venta.fechaFinVigencia),
       fechaProximoPago: d(venta.fechaProximoPago),
@@ -74,10 +96,43 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
 
   const onProductoCatalogo = (id) => {
     const p = catalogo?.find((x) => x.id === id);
-    setForm((f) => ({ ...f, productoCatalogoId: id, producto: p?.nombre || f.producto, comisionPct: p?.comisionPct ?? f.comisionPct }));
+    // Si el producto solo se ofrece en una moneda (ej. Orvi 6 pagos = USD),
+    // se preselecciona; con varias se respeta lo que el asesor ya eligió si
+    // es válido para ese producto.
+    const disponibles = Array.isArray(p?.monedas) ? p.monedas : null;
+    setForm((f) => {
+      const moneda = disponibles && !disponibles.includes(f.moneda) ? disponibles[0] : f.moneda;
+      return {
+        ...f,
+        productoCatalogoId: id,
+        producto: p?.nombre || f.producto,
+        comisionPct: p?.comisionPct ?? f.comisionPct,
+        moneda,
+        // Al cambiar a divisa, el monto capturado pasa al campo de moneda original.
+        primaMoneda: requiereTipoCambio(moneda) ? (f.primaMoneda || f.primaAnual) : '',
+        tipoCambio: requiereTipoCambio(moneda) ? f.tipoCambio : '',
+      };
+    });
   };
 
   const productoCatalogoActual = catalogo?.find((x) => x.id === form.productoCatalogoId);
+  // Con producto del catálogo elegido, el nombre lo define la compañía: se
+  // autorrellena y queda de solo lectura (antes se podía teclear encima y la
+  // misma póliza acababa registrada con tres nombres distintos).
+  const nombreBloqueado = Boolean(productoCatalogoActual);
+
+  // Monedas en que la compañía ofrece el producto elegido (dato del catálogo).
+  // Sin producto de catálogo, se ofrecen las tres.
+  const monedasDelProducto = Array.isArray(productoCatalogoActual?.monedas) && productoCatalogoActual.monedas.length
+    ? MONEDAS.filter((m) => productoCatalogoActual.monedas.includes(m.value))
+    : null;
+
+  // Conversión de moneda. `primaAnual` viaja SIEMPRE en MXN al backend; aquí
+  // solo se calcula la vista previa de lo que se va a guardar.
+  const necesitaTC = requiereTipoCambio(form.moneda);
+  const primaEnPesos = necesitaTC
+    ? (+form.primaMoneda || 0) * (+form.tipoCambio || 0)
+    : (+form.primaAnual || 0);
   // Coberturas del catálogo que aún no se agregaron a la póliza (para el selector).
   const coberturasDisponibles = (productoCatalogoActual?.coberturas || []).filter(
     (c) => !form.coberturas.some((fc) => fc.nombre === c.nombre)
@@ -100,18 +155,35 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
   const quitarFila = (lista, i) => set(lista, form[lista].filter((_, x) => x !== i));
 
   const sumaPct = form.beneficiarios.reduce((s, b) => s + (+b.porcentaje || 0), 0);
+  // Costo extra sumado de las coberturas marcadas con costo (informativo: la
+  // prima la captura el asesor, no se deriva de aquí).
+  const costoCoberturas = form.coberturas.reduce((s, c) => s + (+c.costo || 0), 0);
 
   const submit = async (e) => {
     e.preventDefault(); setSaving(true); setErr('');
+    if (necesitaTC && !(+form.tipoCambio > 0)) {
+      setSaving(false);
+      setErr('Captura el tipo de cambio para convertir la prima a pesos.');
+      return;
+    }
     try {
       const payload = {
         ramo: form.ramo,
         producto: form.producto,
         productoCatalogoId: form.productoCatalogoId || null,
-        primaAnual: form.primaAnual !== '' ? +form.primaAnual : undefined,
+        // La prima siempre viaja en MXN; el backend recalcula con el TC.
+        primaAnual: necesitaTC
+          ? (primaEnPesos || undefined)
+          : (form.primaAnual !== '' ? +form.primaAnual : undefined),
+        moneda: form.moneda,
+        primaMoneda: necesitaTC && form.primaMoneda !== '' ? +form.primaMoneda : null,
+        tipoCambio: necesitaTC && form.tipoCambio !== '' ? +form.tipoCambio : null,
         comisionPct: form.comisionPct !== '' ? +form.comisionPct : undefined,
         estado: form.estado,
         formaPago: form.formaPago,
+        domiciliada: form.domiciliada === true,
+        metodoPago: form.metodoPago || null,
+        fechaEmision: form.fechaEmision || null,
         sumaAsegurada: form.sumaAsegurada !== '' ? +form.sumaAsegurada : null,
         plazo: form.plazo || null,
         deducible: form.deducible !== '' ? +form.deducible : null,
@@ -163,11 +235,49 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
             </select>
           </Field>
           <Field label="Nombre del producto*">
-            <input className="input" required value={form.producto} onChange={(e) => set('producto', e.target.value)} />
+            {nombreBloqueado ? (
+              <div
+                className="input flex items-center bg-slate-50 dark:bg-slate-700/40 text-slate-700 dark:text-slate-200"
+                title="Definido por el catálogo de la compañía. Elige «Personalizado» para escribirlo a mano."
+              >{form.producto}</div>
+            ) : (
+              <input className="input" required value={form.producto} onChange={(e) => set('producto', e.target.value)} />
+            )}
           </Field>
-          <Field label="Prima anual (MXN)*">
-            <input type="number" step="0.01" className="input" required value={form.primaAnual} onChange={(e) => set('primaAnual', e.target.value)} />
+          <Field label="Moneda de la póliza">
+            <select
+              className="input"
+              title={monedasDelProducto ? 'Monedas en que la compañía ofrece este producto' : undefined}
+              value={form.moneda}
+              onChange={(e) => {
+                const moneda = e.target.value;
+                setForm((f) => ({
+                  ...f,
+                  moneda,
+                  // Al pasar a divisa, el monto capturado se mueve al campo de
+                  // la moneda original; al volver a pesos se limpian TC y monto.
+                  primaMoneda: requiereTipoCambio(moneda) ? (f.primaMoneda || f.primaAnual) : '',
+                  tipoCambio: requiereTipoCambio(moneda) ? f.tipoCambio : '',
+                }));
+              }}
+            >
+              {(monedasDelProducto || MONEDAS).map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
           </Field>
+          {necesitaTC ? (
+            <>
+              <Field label={`Prima anual (${infoMoneda(form.moneda).sufijo})*`}>
+                <input type="number" step="0.01" className="input" required value={form.primaMoneda} onChange={(e) => set('primaMoneda', e.target.value)} />
+              </Field>
+              <Field label={`Tipo de cambio (1 ${infoMoneda(form.moneda).sufijo} = MXN)*`}>
+                <input type="number" step="0.0001" className="input" required value={form.tipoCambio} onChange={(e) => set('tipoCambio', e.target.value)} placeholder="Ej. 17.50" />
+              </Field>
+            </>
+          ) : (
+            <Field label="Prima anual (MXN)*">
+              <input type="number" step="0.01" className="input" required value={form.primaAnual} onChange={(e) => set('primaAnual', e.target.value)} />
+            </Field>
+          )}
           <Field label="Comisión (%)">
             <input type="number" step="0.1" className="input" value={form.comisionPct} onChange={(e) => set('comisionPct', e.target.value)} />
           </Field>
@@ -187,9 +297,29 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
               {FORMAS_PAGO_LIST.map((f) => <option key={f} value={f}>{FORMAS_PAGO[f]}</option>)}
             </select>
           </Field>
+          <Field label="Método de pago">
+            <select className="input" value={form.metodoPago} onChange={(e) => set('metodoPago', e.target.value)}>
+              <option value="">Sin especificar</option>
+              {METODOS_PAGO.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+          </Field>
           <Field label="Fecha de firma"><DatePicker value={form.fechaFirma} onChange={(v) => set('fechaFirma', v)} /></Field>
-          <Field label="Inicio de vigencia"><DatePicker value={form.fechaInicioVigencia} onChange={(v) => set('fechaInicioVigencia', v)} /></Field>
-          <Field label="Fin de vigencia"><DatePicker value={form.fechaFinVigencia} onChange={(v) => set('fechaFinVigencia', v)} /></Field>
+          <Field label="Fecha de emisión"><DatePicker value={form.fechaEmision} onChange={(v) => set('fechaEmision', v)} /></Field>
+          <Field label="Inicio de vigencia">
+            <DatePicker
+              value={form.fechaInicioVigencia}
+              onChange={(v) => setForm((f) => ({
+                ...f,
+                fechaInicioVigencia: v,
+                // Fin de vigencia automático: solo si aún está vacío, para no
+                // pisar un ajuste manual del asesor.
+                fechaFinVigencia: f.fechaFinVigencia || finDeVigenciaSugerido(v),
+              }))}
+            />
+          </Field>
+          <Field label="Fin de vigencia">
+            <DatePicker value={form.fechaFinVigencia} onChange={(v) => set('fechaFinVigencia', v)} />
+          </Field>
           <Field label="Próximo pago"><DatePicker value={form.fechaProximoPago} onChange={(v) => set('fechaProximoPago', v)} /></Field>
           <Field label="Día de pago recurrente (1-28)">
             <input type="number" min="1" max="28" className="input" value={form.diaPago} onChange={(e) => set('diaPago', e.target.value)} />
@@ -209,11 +339,36 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
           )}
         </div>
 
+        {/* Conversión de moneda: se guarda en pesos porque es la cifra que
+            suman comisiones, metas y ranking. */}
+        {necesitaTC && primaEnPesos > 0 && (
+          <p className="text-xs text-slate-500 dark:text-slate-400 -mt-1">
+            Se guardará como <strong className="tabular-nums">{mxn(primaEnPesos)}</strong> en pesos
+            (la comisión y las metas siempre se calculan en MXN).
+          </p>
+        )}
+
+        {/* Domiciliación: apaga los recordatorios de cobro de esta póliza */}
+        <label className="flex items-start gap-2 cursor-pointer rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2.5">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={form.domiciliada}
+            onChange={(e) => set('domiciliada', e.target.checked)}
+          />
+          <span className="text-sm">
+            <span className="font-medium text-slate-700 dark:text-slate-200">Póliza domiciliada</span>
+            <span className="block text-xs text-slate-500 dark:text-slate-400">
+              El cargo es automático: no se generan recordatorios de cobro para esta póliza.
+            </span>
+          </span>
+        </label>
+
         {/* Coberturas */}
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="label !mb-0">Coberturas</label>
-            <button type="button" onClick={() => set('coberturas', [...form.coberturas, { nombre: '', detalle: '', monto: '' }])} className="text-xs font-medium text-brand-600 dark:text-brand-400 hover:underline">+ Agregar cobertura personalizada</button>
+            <button type="button" onClick={() => set('coberturas', [...form.coberturas, { nombre: '', detalle: '', monto: '', costo: '' }])} className="text-xs font-medium text-brand-600 dark:text-brand-400 hover:underline">+ Agregar cobertura personalizada</button>
           </div>
           {productoCatalogoActual && (
             <select
@@ -230,12 +385,21 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
               ))}
             </select>
           )}
-          {form.coberturas.length === 0 && <p className="text-xs text-slate-400 dark:text-slate-500">Ej. Fallecimiento (básica) · Suma asegurada · $2,000,000</p>}
+          {form.coberturas.length === 0 && <p className="text-xs text-slate-400 dark:text-slate-500">Ej. Fallecimiento (básica) · Suma asegurada · $2,000,000 · sin costo extra</p>}
+          {form.coberturas.length > 0 && (
+            <div className="grid grid-cols-[1.3fr_1fr_0.8fr_0.7fr_auto] gap-2 mb-1 px-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Cobertura</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Detalle</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Suma asegurada</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500" title="Vacío = incluida sin costo extra">Costo extra</span>
+              <span />
+            </div>
+          )}
           <div className="space-y-2">
             {form.coberturas.map((c, i) => {
               const bloqueada = esCoberturaDeCatalogo(c);
               return (
-                <div key={i} className="grid grid-cols-[1.3fr_1fr_0.8fr_auto] gap-2">
+                <div key={i} className="grid grid-cols-[1.3fr_1fr_0.8fr_0.7fr_auto] gap-2">
                   {bloqueada ? (
                     <div className="input flex items-center bg-slate-50 dark:bg-slate-700/40 text-slate-700 dark:text-slate-200" title="Definida por el catálogo de la compañía">{c.nombre}</div>
                   ) : (
@@ -247,11 +411,27 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
                     <input className="input" placeholder="Detalle" value={c.detalle || ''} onChange={(e) => setFila('coberturas', i, 'detalle', e.target.value)} />
                   )}
                   <input className="input" placeholder="$ / Incluida" value={c.monto || ''} onChange={(e) => setFila('coberturas', i, 'monto', e.target.value)} />
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    className="input"
+                    placeholder="Incluida"
+                    title="Costo adicional en MXN. Déjalo vacío si la cobertura va incluida en la prima."
+                    value={c.costo ?? ''}
+                    onChange={(e) => setFila('coberturas', i, 'costo', e.target.value)}
+                  />
                   <button type="button" onClick={() => quitarFila('coberturas', i)} className="text-slate-400 hover:text-red-500 px-1" aria-label="quitar cobertura">✕</button>
                 </div>
               );
             })}
           </div>
+          {costoCoberturas > 0 && (
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5">
+              Costo extra de coberturas: <strong className="tabular-nums">{mxn(costoCoberturas)}</strong>
+              {' '}· es informativo, la prima anual la capturas arriba.
+            </p>
+          )}
         </div>
 
         {/* Beneficiarios */}

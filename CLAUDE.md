@@ -153,6 +153,16 @@ tipografía = la sans del sistema (no se importó serif del mock).
   `/metricas/ventas-por-ramo` se eliminaron** (métricas duplicadas con
   definiciones propias — no reintroducirlos). `Asesores.jsx` también consume
   `/metricas/dashboard`: no romper los campos del ranking.
+- **Dos embudos, deliberadamente distintos** (toggle en la misma tarjeta):
+  `/metricas/funnel` fotografía **dónde está parado** cada cliente hoy;
+  `/metricas/funnel-actividad` (2026-08-13) cuenta **lo que pasó en el mes**
+  — prospectos abordados → llamadas → citas agendadas → citas asistidas →
+  propuestas → firmas → pagos — y de ahí sale la **tasa de cierre del embudo
+  completo** (pagos/prospectos), que es la que se pidió medir en vez de solo
+  el dinero ingresado. Cada nivel reusa la definición de su módulo dueño
+  (llamadas = actividad `LLAMADA`, citas excluyen `PERSONAL`, firmas/pagos =
+  estados de `Venta`); "propuesta" = póliza registrada en el mes en
+  cualquier estado. **No inventar aquí conteos nuevos.**
 - **Definiciones únicas** (mismas que Pólizas/Metas, no recalcular distinto):
   venta ganada = `APROBADA`/`PAGADA` con `creadoEn` en el mes; "Comisión
   ganada" (verde) vs "Comisión en pipeline" (neutra, solo en la tarjeta
@@ -203,6 +213,55 @@ tipografía = la sans del sistema (no se importó serif del mock).
   para filas 100% libres fuera del catálogo. Cambios al catálogo (vía seed o
   `PATCH /api/productos-catalogo/:id`) no migran automáticamente pólizas ya
   creadas — `Venta.coberturas` es una copia, no una referencia viva.
+- **`ProductoCatalogo.monedas`** (Json `["USD","UDI"]`, 2026-08-13): monedas
+  en que la compañía ofrece el producto (Orvi y Star Dotal se contratan en
+  USD/UDI, Vida Mujer en pesos, etc. — fuente: los manuales SMNYL en
+  `Productos/`). En `PolizaFormModal` **limita el selector de moneda** y
+  preselecciona la única disponible. Es una sugerencia: `Venta.moneda`
+  manda. El seed es create-only **salvo este campo**, que sí se rellena en
+  productos ya sembrados (se agregó después del catálogo original).
+
+### Moneda, domiciliación y pagos (2026-08-13)
+
+Mapa único `frontend/src/components/polizas/tipos.js` (`MONEDAS`,
+`METODOS_PAGO`, `SEMAFOROS_PAGO`, `semaforoPago`) — espejo de los enums
+`MonedaPoliza` / `MetodoPagoPoliza` / `EstadoPagoPoliza`.
+
+- **`Venta.primaAnual` SIEMPRE está en MXN.** Es el campo que suman todas
+  las métricas, comisiones, metas y ranking; una póliza en USD/UDI guarda su
+  monto original en `primaMoneda` + `tipoCambio` (solo informativos, ningún
+  cálculo de negocio los lee) y la conversión la hace **el servidor** en
+  `resolverPrima()` (`routes/ventas.js`), no cada consumidor. Sin tipo de
+  cambio, USD/UDI responde 400. El tipo de cambio se captura a mano (no hay
+  integración con Banxico).
+- **Nombre del producto bloqueado**: con `productoCatalogoId` elegido, el
+  nombre lo define la compañía y queda de solo lectura en `PolizaFormModal`
+  (mismo patrón que las coberturas del catálogo). Para escribirlo libre hay
+  que elegir "— Personalizado —".
+- **`Venta.domiciliada`**: si es true **no se generan recordatorios de
+  cobro** y `sincronizarRecordatorioPago()` **borra** los abiertos (el cargo
+  es automático; recordarlo es ruido). Aplica igual en `reminderJob.js`.
+- **`Venta.fechaEmision`** es distinta de `fechaFirma` (el cliente firma la
+  solicitud; la compañía emite después). **Fin de vigencia automático**: al
+  capturar el inicio se sugiere un año menos un día, solo si el campo está
+  vacío (no pisa un ajuste manual). El plazo del producto ("20 pagos") es
+  periodo de PAGO, no de cobertura — no usarlo para la vigencia.
+- **Coberturas**: el shape Json creció a `[{nombre, detalle, monto, costo}]`.
+  `monto` sigue siendo el texto libre de la suma asegurada ("$800,000",
+  "Incluida"); `costo` es el costo extra **numérico en MXN**, y `null`/0
+  significa incluida. Es informativo: la prima la captura el asesor.
+- **Modelo `PagoPoliza`** (ventaId, periodo, fechaPago, estado,
+  montoEsperado, montoPagado, justificacion, registradoPor): historial real
+  de cobros. Antes un pago solo dejaba rastro como nota completada, así que
+  no había de dónde sacar el semáforo ni cómo registrar un monto distinto.
+  `POST /ventas/:id/cobroconfirmado` acepta `{montoPagado, justificacion}` y
+  el frontend lo pide en un **modal de confirmación con monto y periodo a la
+  vista** (`PolicyDetail`) — ya no un `confirm()` del navegador. El monto
+  esperado lo deriva el servidor (`montoEsperadoDePoliza`: `montoPago` o
+  prima/periodos) y viaja como `venta.montoEsperado`.
+- **Semáforo de pagos** = lectura derivada (`semaforoPago()`), no un campo:
+  cancelada/rechazada → rojo; domiciliada → verde; `fechaProximoPago`
+  vencida → ámbar; con pagos registrados o PAGADA → verde; si no, neutro.
 
 ### Reglas de negocio de comisiones (no romper)
 
@@ -250,6 +309,28 @@ que se guardaron ya formateados — no volver a escribirla.
 
 ## Sección Clientes (rediseño 2026-07)
 
+- **Prospecto vs. cliente es DERIVADO, no un campo** (2026-08-13): `GET
+  /api/clientes` devuelve `esCliente` calculado en servidor (tiene al menos
+  una `Venta` en `PENDIENTE_PAGAR`/`FIRMADA`/`APROBADA`/`PAGADA` —
+  cancelada/rechazada no cuentan, mismo criterio que el resto del sistema).
+  La lista lo presenta como switch **Todos | Prospectos | Clientes** encima
+  de los chips de etapa, y el segmento se aplica **antes** que los chips
+  (los conteos de etapa reflejan lo que el usuario está viendo). **No crear
+  un enum `TipoContacto` capturado a mano**: se desincroniza en cuanto
+  alguien cierra una venta y olvida cambiarlo.
+- **"Cliente frío"** = prospecto sin datos de contacto. No necesitó columna
+  nueva: `email` y `telefono` **ya eran opcionales**; lo que había era una
+  validación de UI que obligaba a inventar correos falsos (`aaa@gmail.com`).
+  El alta solo exige nombre y apellido paterno, y avisa en el modal cuando
+  el registro va sin teléfono ni correo.
+- **Fuente de captación**: mapa único `components/clientes/fuentes.js`
+  (`FUENTES`, `infoFuente`, `opcionesFuente`). La columna sigue siendo
+  `String?` a propósito — los clientes anteriores tienen texto libre y
+  convertirla en enum los rompería; `opcionesFuente()` conserva el valor
+  legacy como opción para no borrarlo al editar.
+- **`Cliente.curp`** (migración `20260813180000_mejoras_ficha_polizas_recordatorios`)
+  junto a `rfc`. La bandera **"necesita seguimiento" ya no se pide en el
+  alta**: se marca desde el menú ⋯ de la ficha, cuando ya hay algo que seguir.
 - **Etapas del pipeline**: enum ordenado con **mapa único**
   `etapa → {label, color, orden}` en `components/clientes/etapas.js`
   (`ETAPAS`, `infoEtapa`, `siguienteEtapa`); el color encodea progreso:
@@ -316,6 +397,19 @@ alcance de datos por rol (ver matriz de visibilidad).
   stats, Referidos compacto) y columna principal (Pólizas, Citas, Notas +
   Recordatorios compactas en two-up, Archivos). Las secciones vacías no dominan
   la parte superior.
+- **Un solo punto de edición** (2026-08-13): el botón "Editar" visible del
+  encabezado se eliminó — la edición vive en el menú ⋯ como **"Agregar datos
+  del cliente"** (y el botón del bloque Contacto dice "Agregar datos"), que
+  es lo que realmente se hace ahí: completar RFC, CURP, fecha de nacimiento
+  y dirección que no se piden al registrar. El campo `detalleInteres` ya no
+  se muestra ni se edita en la ficha (duplicaba las notas); la columna se
+  conserva por los datos históricos y **sí** se sigue capturando en el alta.
+- **Archivos: clic = previsualizar, descargar es secundario.** `GET
+  /documentos/:id/ver` sirve el archivo con `Content-Disposition: inline`;
+  el visor es un modal que renderiza imágenes y PDF (otros formatos ofrecen
+  la descarga). Como la API va con token en header, **no se puede apuntar un
+  `<iframe>` a la URL**: se trae el blob y se crea un object URL local, que
+  se revoca al cerrar. Descargar y eliminar viven en el menú ⋯ de la fila.
 - La ficha **reutiliza** `PolizaFormModal` (prop `clienteId` fija el cliente y
   oculta su selector; con ficha ajena se pasa `asesorId` del dueño para que la
   póliza nueva se asigne a él). No duplicar formularios de pólizas. Lo mismo
@@ -533,6 +627,14 @@ obtenidas, notas).
   `Cliente` con `fuente: "Clínica telefónica"`, lo enlaza (`clienteId`), marca
   `CONVERTIDO` y registra `CLIENTE_CREADO` en la bitácora. "Pasar a la próxima
   semana" = PATCH de `semanaInicio` (arrastre de no contactados).
+- **Poblar desde la cartera** (2026-08-13, "Traer de mi cartera"): en vez de
+  capturar prospecto por prospecto, `GET /clinica/prospectos/sugeridos`
+  devuelve los clientes marcados **«necesita seguimiento»** que no están ya
+  en el evaluador de esa semana y no tienen póliza APROBADA/PAGADA;
+  `POST /clinica/prospectos/importar` (`{semanaInicio, clienteIds}`) crea las
+  filas enlazadas por `clienteId`. La anti-duplicación es por `clienteId` +
+  `semanaInicio`, así que importar dos veces no duplica (responde
+  `{importados, duplicados}`).
 - Alcance por rol igual que 25 puntos: asesor solo lo suyo; promotor con
   selector + `GET /clinica/resumen` (avance de cada asesor hacia 10 citas y
   2 sesiones).
@@ -677,6 +779,45 @@ push sobre esa fila ya guardada.
 - **Borrado de una notificación es físico**, no lógico (a diferencia de
   Cliente/Candidato): es un aviso ya entregado, no dato de negocio — la cita o
   el recordatorio que lo originó queda intacto.
+
+### Recordatorios segmentados y doble aviso (2026-08-13)
+
+- **`Nota.destinatario`** (`DestinatarioNota`: `ASESOR` | `CLIENTE`) separa
+  la gestión propia del asesor (llamadas, seguimientos) de lo que hay que
+  tratar con el cliente (pagos, renovaciones). **Ojo: el CRM no tiene canal
+  hacia el asegurado** — no le manda WhatsApp ni correo. `CLIENTE` significa
+  "el asesor debe contactarlo por esto", y el aviso le llega igual al asesor,
+  solo con etiqueta distinta. La ficha los muestra en dos tarjetas separadas
+  y los `RECORDATORIO_PAGO` nacen con `destinatario: 'CLIENTE'`.
+- **Dos ventanas de aviso**: `notificacionEnviada` (el día) y
+  `avisoPrevioEnviado` (24h antes). Son **dos banderas y no un contador**
+  porque son independientes: un recordatorio creado con menos de 24h de
+  anticipación solo dispara el del día. `procesarAvisosPrevios()` en
+  `reminderJob.js` busca `fechaAviso` entre ahora y +24h con
+  `avisoPrevioEnviado: false`; `notificarRecordatorioNota(nota, {previo:
+  true})` usa copy y `tag` propios para que la push anticipada no reemplace
+  a la del día. Mover `fechaAviso` en un PATCH resetea ambas banderas.
+
+### Automatizaciones cableadas (`jobs/automatizacionesJob.js`, 2026-08-13)
+
+Reglas **fijas**, no un motor configurable: el motor tipo n8n/ManyChat quedó
+como pendiente/experimento por decisión explícita del usuario, no como
+requisito. Corre cada hora (nada de lo que vigila cambia por minuto).
+
+- **Prospecto estancado** (`PROSPECTO_ESTANCADO`): cliente sin actualizar en
+  15 días, sin póliza viva, sin cita PROGRAMADA/CONFIRMADA y sin
+  recordatorio abierto. Se avisa una vez cada 15 días por prospecto.
+- **Avance de meta** (`META_AVANCE`): hitos 50/80/100% de `metaVentasNum`
+  del mes, una vez cada uno. Reusa la **misma** definición de venta ganada
+  que Pólizas y Metas (APROBADA/PAGADA creadas en el mes).
+- **Idempotencia sin tabla extra**: la propia bandeja (`Notificacion`) es el
+  registro — cada aviso lleva `datos.clave` (`prospecto:<id>`,
+  `meta:<anio>-<mes>:<hito>`) y se consulta con
+  `datos: { path: ['clave'], equals: clave }` dentro de la ventana.
+- **Retargeting automatizado NO se implementó**: está bloqueado por el mismo
+  motivo que los recordatorios "para el cliente" — no hay canal saliente
+  hacia el asegurado. Requiere decidir WhatsApp Business API o correo
+  transaccional, con sus implicaciones de consentimiento.
 
 ## Sección Configuración (rediseño 2026-07)
 

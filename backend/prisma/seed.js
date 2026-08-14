@@ -64,8 +64,16 @@ async function main() {
   const productoCatalogo = {};
   for (const p of productosCatalogoSeed) {
     const existente = await prisma.productoCatalogo.findUnique({ where: { ramo_nombre: { ramo: p.ramo, nombre: p.nombre } } });
-    if (existente) productoCatalogo[`${p.ramo}_${p.nombre}`] = existente;
-    else productoCatalogo[`${p.ramo}_${p.nombre}`] = await prisma.productoCatalogo.create({ data: p });
+    if (existente) {
+      // Create-only salvo `monedas`: se agregó después de sembrar el catálogo,
+      // así que hay que rellenarla en los productos ya existentes. Lo demás
+      // (comisión, coberturas) puede haber sido editado desde la app y no se pisa.
+      productoCatalogo[`${p.ramo}_${p.nombre}`] = existente.monedas || !p.monedas
+        ? existente
+        : await prisma.productoCatalogo.update({ where: { id: existente.id }, data: { monedas: p.monedas } });
+    } else {
+      productoCatalogo[`${p.ramo}_${p.nombre}`] = await prisma.productoCatalogo.create({ data: p });
+    }
   }
 
   console.log('Seed: candidatos a asesor (reclutamiento)...');

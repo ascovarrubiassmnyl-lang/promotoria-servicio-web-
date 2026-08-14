@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { Card, Modal, Field, EmptyState, MenuAcciones } from '../ui.jsx';
 import CandidatoFormModal from '../candidatos/CandidatoFormModal.jsx';
 import { ETAPAS, infoEtapa, FLAG_SEGUIMIENTO } from './etapas.js';
+import { infoFuente, opcionesFuente } from './fuentes.js';
 import { RAMOS_LABEL, fechaCorta, hora } from '../../lib/format.js';
 
 // Vista de clientes compartida por ambos roles (mismo patrón que PolizasView):
@@ -15,9 +16,11 @@ import { RAMOS_LABEL, fechaCorta, hora } from '../../lib/format.js';
 // La autorización real vive en el backend: un ASESOR siempre recibe solo sus
 // clientes aunque manipule el parámetro asesorId.
 
+// La bandera "necesita seguimiento" NO se pide en el alta: se marca desde el
+// menú ⋯ de la ficha, cuando ya hay algo que seguir.
 const FORM_VACIO = {
   nombre: '', apellidoP: '', apellidoM: '', email: '', telefono: '',
-  estado: 'PROSPECTO', necesitaSeguimiento: false, notas: '', fuente: '',
+  estado: 'PROSPECTO', notas: '', fuente: '',
   productoInteres: '', productoCatalogoId: '', detalleInteres: '', referidoPorId: '',
 };
 
@@ -77,6 +80,9 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
   const [asesorFiltro, setAsesorFiltro] = useState('');
   const [etapaActiva, setEtapaActiva] = useState(null); // valor de etapa o '__flag'
   const [verArchivados, setVerArchivados] = useState(false);
+  // Segmento: 'todos' | 'prospectos' | 'clientes'. Se DERIVA del flag esCliente
+  // que calcula el servidor (tiene póliza viva), no de un campo capturado.
+  const [segmento, setSegmento] = useState('todos');
 
   // Modal crear/editar (mismo formulario; editId define el modo)
   const [open, setOpen] = useState(false);
@@ -119,21 +125,40 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
     enabled: esAdmin() && !scoped,
   });
 
-  const conteos = useMemo(() => {
-    const m = { __flag: 0 };
+  // Conteos del segmento (prospecto = sin póliza viva, cliente = con póliza).
+  const conteoSegmento = useMemo(() => {
+    const m = { todos: 0, prospectos: 0, clientes: 0 };
     for (const c of clientes || []) {
-      m[c.estado] = (m[c.estado] || 0) + 1;
-      if (c.necesitaSeguimiento) m.__flag += 1;
+      m.todos += 1;
+      if (c.esCliente) m.clientes += 1; else m.prospectos += 1;
     }
     return m;
   }, [clientes]);
 
+  // El segmento se aplica ANTES que los chips de etapa: los conteos de etapa
+  // deben reflejar lo que el usuario está viendo, no toda la cartera.
+  const enSegmento = useMemo(() => {
+    const r = clientes || [];
+    if (segmento === 'prospectos') return r.filter((c) => !c.esCliente);
+    if (segmento === 'clientes') return r.filter((c) => c.esCliente);
+    return r;
+  }, [clientes, segmento]);
+
+  const conteos = useMemo(() => {
+    const m = { __flag: 0 };
+    for (const c of enSegmento) {
+      m[c.estado] = (m[c.estado] || 0) + 1;
+      if (c.necesitaSeguimiento) m.__flag += 1;
+    }
+    return m;
+  }, [enSegmento]);
+
   const filas = useMemo(() => {
-    let r = clientes || [];
+    let r = enSegmento;
     if (etapaActiva === '__flag') r = r.filter((c) => c.necesitaSeguimiento);
     else if (etapaActiva) r = r.filter((c) => c.estado === etapaActiva);
     return r;
-  }, [clientes, etapaActiva]);
+  }, [enSegmento, etapaActiva]);
 
   const abrirCrear = () => {
     setEditId(null); setErr('');
@@ -146,7 +171,7 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
     setForm({
       nombre: c.nombre, apellidoP: c.apellidoP, apellidoM: c.apellidoM || '',
       email: c.email || '', telefono: c.telefono || '',
-      estado: c.estado, necesitaSeguimiento: !!c.necesitaSeguimiento,
+      estado: c.estado,
       notas: c.notas || '', fuente: c.fuente || '',
       productoInteres: c.productoInteres || '', productoCatalogoId: '',
       detalleInteres: c.detalleInteres || '', referidoPorId: c.referidoPorId || '',
@@ -243,6 +268,36 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
         </label>
       </div>
 
+      {/* Segmento: prospectos vs. clientes. Es una lectura DERIVADA (cliente =
+          tiene póliza viva), no un campo que alguien tenga que mantener a mano. */}
+      <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 bg-white dark:bg-slate-800">
+        {[
+          { value: 'todos', label: 'Todos' },
+          { value: 'prospectos', label: 'Prospectos' },
+          { value: 'clientes', label: 'Clientes' },
+        ].map((s) => {
+          const on = segmento === s.value;
+          return (
+            <button
+              key={s.value}
+              onClick={() => { setSegmento(s.value); setEtapaActiva(null); }}
+              className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                on
+                  ? 'bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+              }`}
+            >
+              {s.label}
+              <span className={`rounded-full px-1.5 py-0.5 text-xs font-semibold tabular-nums ${
+                on ? 'bg-brand-100 text-brand-700 dark:bg-brand-800/60 dark:text-brand-200' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+              }`}>
+                {conteoSegmento[s.value]}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Pipeline: los chips de etapa son el filtro (clic = filtra, con conteo).
           "Necesita seguimiento" es bandera aparte, no etapa. */}
       <div className="flex flex-wrap gap-2">
@@ -301,7 +356,7 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
                       <Link to={`/clientes/${c.id}`} className="font-semibold text-brand-600 dark:text-brand-400 hover:underline">
                         {c.nombre} {c.apellidoP} {c.apellidoM || ''}
                       </Link>
-                      {c.fuente && <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Fuente: {c.fuente}</p>}
+                      {c.fuente && <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Fuente: {infoFuente(c.fuente).label}</p>}
                     </td>
                     <td className="py-2.5 pr-4 text-slate-600 dark:text-slate-300">
                       {c.telefono && <p className="tabular-nums">{c.telefono}</p>}
@@ -385,17 +440,23 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
                 {infoEtapa(form.estado).orden === -1 && <option value={form.estado}>{infoEtapa(form.estado).label}</option>}
               </select>
             </Field>
-            <Field label="Fuente"><input className="input" value={form.fuente} onChange={(e) => setForm({ ...form, fuente: e.target.value })} placeholder="Referido, Facebook, etc." /></Field>
+            <Field label="Fuente">
+              <select className="input" value={form.fuente} onChange={(e) => setForm({ ...form, fuente: e.target.value })}>
+                <option value="">Sin especificar</option>
+                {opcionesFuente(form.fuente).map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+              </select>
+            </Field>
           </div>
-          <label className="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 select-none cursor-pointer">
-            <input
-              type="checkbox"
-              className="rounded border-slate-300 dark:border-slate-600 text-amber-500 focus:ring-amber-500"
-              checked={form.necesitaSeguimiento}
-              onChange={(e) => setForm({ ...form, necesitaSeguimiento: e.target.checked })}
-            />
-            Necesita seguimiento <span className="text-xs text-slate-400 dark:text-slate-500">(bandera independiente de la etapa)</span>
-          </label>
+          {/* "Cliente frío": teléfono y correo son opcionales a propósito — un
+              prospecto sin datos de contacto se da de alta igual (antes se
+              inventaba un correo falso para poder guardarlo). La bandera de
+              seguimiento ya no se pide aquí: vive en el menú ⋯ de la ficha. */}
+          {!editId && !form.telefono && !form.email && (
+            <p className="text-xs text-slate-500 dark:text-slate-400 rounded-lg bg-slate-50 dark:bg-slate-700/40 px-3 py-2">
+              Sin teléfono ni correo se registra como <strong>cliente frío</strong>. Podrás
+              agregar sus datos después desde su ficha.
+            </p>
+          )}
 
           {/* Producto de interés — catálogo de productos NYL */}
           <div className="border-t border-slate-100 dark:border-slate-700 pt-3 mt-1">

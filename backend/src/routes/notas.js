@@ -9,13 +9,19 @@ router.use(authenticate);
 // Permiso de sección enforced en servidor (RBAC + excepciones, fail closed).
 router.use(permiteSeccion('clientes'));
 
-// GET /notas?clienteId=...&tipo=...&pendientes=true
+// Recordatorio para el asesor (su propia gestión) vs. para el cliente (algo
+// que hay que tratar con él). Ambos le llegan al asesor: el CRM no tiene canal
+// hacia el asegurado, así que "para el cliente" = "el asesor debe contactarlo".
+const DESTINATARIOS = ['ASESOR', 'CLIENTE'];
+
+// GET /notas?clienteId=...&tipo=...&destinatario=...&pendientes=true
 router.get('/', asyncHandler(async (req, res) => {
-  const { clienteId, tipo, pendientes } = req.query;
+  const { clienteId, tipo, destinatario, pendientes } = req.query;
   const where = {};
   if (req.user.rol === 'ASESOR') where.asesorId = req.user.id;
   if (clienteId) where.clienteId = clienteId;
   if (tipo) where.tipo = tipo;
+  if (DESTINATARIOS.includes(destinatario)) where.destinatario = destinatario;
   if (pendientes === 'true') where.completada = false;
   const notas = await prisma.nota.findMany({
     where,
@@ -27,7 +33,7 @@ router.get('/', asyncHandler(async (req, res) => {
 
 // POST /notas
 router.post('/', asyncHandler(async (req, res) => {
-  const { clienteId, tipo, texto, fechaAviso } = req.body || {};
+  const { clienteId, tipo, texto, fechaAviso, destinatario } = req.body || {};
   if (!clienteId || !texto) return res.status(400).json({ error: 'clienteId y texto son requeridos' });
   const cliente = await prisma.cliente.findUnique({ where: { id: clienteId } });
   if (!cliente) return res.status(400).json({ error: 'Cliente no encontrado' });
@@ -40,6 +46,7 @@ router.post('/', asyncHandler(async (req, res) => {
       clienteId,
       asesorId,
       tipo: tipo || 'NOTA',
+      destinatario: DESTINATARIOS.includes(destinatario) ? destinatario : 'ASESOR',
       texto,
       fechaAviso: fechaAviso ? new Date(fechaAviso) : null,
     },
@@ -56,12 +63,18 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   if (req.user.rol === 'ASESOR' && existente.asesorId !== req.user.id) {
     return res.status(403).json({ error: 'Sin acceso a esta nota' });
   }
-  const { texto, completada, fechaAviso, tipo } = req.body || {};
+  const { texto, completada, fechaAviso, tipo, destinatario } = req.body || {};
   const data = {};
   if (texto !== undefined) data.texto = texto;
   if (completada !== undefined) data.completada = completada;
-  if (fechaAviso !== undefined) data.fechaAviso = fechaAviso ? new Date(fechaAviso) : null;
+  if (fechaAviso !== undefined) {
+    data.fechaAviso = fechaAviso ? new Date(fechaAviso) : null;
+    // Reabrir la ventana de avisos: mover la fecha debe volver a notificar.
+    data.notificacionEnviada = false;
+    data.avisoPrevioEnviado = false;
+  }
   if (tipo) data.tipo = tipo;
+  if (DESTINATARIOS.includes(destinatario)) data.destinatario = destinatario;
   const nota = await prisma.nota.update({ where: { id }, data });
   res.json(nota);
 }));

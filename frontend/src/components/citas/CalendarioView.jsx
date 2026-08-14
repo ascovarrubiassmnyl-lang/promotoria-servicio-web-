@@ -645,14 +645,26 @@ function CalendarioEscritorio() {
 
   const VistaSemana = () => (
     <div className="overflow-auto max-h-[620px]">
+      {/* Encabezado alineado con la vista Mes: mismos nombres de día en el
+          mismo estilo (uppercase, xs, slate-500), con la fila de números
+          debajo. La rejilla es la misma retícula de 7 columnas. */}
       <div className="grid grid-cols-[52px_repeat(7,1fr)] sticky top-0 bg-white dark:bg-slate-800 z-10 border-b border-slate-100 dark:border-slate-700">
         <div />
-        {diasSemana.map((d) => (
-          <button key={dayKey(d)} onClick={() => setSelectedDay(d)} className="py-2 text-center border-l border-slate-100 dark:border-slate-700">
-            <div className="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">{DIAS_SEM[d.getDay()]}</div>
-            <div className={`mt-0.5 mx-auto w-7 h-7 leading-7 rounded-full text-sm font-semibold ${esHoy(d) ? 'bg-brand-600 text-white' : 'text-slate-700 dark:text-slate-200'}`}>{d.getDate()}</div>
-          </button>
-        ))}
+        {diasSemana.map((d) => {
+          const sel = selectedDay && selectedDay.toDateString() === d.toDateString();
+          return (
+            <button
+              key={dayKey(d)}
+              onClick={() => setSelectedDay(d)}
+              className={`py-2 text-center border-l border-slate-100 dark:border-slate-700 transition ${
+                sel ? 'bg-brand-50 dark:bg-brand-900/30' : 'hover:bg-slate-50 dark:hover:bg-slate-700/60'
+              }`}
+            >
+              <div className="text-xs uppercase text-slate-500 dark:text-slate-400">{DIAS_SEM[d.getDay()]}</div>
+              <div className={`mt-0.5 mx-auto w-7 h-7 leading-7 rounded-full text-sm font-semibold ${esHoy(d) ? 'bg-brand-600 text-white' : 'text-slate-600 dark:text-slate-300'}`}>{d.getDate()}</div>
+            </button>
+          );
+        })}
       </div>
       <div className="grid grid-cols-[52px_repeat(7,1fr)]">
         <div>
@@ -664,8 +676,12 @@ function CalendarioEscritorio() {
         </div>
         {diasSemana.map((d) => {
           const items = porDia[dayKey(d)] || [];
+          const sel = selectedDay && selectedDay.toDateString() === d.toDateString();
           return (
-            <div key={dayKey(d)} className="relative border-l border-slate-100 dark:border-slate-700">
+            <div
+              key={dayKey(d)}
+              className={`relative border-l border-slate-100 dark:border-slate-700 ${sel ? 'bg-brand-50/40 dark:bg-brand-900/15' : ''}`}
+            >
               {Array.from({ length: HORA_FIN - HORA_INI + 1 }, (_, i) => HORA_INI + i).map((h) => (
                 <div
                   key={h}

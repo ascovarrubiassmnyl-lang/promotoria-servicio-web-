@@ -23,6 +23,8 @@ function sumarPeriodo(base, formaPago) {
 async function generarSiguienteRecordatorioPago(venta, base) {
   if (!venta) return;
   if (venta.formaPago === 'UNICO') return;
+  // Póliza domiciliada: el cargo es automático, no se recuerda el cobro.
+  if (venta.domiciliada) return;
 
   const proxima = sumarPeriodo(base, venta.formaPago);
   if (!proxima) return;
@@ -40,7 +42,7 @@ async function generarSiguienteRecordatorioPago(venta, base) {
   if (pendiente) {
     await prisma.nota.update({
       where: { id: pendiente.id },
-      data: { fechaAviso: proxima, texto, notificacionEnviada: false },
+      data: { fechaAviso: proxima, texto, notificacionEnviada: false, avisoPrevioEnviado: false },
     });
   } else {
     await prisma.nota.create({
@@ -57,6 +59,37 @@ async function generarSiguienteRecordatorioPago(venta, base) {
   await prisma.venta.update({ where: { id: venta.id }, data: { fechaProximoPago: proxima } }).catch(() => {});
 }
 
+// Aviso anticipado: recordatorios cuyo `fechaAviso` cae dentro de las próximas
+// 24h y que aún no han recibido su aviso previo. Es una ventana aparte de la
+// del día (por eso son dos banderas y no un contador): un recordatorio creado
+// con menos de 24h de anticipación solo dispara el aviso del día.
+async function procesarAvisosPrevios(ahora) {
+  const en24h = new Date(ahora.getTime() + 24 * 60 * 60 * 1000);
+  const proximos = await prisma.nota.findMany({
+    where: {
+      completada: false,
+      notificacionEnviada: false,
+      avisoPrevioEnviado: false,
+      fechaAviso: { gt: ahora, lte: en24h },
+    },
+    take: 50,
+  });
+
+  let enviados = 0;
+  for (const nota of proximos) {
+    try {
+      await notificarRecordatorioNota(nota, { previo: true });
+      await prisma.nota.update({ where: { id: nota.id }, data: { avisoPrevioEnviado: true } });
+      enviados += 1;
+    } catch (err) {
+      // Igual que el aviso del día: si no se persistió, la bandera no se marca
+      // y se reintenta en la siguiente corrida.
+      console.warn(`[reminder-job] error en aviso previo de nota ${nota.id}: ${err.message}`);
+    }
+  }
+  return enviados;
+}
+
 // Busca recordatorios vencidos (cualquier tipo) y dispara notificaciones push.
 // Para RECORDATORIO_PAGO además genera automáticamente la siguiente nota.
 async function procesarRecordatoriosVencidos() {
@@ -64,6 +97,9 @@ async function procesarRecordatoriosVencidos() {
   corriendo = true;
   try {
     const ahora = new Date();
+    const previos = await procesarAvisosPrevios(ahora);
+    if (previos > 0) console.log(`[reminder-job] ${previos} aviso(s) anticipados (1 día antes)`);
+
     const vencidos = await prisma.nota.findMany({
       where: {
         completada: false,

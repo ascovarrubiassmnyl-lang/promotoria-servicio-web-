@@ -27,6 +27,7 @@ import puntosRoutes from './routes/puntos.js';
 import clinicaRoutes from './routes/clinica.js';
 import candidatoRoutes from './routes/candidatos.js';
 import { startReminderJob } from './jobs/reminderJob.js';
+import { startAutomatizacionesJob } from './jobs/automatizacionesJob.js';
 import { initMailer } from './services/mailer.js';
 import { errorHandler, notFound } from './middleware/error.js';
 
@@ -83,6 +84,7 @@ app.listen(port, () => {
   console.log(`CRM backend escuchando en http://localhost:${port}`);
   initMailer();
   startReminderJob();
+  startAutomatizacionesJob();
 });
 
 export default app;

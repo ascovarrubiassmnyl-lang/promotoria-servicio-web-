@@ -16,6 +16,14 @@ router.use(permiteSeccion('ventas'));
 async function sincronizarRecordatorioPago(venta) {
   if (!venta.fechaProximoPago) return null;
   if (venta.formaPago === 'UNICO') return null; // una sola prima, no hay cobros subsecuentes
+  // Póliza domiciliada: el cargo es automático, recordar el cobro sería ruido.
+  // Si estaba domiciliada y ya había recordatorio abierto, se limpia.
+  if (venta.domiciliada) {
+    await prisma.nota.deleteMany({
+      where: { ventaId: venta.id, tipo: 'RECORDATORIO_PAGO', completada: false },
+    });
+    return null;
+  }
   const texto = `Pago de póliza: ${venta.producto} (${venta.formaPago.toLowerCase()}) · ${venta.cliente?.nombre ?? ''} ${venta.cliente?.apellidoP ?? ''}`.trim();
   const existente = await prisma.nota.findFirst({
     where: { ventaId: venta.id, tipo: 'RECORDATORIO_PAGO', completada: false },
@@ -23,7 +31,12 @@ async function sincronizarRecordatorioPago(venta) {
   if (existente) {
     return prisma.nota.update({
       where: { id: existente.id },
-      data: { fechaAviso: new Date(venta.fechaProximoPago), texto, notificacionEnviada: false },
+      data: {
+        fechaAviso: new Date(venta.fechaProximoPago),
+        texto,
+        notificacionEnviada: false,
+        avisoPrevioEnviado: false,
+      },
     });
   }
   return prisma.nota.create({
@@ -32,13 +45,18 @@ async function sincronizarRecordatorioPago(venta) {
       asesorId: venta.asesorId,
       ventaId: venta.id,
       tipo: 'RECORDATORIO_PAGO',
+      // El cobro es asunto del cliente: el asesor debe contactarlo.
+      destinatario: 'CLIENTE',
       texto,
       fechaAviso: new Date(venta.fechaProximoPago),
     },
   });
 }
 
-// Normaliza el array de coberturas de la ficha técnica: [{ nombre, detalle?, monto? }]
+// Normaliza el array de coberturas de la ficha técnica:
+// [{ nombre, detalle?, monto?, costo? }]. `monto` es la suma asegurada de esa
+// cobertura (texto libre: "$800,000", "Incluida", "10%"); `costo` es el costo
+// extra numérico en MXN de contratarla — null significa que va incluida.
 function limpiarCoberturas(v) {
   if (!Array.isArray(v)) return null;
   const limpio = v
@@ -47,9 +65,45 @@ function limpiarCoberturas(v) {
       nombre: String(c.nombre || '').trim().slice(0, 140),
       detalle: String(c.detalle || '').trim().slice(0, 140) || null,
       monto: String(c.monto || '').trim().slice(0, 60) || null,
+      costo: c.costo === null || c.costo === undefined || c.costo === '' || Number.isNaN(+c.costo)
+        ? null
+        : +c.costo,
     }))
     .filter((c) => c.nombre);
   return limpio.length ? limpio : null;
+}
+
+// Cuántos cobros al año implica cada forma de pago (para derivar el monto
+// esperado de un recibo cuando la póliza no tiene `montoPago` capturado).
+const PAGOS_POR_ANIO = { MENSUAL: 12, TRIMESTRAL: 4, SEMESTRAL: 2, ANUAL: 1, UNICO: 1 };
+
+function montoEsperadoDePoliza(venta) {
+  if (venta.montoPago != null) return venta.montoPago;
+  const n = PAGOS_POR_ANIO[venta.formaPago] || 1;
+  return venta.primaAnual != null ? +(venta.primaAnual / n).toFixed(2) : null;
+}
+
+const MONEDAS = ['MXN', 'USD', 'UDI'];
+const METODOS_PAGO = ['TARJETA_CREDITO', 'TARJETA_CREDITO_MSI', 'TARJETA_DEBITO', 'TRANSFERENCIA', 'EFECTIVO', 'CARGO_NOMINA'];
+
+// Prima en MXN a partir del monto en la moneda original. `primaAnual` SIEMPRE
+// queda en pesos porque es la que suman métricas, comisiones, metas y ranking;
+// convertirla aquí evita que cada consumidor invente su propia conversión.
+function resolverPrima({ moneda, primaAnual, primaMoneda, tipoCambio }) {
+  const divisa = MONEDAS.includes(moneda) ? moneda : 'MXN';
+  if (divisa === 'MXN') {
+    return { moneda: 'MXN', primaAnual: +primaAnual, primaMoneda: null, tipoCambio: null };
+  }
+  const tc = +tipoCambio;
+  if (!tc || tc <= 0) return { error: 'Con moneda USD o UDI se requiere el tipo de cambio' };
+  const original = primaMoneda != null && primaMoneda !== '' ? +primaMoneda : +primaAnual;
+  if (!original || original <= 0) return { error: 'Prima inválida' };
+  return {
+    moneda: divisa,
+    primaAnual: +(original * tc).toFixed(2),
+    primaMoneda: original,
+    tipoCambio: tc,
+  };
 }
 
 // Normaliza beneficiarios: [{ nombre, porcentaje? }]
@@ -119,10 +173,11 @@ router.get('/', asyncHandler(async (req, res) => {
       validador: { select: { id: true, nombre: true } },
       productoCatalogo: { select: { id: true, nombre: true, ramo: true, comisionPct: true, descripcion: true } },
       recordatoriosPago: { orderBy: { fechaAviso: 'asc' }, take: 5 },
+      pagos: { orderBy: { periodo: 'desc' } },
     },
     orderBy: { creadoEn: 'desc' },
   });
-  res.json(ventas);
+  res.json(ventas.map((v) => ({ ...v, montoEsperado: montoEsperadoDePoliza(v) })));
 }));
 
 router.get('/:id', asyncHandler(async (req, res) => {
@@ -135,21 +190,23 @@ router.get('/:id', asyncHandler(async (req, res) => {
       validador: { select: { id: true, nombre: true } },
       productoCatalogo: true,
       recordatoriosPago: { orderBy: { fechaAviso: 'asc' } },
+      pagos: { orderBy: { periodo: 'desc' }, include: { registrador: { select: { id: true, nombre: true, apellidoP: true } } } },
     },
   });
   if (!venta) return res.status(404).json({ error: 'Póliza no encontrada' });
   const esDueno = venta.asesorId === req.user.id;
   const isAdmin = req.user.rol === 'ADMIN' || req.user.rol === 'SUPERADMIN';
   if (!esDueno && !isAdmin) return res.status(403).json({ error: 'Sin acceso a esta póliza' });
-  res.json(venta);
+  res.json({ ...venta, montoEsperado: montoEsperadoDePoliza(venta) });
 }));
 
 router.post('/', asyncHandler(async (req, res) => {
   const {
     clienteId, ramo, producto, primaAnual, comisionPct, estado, notas,
-    productoCatalogoId, fechaFirma, fechaPago, fechaEntregaPoliza,
+    productoCatalogoId, fechaFirma, fechaEmision, fechaPago, fechaEntregaPoliza,
     formaPago, fechaInicioVigencia, fechaFinVigencia, fechaProximoPago, diaPago, montoPago,
     sumaAsegurada, plazo, deducible, coaseguro, coberturas, beneficiarios,
+    moneda, primaMoneda, tipoCambio, domiciliada, metodoPago,
   } = req.body || {};
   if (!clienteId || !ramo || !producto || primaAnual == null) return res.status(400).json({ error: 'clienteId, ramo, producto y primaAnual son requeridos' });
   const cliente = await prisma.cliente.findUnique({ where: { id: clienteId } });
@@ -157,28 +214,32 @@ router.post('/', asyncHandler(async (req, res) => {
   const asesorId = (req.user.rol === 'ASESOR') ? req.user.id : (req.body.asesorId || cliente.asesorId);
   if (req.user.rol === 'ASESOR' && cliente.asesorId !== req.user.id) return res.status(403).json({ error: 'El cliente pertenece a otro asesor' });
 
-  const pct = comisionPct ?? (req.body.productoCatalogoId ? 10 : 10);
-  const comisionMonto = +(primaAnual * pct / 100).toFixed(2);
-
   // Si viene productoCatalogoId, pero no producto/comisionPct, pre-puebla desde el catálogo
   let catalogo = null;
   if (productoCatalogoId) {
     catalogo = await prisma.productoCatalogo.findUnique({ where: { id: productoCatalogoId } });
   }
+  const divisa = resolverPrima({ moneda, primaAnual, primaMoneda, tipoCambio });
+  if (divisa.error) return res.status(400).json({ error: divisa.error });
   const pctFinal = comisionPct ?? (catalogo?.comisionPct ?? 10);
-  const comisionMontoFinal = +(primaAnual * pctFinal / 100).toFixed(2);
+  const comisionMontoFinal = +(divisa.primaAnual * pctFinal / 100).toFixed(2);
 
   const venta = await prisma.venta.create({
     data: {
       asesorId, clienteId, ramo, producto,
-      primaAnual: +primaAnual, comisionPct: pctFinal, comisionMonto: comisionMontoFinal,
+      primaAnual: divisa.primaAnual,
+      moneda: divisa.moneda, primaMoneda: divisa.primaMoneda, tipoCambio: divisa.tipoCambio,
+      comisionPct: pctFinal, comisionMonto: comisionMontoFinal,
       estado: estado || 'PENDIENTE_PAGAR',
       notas: notas || null,
       productoCatalogoId: productoCatalogoId || null,
       fechaFirma: fechaFirma ? new Date(fechaFirma) : null,
+      fechaEmision: fechaEmision ? new Date(fechaEmision) : null,
       fechaPago: fechaPago ? new Date(fechaPago) : null,
       fechaEntregaPoliza: fechaEntregaPoliza ? new Date(fechaEntregaPoliza) : null,
       formaPago: formaPago || 'ANUAL',
+      domiciliada: domiciliada === true,
+      metodoPago: METODOS_PAGO.includes(metodoPago) ? metodoPago : null,
       fechaInicioVigencia: fechaInicioVigencia ? new Date(fechaInicioVigencia) : null,
       fechaFinVigencia: fechaFinVigencia ? new Date(fechaFinVigencia) : null,
       fechaProximoPago: fechaProximoPago ? new Date(fechaProximoPago) : null,
@@ -199,7 +260,7 @@ router.post('/', asyncHandler(async (req, res) => {
     ventaId: venta.id,
     clienteId: venta.cliente?.id || clienteId,
     cliente: venta.cliente ? `${venta.cliente.nombre} ${venta.cliente.apellidoP}` : null,
-    producto, ramo, prima: +primaAnual,
+    producto, ramo, prima: divisa.primaAnual,
   });
   res.status(201).json(venta);
 }));
@@ -214,25 +275,41 @@ router.patch('/:id', asyncHandler(async (req, res) => {
 
   const {
     ramo, producto, primaAnual, comisionPct, estado, notas,
-    productoCatalogoId, fechaFirma, fechaPago, fechaEntregaPoliza,
+    productoCatalogoId, fechaFirma, fechaEmision, fechaPago, fechaEntregaPoliza,
     fechaCancelacion, montoCancelado, motivoCancelacion,
     formaPago, fechaInicioVigencia, fechaFinVigencia, fechaProximoPago, diaPago, montoPago,
     sumaAsegurada, plazo, deducible, coaseguro, coberturas, beneficiarios,
+    moneda, primaMoneda, tipoCambio, domiciliada, metodoPago,
   } = req.body || {};
   const data = {};
   if (ramo) data.ramo = ramo;
   if (producto) data.producto = producto;
   if (productoCatalogoId !== undefined) data.productoCatalogoId = productoCatalogoId || null;
-  if (primaAnual != null) {
-    data.primaAnual = +primaAnual;
+  // La moneda y la prima se resuelven juntas: cambiar solo el tipo de cambio
+  // debe recalcular la prima en pesos, y viceversa.
+  if (primaAnual != null || moneda !== undefined || primaMoneda !== undefined || tipoCambio !== undefined) {
+    const divisa = resolverPrima({
+      moneda: moneda !== undefined ? moneda : existente.moneda,
+      primaAnual: primaAnual != null ? primaAnual : existente.primaAnual,
+      primaMoneda: primaMoneda !== undefined ? primaMoneda : existente.primaMoneda,
+      tipoCambio: tipoCambio !== undefined ? tipoCambio : existente.tipoCambio,
+    });
+    if (divisa.error) return res.status(400).json({ error: divisa.error });
+    data.primaAnual = divisa.primaAnual;
+    data.moneda = divisa.moneda;
+    data.primaMoneda = divisa.primaMoneda;
+    data.tipoCambio = divisa.tipoCambio;
     const pct = comisionPct ?? existente.comisionPct;
     data.comisionPct = pct;
-    data.comisionMonto = +(primaAnual * pct / 100).toFixed(2);
+    data.comisionMonto = +(divisa.primaAnual * pct / 100).toFixed(2);
   } else if (comisionPct != null) {
     data.comisionPct = comisionPct;
     data.comisionMonto = +(existente.primaAnual * comisionPct / 100).toFixed(2);
   }
+  if (domiciliada !== undefined) data.domiciliada = domiciliada === true;
+  if (metodoPago !== undefined) data.metodoPago = METODOS_PAGO.includes(metodoPago) ? metodoPago : null;
   if (fechaFirma !== undefined) data.fechaFirma = fechaFirma ? new Date(fechaFirma) : null;
+  if (fechaEmision !== undefined) data.fechaEmision = fechaEmision ? new Date(fechaEmision) : null;
   if (fechaPago !== undefined) data.fechaPago = fechaPago ? new Date(fechaPago) : null;
   if (fechaEntregaPoliza !== undefined) data.fechaEntregaPoliza = fechaEntregaPoliza ? new Date(fechaEntregaPoliza) : null;
   if (fechaCancelacion !== undefined) data.fechaCancelacion = fechaCancelacion ? new Date(fechaCancelacion) : null;
@@ -259,16 +336,20 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   }
   if (notas !== undefined) data.notas = notas || null;
   const venta = await prisma.venta.update({ where: { id }, data });
-  // Sincroniza recordatorio si cambió fechaProximoPago o formaPago
-  if (fechaProximoPago !== undefined || formaPago !== undefined) {
+  // Sincroniza recordatorio si cambió fechaProximoPago, formaPago o la
+  // domiciliación (domiciliar una póliza debe borrar su recordatorio abierto).
+  if (fechaProximoPago !== undefined || formaPago !== undefined || domiciliada !== undefined) {
     const ventaConCliente = await prisma.venta.findUnique({ where: { id }, include: { cliente: { select: { nombre: true, apellidoP: true } } } });
     await sincronizarRecordatorioPago(ventaConCliente);
   }
   res.json(venta);
 }));
 
-// Confirma el pago del período actual: marca la nota RECORDATORIO_PAGO como completada
-// y genera automáticamente la siguiente, sumando un periodo a fechaProximoPago.
+// Confirma el pago del período actual: registra el cobro en el historial
+// (PagoPoliza), marca la nota RECORDATORIO_PAGO como completada y genera
+// automáticamente la siguiente, sumando un periodo a fechaProximoPago.
+// Body opcional: { montoPagado, justificacion } — permite registrar que el
+// cliente pagó un monto distinto al esperado, con su razón.
 router.post('/:id/cobroconfirmado', asyncHandler(async (req, res) => {
   const { id } = req.params;
   const venta = await prisma.venta.findUnique({ where: { id } });
@@ -277,10 +358,32 @@ router.post('/:id/cobroconfirmado', asyncHandler(async (req, res) => {
   const isAdmin = req.user.rol === 'ADMIN' || req.user.rol === 'SUPERADMIN';
   if (!esDueno && !isAdmin) return res.status(403).json({ error: 'Sin acceso a esta póliza' });
 
+  const { montoPagado, justificacion } = req.body || {};
+  const montoEsperado = venta.montoPago ?? montoEsperadoDePoliza(venta);
+  const pagado = montoPagado === undefined || montoPagado === null || montoPagado === ''
+    ? montoEsperado
+    : +montoPagado;
+  if (pagado != null && (Number.isNaN(pagado) || pagado < 0)) {
+    return res.status(400).json({ error: 'Monto pagado inválido' });
+  }
+
+  // Historial de cobros: fuente del semáforo de pagos por cliente.
+  await prisma.pagoPoliza.create({
+    data: {
+      ventaId: id,
+      periodo: venta.fechaProximoPago ? new Date(venta.fechaProximoPago) : new Date(),
+      estado: 'PAGADO',
+      montoEsperado: montoEsperado ?? null,
+      montoPagado: pagado ?? null,
+      justificacion: String(justificacion || '').trim().slice(0, 300) || null,
+      registradoPor: req.user.id,
+    },
+  });
+
   // Marca como completadas las notas RECORDATORIO_PAGO vencidas o pendientes para esta venta
   await prisma.nota.updateMany({
     where: { ventaId: id, tipo: 'RECORDATORIO_PAGO', completada: false },
-    data: { completada: true, notificacionEnviada: true },
+    data: { completada: true, notificacionEnviada: true, avisoPrevioEnviado: true },
   });
 
   // Calcula la próxima fecha según formaPago

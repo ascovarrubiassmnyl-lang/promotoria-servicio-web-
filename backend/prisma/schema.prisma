@@ -128,6 +128,41 @@ enum TipoNota {
   RECORDATORIO_PAGO
 }
 
+// A quién apunta un recordatorio. OJO: el CRM no tiene canal hacia el
+// asegurado (no manda WhatsApp ni correo al cliente), así que CLIENTE no
+// significa "avisarle al cliente" sino "el asesor debe contactar al cliente
+// por esto" — se le notifica igual al asesor, con etiqueta distinta.
+enum DestinatarioNota {
+  ASESOR
+  CLIENTE
+}
+
+// Moneda en la que está denominada la póliza. `Venta.primaAnual` SIEMPRE está
+// en MXN (todas las métricas, comisiones, metas y rankings la suman); estos
+// campos guardan el monto original y el tipo de cambio usado para convertirlo.
+enum MonedaPoliza {
+  MXN
+  USD
+  UDI
+}
+
+// Medio con el que el cliente paga la póliza.
+enum MetodoPagoPoliza {
+  TARJETA_CREDITO
+  TARJETA_CREDITO_MSI
+  TARJETA_DEBITO
+  TRANSFERENCIA
+  EFECTIVO
+  CARGO_NOMINA
+}
+
+// Resultado de un cobro registrado sobre la póliza (semáforo del historial).
+enum EstadoPagoPoliza {
+  PAGADO
+  PENDIENTE
+  CANCELADO
+}
+
 // Forma de pago de la prima
 enum FormaPago {
   MENSUAL
@@ -159,6 +194,7 @@ model Usuario {
   citasPromotor   Cita[]             @relation("citasPromotor")
   ventasAsesor    Venta[]            @relation("ventasAsesor")
   ventasValidador Venta[]            @relation("ventasValidador")
+  pagosRegistrados PagoPoliza[]      @relation("pagosRegistrados")
   actividad       Actividad[]
   targets         Target[]
   notas           Nota[]
@@ -300,6 +336,7 @@ model Cliente {
   telefono        String?
   fechaNacimiento DateTime?
   rfc             String?
+  curp            String?
   direccion       String?
   estado          EstadoCliente @default(PROSPECTO)
   // Bandera independiente de la etapa: un cliente puede estar en cualquier
@@ -509,7 +546,15 @@ model Venta {
   // Producto del catálogo NYL (opcional pero recomendado)
   productoCatalogoId  String?
   productoCatalogo    ProductoCatalogo? @relation(fields: [productoCatalogoId], references: [id])
+  // SIEMPRE en MXN — es el campo que suman métricas, comisiones, metas y
+  // ranking. Si la póliza está en USD/UDI, aquí va ya convertido.
   primaAnual          Float
+  // Denominación original de la póliza (lo que dice el contrato).
+  moneda              MonedaPoliza      @default(MXN)
+  // Monto en la moneda original y tipo de cambio usado. Solo informativos:
+  // ningún cálculo de negocio los lee, para no duplicar definiciones.
+  primaMoneda         Float?
+  tipoCambio          Float?
   comisionPct         Float             @default(10)
   comisionMonto       Float?
   estado              EstadoVenta       @default(PENDIENTE_PAGAR)
@@ -518,6 +563,9 @@ model Venta {
   fechaValidacion     DateTime?
   // Pipeline financiero: fechas y flags
   fechaFirma          DateTime?
+  // Cuándo la aseguradora emitió la póliza — distinta de la fecha de firma
+  // (el cliente firma la solicitud, la compañía emite días o semanas después).
+  fechaEmision        DateTime?
   fechaPago           DateTime?
   fechaEntregaPoliza  DateTime?
   fechaCancelacion    DateTime?
@@ -525,6 +573,10 @@ model Venta {
   motivoCancelacion   String?
   // Vigencia y pagos subsecuentes (recordatorios automáticos)
   formaPago           FormaPago         @default(ANUAL)
+  // Cargo automático: si es true NO se generan recordatorios de cobro (el
+  // dinero se retira solo; recordarlo sería ruido para el asesor).
+  domiciliada         Boolean           @default(false)
+  metodoPago          MetodoPagoPoliza?
   fechaInicioVigencia DateTime?
   fechaFinVigencia    DateTime?
   fechaProximoPago    DateTime?
@@ -535,7 +587,9 @@ model Venta {
   plazo               String? // ej. "20 pagos", "Anual renovable"
   deducible           Float? // GMM / Salud
   coaseguro           String? // GMM / Salud, ej. "10%"
-  // [{ nombre, detalle?, monto? }] — monto es texto libre ("$800,000", "Incluida", "10%")
+  // [{ nombre, detalle?, monto?, costo? }] — `monto` es texto libre de la suma
+  // asegurada de esa cobertura ("$800,000", "Incluida", "10%"); `costo` es el
+  // costo extra numérico en MXN de contratarla (null/0 = va incluida).
   coberturas          Json?
   // [{ nombre, porcentaje? }]
   beneficiarios       Json?
@@ -544,10 +598,33 @@ model Venta {
   actualizadoEn       DateTime          @updatedAt
 
   recordatoriosPago Nota[]
+  pagos             PagoPoliza[]
 
   @@index([asesorId])
   @@index([clienteId])
   @@index([estado])
+}
+
+// Historial de cobros de una póliza. Antes un pago solo dejaba rastro como
+// nota completada, así que no había de dónde sacar el semáforo por cliente ni
+// se podía registrar que el cliente pagó un monto distinto al esperado.
+model PagoPoliza {
+  id            String           @id @default(cuid())
+  ventaId       String
+  venta         Venta            @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  // Periodo que cubre este pago (la fechaProximoPago que estaba vigente).
+  periodo       DateTime
+  fechaPago     DateTime         @default(now())
+  estado        EstadoPagoPoliza @default(PAGADO)
+  montoEsperado Float?
+  montoPagado   Float?
+  // Requerida por la UI solo cuando montoPagado != montoEsperado.
+  justificacion String?
+  registradoPor String?
+  registrador   Usuario?         @relation("pagosRegistrados", fields: [registradoPor], references: [id])
+  creadoEn      DateTime         @default(now())
+
+  @@index([ventaId, periodo])
 }
 
 // Eventos de actividad estructurados: tipo canónico (ver TIPOS_ACTIVIDAD en
@@ -621,12 +698,19 @@ model Nota {
   asesorId            String
   asesor              Usuario   @relation(fields: [asesorId], references: [id], onDelete: Cascade)
   tipo                TipoNota  @default(NOTA)
+  // Segmenta el recordatorio: gestión propia del asesor vs. algo que hay que
+  // tratar con el cliente. Ambos le llegan al asesor (no hay canal al cliente).
+  destinatario        DestinatarioNota @default(ASESOR)
   texto               String
   // Solo para RECORDATORIO / RECORDATORIO_PAGO: cuándo debe avisarse
   fechaAviso          DateTime?
   completada          Boolean   @default(false)
-  // Si la notificación push ya fue enviada
+  // Aviso del día: ya se generó la notificación de `fechaAviso`
   notificacionEnviada Boolean   @default(false)
+  // Aviso anticipado: ya se generó la notificación de 1 día antes. Son dos
+  // banderas y no un contador porque las dos ventanas son independientes (un
+  // recordatorio creado con menos de 24h de anticipación solo dispara la del día).
+  avisoPrevioEnviado  Boolean   @default(false)
   // Solo RECORDATORIO_PAGO:_venta asociada a la póliza
   ventaId             String?
   venta               Venta?    @relation(fields: [ventaId], references: [id], onDelete: Cascade)
@@ -649,6 +733,9 @@ model ProductoCatalogo {
   comisionPct     Float? // comisión sugerida para asesores (% de la prima anual)
   comisionBonoPct Float? // % de comisión adicional porcentaje de bono si aplica
   coberturas      Json? // [{nombre, detalle, monto}] — plantilla para autocompletar Venta.coberturas
+  // Monedas en que la compañía ofrece el producto, ej. ["USD","UDI"].
+  // Solo sugiere la moneda al crear la póliza (Venta.moneda manda).
+  monedas         Json?
   activo          Boolean    @default(true)
   creadoEn        DateTime   @default(now())
   actualizadoEn   DateTime   @updatedAt

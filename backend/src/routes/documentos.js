@@ -87,6 +87,21 @@ router.get('/:id/descargar', asyncHandler(async (req, res) => {
   res.download(ruta, doc.nombre);
 }));
 
+// Previsualización: mismo archivo que /descargar pero servido inline, para que
+// el visor de la ficha lo muestre en vez de dispararle una descarga al usuario.
+router.get('/:id/ver', asyncHandler(async (req, res) => {
+  const doc = await prisma.documentoCliente.findUnique({ where: { id: req.params.id } });
+  if (!doc) return res.status(404).json({ error: 'Documento no encontrado' });
+  const acceso = await verificarAccesoCliente(req, doc.clienteId);
+  if (acceso.error) return res.status(acceso.status).json({ error: acceso.error });
+  const ruta = path.join(UPLOADS_DIR, path.basename(doc.archivo));
+  if (!fs.existsSync(ruta)) return res.status(410).json({ error: 'El archivo físico ya no existe en el servidor' });
+  if (doc.mime) res.type(doc.mime);
+  // El nombre va en filename por si el usuario elige guardar desde el visor.
+  res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(doc.nombre)}`);
+  res.sendFile(ruta);
+}));
+
 router.delete('/:id', asyncHandler(async (req, res) => {
   const doc = await prisma.documentoCliente.findUnique({ where: { id: req.params.id } });
   if (!doc) return res.status(404).json({ error: 'Documento no encontrado' });

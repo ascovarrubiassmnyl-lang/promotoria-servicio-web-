@@ -43,3 +43,9 @@ coverage/
 # Claude Code local
 .claude/
 **/.DS_Store
+
+# Material fuente de productos (PDFs/manuales propietarios de la
+# aseguradora, no versionados; lo útil ya está extraído a
+# backend/prisma/productosCatalogoData.js). Queda en disco local para
+# alimentar un RAG multimodal más adelante.
+Productos/

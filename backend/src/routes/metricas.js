@@ -145,6 +145,68 @@ router.get('/funnel', asyncHandler(async (req, res) => {
   res.json(orden.map((k) => ({ etapa: k, count: mapa[k] || 0 })));
 }));
 
+// Embudo de ACTIVIDAD del periodo (distinto de /funnel, que fotografía en qué
+// etapa está parado cada cliente hoy): cuenta lo que realmente pasó en el mes
+// —prospectos abordados, llamadas, citas agendadas, citas asistidas,
+// propuestas, firmas y pagos— para medir la tasa de cierre por el embudo
+// completo y no solo por el dinero que entró.
+//
+// Cada nivel usa la MISMA definición que su módulo dueño: llamadas =
+// actividad LLAMADA (igual que Metas), citas = Cita excluyendo PERSONAL
+// (igual que Metas y Dashboard), firmas/pagos = estados de Venta (igual que
+// Pólizas). No se inventa ningún conteo nuevo.
+router.get('/funnel-actividad', asyncHandler(async (req, res) => {
+  const esAsesor = req.user.rol === 'ASESOR';
+  const asesorId = esAsesor ? req.user.id : (req.query.asesorId || null);
+  const scope = asesorId ? { asesorId } : {};
+
+  const ahora = new Date();
+  const mes = parseInt(req.query.mes) || (ahora.getMonth() + 1);
+  const anio = parseInt(req.query.anio) || ahora.getFullYear();
+  const ini = new Date(anio, mes - 1, 1);
+  const fin = new Date(anio, mes, 0, 23, 59, 59, 999);
+  const rango = { gte: ini, lte: fin };
+
+  const sinPersonal = { clasificacion: { not: 'PERSONAL' } };
+  const [prospectos, llamadas, citasAgendadas, citasAsistidas, propuestas, firmas, pagos] = await Promise.all([
+    prisma.cliente.count({ where: { ...scope, creadoEn: rango, archivadoEn: null } }),
+    prisma.actividad.count({ where: { ...scope, tipo: 'LLAMADA', creadoEn: rango } }),
+    prisma.cita.count({ where: { ...scope, ...sinPersonal, creadoEn: rango } }),
+    prisma.cita.count({ where: { ...scope, ...sinPersonal, estado: 'COMPLETADA', fechaHoraInicio: rango } }),
+    // Propuesta = póliza registrada en el mes, en cualquier estado: es el
+    // momento en que el asesor le puso números a la conversación.
+    prisma.venta.count({ where: { ...scope, creadoEn: rango } }),
+    prisma.venta.count({ where: { ...scope, creadoEn: rango, estado: { in: ['FIRMADA', 'APROBADA', 'PAGADA'] } } }),
+    prisma.venta.count({ where: { ...scope, creadoEn: rango, estado: { in: ['APROBADA', 'PAGADA'] } } }),
+  ]);
+
+  const niveles = [
+    { clave: 'PROSPECTOS', label: 'Prospectos abordados', count: prospectos },
+    { clave: 'LLAMADAS', label: 'Llamadas', count: llamadas },
+    { clave: 'CITAS_AGENDADAS', label: 'Citas agendadas', count: citasAgendadas },
+    { clave: 'CITAS_ASISTIDAS', label: 'Citas asistidas', count: citasAsistidas },
+    { clave: 'PROPUESTAS', label: 'Propuestas', count: propuestas },
+    { clave: 'FIRMAS', label: 'Firmas', count: firmas },
+    { clave: 'PAGOS', label: 'Pagos', count: pagos },
+  ];
+
+  // Conversión de cada nivel respecto al anterior (el primero no tiene).
+  const conConversion = niveles.map((n, i) => ({
+    ...n,
+    conversionPct: i === 0 || !niveles[i - 1].count
+      ? null
+      : Math.round((n.count / niveles[i - 1].count) * 100),
+  }));
+
+  res.json({
+    mes,
+    anio,
+    niveles: conConversion,
+    // Tasa de cierre del embudo completo: del primer contacto al pago.
+    tasaCierrePct: prospectos ? Math.round((pagos / prospectos) * 100) : null,
+  });
+}));
+
 router.get('/bonos', asyncHandler(async (req, res) => {
   const esAsesor = req.user.rol === 'ASESOR';
   const where = esAsesor ? { asesorId: req.user.id } : (req.query.asesorId ? { asesorId: req.query.asesorId } : {});

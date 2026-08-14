@@ -41,6 +41,12 @@ export default function Dashboard() {
     queryKey: ['funnel'],
     queryFn: async () => (await api.get('/metricas/funnel')).data,
   });
+  // Embudo de actividad del mes: mide la tasa de cierre por el recorrido
+  // completo, no solo por las pólizas que ya entraron.
+  const { data: funnelActividad } = useQuery({
+    queryKey: ['funnel-actividad', mes, anio],
+    queryFn: async () => (await api.get('/metricas/funnel-actividad', { params: { mes, anio } })).data,
+  });
 
   if (isLoading || !data) return <div className="p-10 text-center text-slate-400 dark:text-slate-500">Cargando…</div>;
 
@@ -71,7 +77,7 @@ export default function Dashboard() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Atencion atencion={data.atencion} admin={admin} />
-        <Embudo funnel={funnel} />
+        <Embudo funnel={funnel} funnelActividad={funnelActividad} />
       </div>
 
       <EstadoPolizas polizasMes={data.polizasMes} periodo={`${nombreMes(mes)} ${anio}`} />
@@ -285,7 +291,17 @@ function Chevron() {
 // —Referidos, Post venta— son de mantenimiento, no de avance de venta).
 const ETAPAS_NUCLEO = 5;
 
-function Embudo({ funnel }) {
+// Colores del embudo de actividad, de contacto frío (slate) a dinero
+// cobrado (emerald): mismo criterio de "el color encodea progreso" que usa el
+// mapa de etapas de clientes.
+const DOTS_ACTIVIDAD = ['bg-slate-400', 'bg-sky-500', 'bg-blue-500', 'bg-violet-500', 'bg-teal-500', 'bg-cyan-500', 'bg-emerald-500'];
+
+function Embudo({ funnel, funnelActividad }) {
+  // Dos lecturas del mismo embudo: "Pipeline" es dónde está parado cada
+  // cliente hoy; "Actividad del mes" es lo que realmente se hizo. La tasa de
+  // cierre real solo se ve en la segunda (por eso se pidió medirla así).
+  const [vista, setVista] = useState('pipeline');
+
   const datos = (funnel || []).map((f) => ({ ...infoEtapa(f.etapa), count: f.count }));
   const total = datos.reduce((s, d) => s + d.count, 0);
   const top = Math.max(...datos.map((d) => d.count), 1);
@@ -301,11 +317,92 @@ function Embudo({ funnel }) {
     return { pct, de: prev.label, a: d.label };
   });
 
+  const niveles = funnelActividad?.niveles || [];
+  const totalActividad = niveles.reduce((s, n) => s + n.count, 0);
+  const topActividad = Math.max(...niveles.map((n) => n.count), 1);
+  const peorActividad = niveles.reduce((peor, n) => (
+    n.conversionPct != null && (!peor || n.conversionPct < peor.conversionPct) ? n : peor
+  ), null);
+  const idxPeor = peorActividad ? niveles.indexOf(peorActividad) : -1;
+
   return (
     <section className="card p-5 sm:p-7">
-      <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Embudo del pipeline</h3>
-      <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">Dónde avanza y dónde se cae la conversión</p>
-      {total === 0 ? (
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+            {vista === 'pipeline' ? 'Embudo del pipeline' : 'Embudo de actividad del mes'}
+          </h3>
+          <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
+            {vista === 'pipeline'
+              ? 'Dónde está parado cada cliente hoy'
+              : 'Lo que realmente pasó este mes, del primer contacto al pago'}
+          </p>
+        </div>
+        <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5">
+          {[
+            { value: 'pipeline', label: 'Pipeline' },
+            { value: 'actividad', label: 'Actividad' },
+          ].map((v) => (
+            <button
+              key={v.value}
+              onClick={() => setVista(v.value)}
+              className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                vista === v.value
+                  ? 'bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+              }`}
+            >{v.label}</button>
+          ))}
+        </div>
+      </div>
+
+      {vista === 'actividad' ? (
+        totalActividad === 0 ? (
+          <div className="py-10 text-center text-sm text-slate-400 dark:text-slate-500">
+            Sin actividad registrada este mes.
+          </div>
+        ) : (
+          <>
+            <div className="mt-4">
+              {niveles.map((n, i) => (
+                <div key={n.clave}>
+                  {n.conversionPct != null && (
+                    <p className="py-0.5 pl-[104px] text-[11px] tabular-nums text-slate-400 dark:text-slate-500 sm:pl-[132px]">
+                      <span className={n.conversionPct < 50 ? 'font-bold text-amber-600 dark:text-amber-400' : ''}>
+                        {niveles[i - 1].label} → {n.label}: {n.conversionPct}%
+                      </span>
+                    </p>
+                  )}
+                  <div className="flex items-center gap-4 py-1.5">
+                    <span className="w-[88px] shrink-0 truncate text-[13px] font-medium text-slate-500 dark:text-slate-400 sm:w-[116px]" title={n.label}>{n.label}</span>
+                    <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700/60">
+                      <div
+                        className={`h-full rounded-full ${DOTS_ACTIVIDAD[i] || 'bg-slate-400'} transition-all duration-500 motion-reduce:transition-none`}
+                        style={{ width: `${Math.max((n.count / topActividad) * 100, 4)}%` }}
+                      />
+                    </div>
+                    <span className="w-8 shrink-0 text-right text-sm font-semibold tabular-nums text-slate-700 dark:text-slate-200">{num(n.count)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+              <span>
+                Tasa de cierre del embudo completo:{' '}
+                <b className="text-slate-700 dark:text-slate-200 tabular-nums">
+                  {funnelActividad?.tasaCierrePct != null ? `${funnelActividad.tasaCierrePct}%` : '—'}
+                </b>
+                {' '}(de prospecto abordado a pago).
+              </span>
+              {idxPeor > 0 && peorActividad.conversionPct < 50 && (
+                <span>
+                  Mayor caída en <b className="text-slate-700 dark:text-slate-200">{niveles[idxPeor - 1].label} → {peorActividad.label}</b> ({peorActividad.conversionPct}%).
+                </span>
+              )}
+            </div>
+          </>
+        )
+      ) : total === 0 ? (
         <div className="py-10 text-center text-sm text-slate-400 dark:text-slate-500">
           Aún no hay clientes en el pipeline.{' '}
           <Link to="/clientes" className="font-semibold text-brand-600 hover:underline dark:text-brand-400">Agrega tu primer cliente</Link>

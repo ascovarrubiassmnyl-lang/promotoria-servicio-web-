@@ -3,14 +3,15 @@ import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { api, handleError } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
-import { Card, Modal, Field, CitaBadge, VentaBadge, EmptyState, MenuAcciones } from '../components/ui.jsx';
+import { Card, Modal, Field, CitaBadge, VentaBadge, EmptyState, MenuAcciones, DatePicker } from '../components/ui.jsx';
 import PolizaFormModal from '../components/polizas/PolizaFormModal.jsx';
 import CitaFormModal from '../components/citas/CitaFormModal.jsx';
 import ActivityTimeline from '../components/actividad/ActivityTimeline.jsx';
 import { ETAPAS, infoEtapa, siguienteEtapa } from '../components/clientes/etapas.js';
+import { infoFuente, opcionesFuente } from '../components/clientes/fuentes.js';
 import { infoCanal, CITA_VIVA } from '../components/citas/tipos.js';
 import {
-  mxn, fechaHora, fechaCorta, isoLocalInput,
+  mxn, fechaHora, fechaCorta, isoLocalInput, edad,
   RAMOS, RAMOS_LABEL,
   FORMAS_PAGO, esVentaGanada, esVentaPipeline,
 } from '../lib/format.js';
@@ -59,6 +60,46 @@ function PipelineStepper({ estado }) {
   );
 }
 
+// Lista de recordatorios compartida por los dos bloques segmentados (asesor /
+// cliente): mismo layout, distinta fuente. Los de pago los genera el sistema
+// desde la póliza y no se borran a mano — solo se marcan pagados desde ahí.
+function ListaRecordatorios({ items, onEliminar, vacio }) {
+  if (!items.length) return <p className="text-sm text-slate-400 dark:text-slate-500 py-1">{vacio}</p>;
+  const ahora = new Date();
+  return (
+    <ul className="space-y-2 text-sm">
+      {items.map((n) => {
+        const vencido = n.fechaAviso && !n.completada && new Date(n.fechaAviso) < ahora;
+        const automatico = n.tipo === 'RECORDATORIO_PAGO';
+        return (
+          <li key={n.id} className="group flex items-start justify-between gap-2 border-b border-slate-100 dark:border-slate-700 pb-2 last:border-0 last:pb-0">
+            <div className="min-w-0">
+              <p className={`text-slate-700 dark:text-slate-300 ${n.completada ? 'line-through text-slate-400 dark:text-slate-500' : ''}`}>{n.texto}</p>
+              <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                {n.fechaAviso && (
+                  <span className={`text-xs ${vencido ? 'text-red-600 dark:text-red-400 font-medium' : 'text-amber-600 dark:text-amber-400'}`}>
+                    {n.completada ? 'Completado' : vencido ? 'Vencido' : 'Avisar'}: {fechaHora(n.fechaAviso)}
+                  </span>
+                )}
+                {automatico && (
+                  <span className="text-[11px] text-slate-400 dark:text-slate-500">Generado por la póliza</span>
+                )}
+              </div>
+            </div>
+            {!automatico && (
+              <button
+                onClick={() => onEliminar(n.id)}
+                className="opacity-0 group-hover:opacity-100 text-red-500 text-xs transition-opacity shrink-0"
+                title="Eliminar recordatorio"
+              >Eliminar</button>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export default function ClienteDetalle() {
   const { id } = useParams();
   const qc = useQueryClient();
@@ -76,7 +117,7 @@ export default function ClienteDetalle() {
 
   // Nota / recordatorio
   const [notaOpen, setNotaOpen] = useState(false);
-  const [notaForm, setNotaForm] = useState({ tipo: 'NOTA', texto: '', fechaAviso: '' });
+  const [notaForm, setNotaForm] = useState({ tipo: 'NOTA', destinatario: 'ASESOR', texto: '', fechaAviso: '' });
   const [notaSaving, setNotaSaving] = useState(false);
 
   // Cita: modal compartido del módulo de Citas (clienteId fija el cliente)
@@ -99,6 +140,8 @@ export default function ClienteDetalle() {
   const [docSubiendo, setDocSubiendo] = useState(false);
   const [docErr, setDocErr] = useState('');
   const [delDocId, setDelDocId] = useState(null);
+  // Visor de archivos: se previsualiza en un modal; la descarga es secundaria.
+  const [visor, setVisor] = useState({ doc: null, url: '', cargando: false, error: '' });
 
   const [delNotaId, setDelNotaId] = useState(null);
 
@@ -140,7 +183,8 @@ export default function ClienteDetalle() {
   const startEdit = () => setForm({
     nombre: c.nombre, apellidoP: c.apellidoP, apellidoM: c.apellidoM || '',
     email: c.email || '', telefono: c.telefono || '', estado: c.estado,
-    notas: c.notas || '', fuente: c.fuente || '', direccion: c.direccion || '', rfc: c.rfc || '',
+    fuente: c.fuente || '', direccion: c.direccion || '', rfc: c.rfc || '',
+    curp: c.curp || '', fechaNacimiento: c.fechaNacimiento ? c.fechaNacimiento.slice(0, 10) : '',
   });
 
   const save = async (e) => {
@@ -181,8 +225,13 @@ export default function ClienteDetalle() {
   };
 
   // Notas y recordatorios
-  const abrirNota = (tipo) => {
-    setNotaForm({ tipo, texto: '', fechaAviso: tipo === 'RECORDATORIO' ? isoLocalInput(new Date(Date.now() + 24 * 60 * 60 * 1000)) : '' });
+  const abrirNota = (tipo, destinatario = 'ASESOR') => {
+    setNotaForm({
+      tipo,
+      destinatario,
+      texto: '',
+      fechaAviso: tipo === 'RECORDATORIO' ? isoLocalInput(new Date(Date.now() + 24 * 60 * 60 * 1000)) : '',
+    });
     setNotaOpen(true);
   };
 
@@ -190,7 +239,13 @@ export default function ClienteDetalle() {
     e.preventDefault();
     setNotaSaving(true);
     try {
-      await api.post('/notas', { clienteId: id, tipo: notaForm.tipo, texto: notaForm.texto, fechaAviso: notaForm.fechaAviso || null });
+      await api.post('/notas', {
+        clienteId: id,
+        tipo: notaForm.tipo,
+        destinatario: notaForm.destinatario,
+        texto: notaForm.texto,
+        fechaAviso: notaForm.fechaAviso || null,
+      });
       setNotaOpen(false);
       qc.invalidateQueries(['cliente', id]);
     } catch (e2) { alert(handleError(e2)); } finally { setNotaSaving(false); }
@@ -218,7 +273,7 @@ export default function ClienteDetalle() {
 
   // Producto de interés
   const abrirProducto = () => {
-    setProductoForm({ productoInteres: c.productoInteres || '', detalleInteres: c.detalleInteres || '' });
+    setProductoForm({ productoInteres: c.productoInteres || '' });
     setProductoOpen(true);
   };
 
@@ -228,7 +283,6 @@ export default function ClienteDetalle() {
     try {
       await api.patch(`/clientes/${id}`, {
         productoInteres: productoForm.productoInteres || null,
-        detalleInteres: productoForm.detalleInteres || null,
       });
       setProductoOpen(false);
       qc.invalidateQueries(['cliente', id]);
@@ -285,6 +339,27 @@ export default function ClienteDetalle() {
     } catch (e2) { alert(handleError(e2)); }
   };
 
+  // Previsualizar: la API va con token en el header, así que no se puede apuntar
+  // un <iframe> a la URL directo — se trae el blob y se crea un object URL local
+  // (se revoca al cerrar el visor, ver el efecto de limpieza).
+  const verArchivo = async (doc) => {
+    setVisor({ doc, url: '', cargando: true, error: '' });
+    try {
+      const r = await api.get(`/documentos/${doc.id}/ver`, { responseType: 'blob' });
+      const blob = doc.mime ? new Blob([r.data], { type: doc.mime }) : r.data;
+      setVisor({ doc, url: URL.createObjectURL(blob), cargando: false, error: '' });
+    } catch (e2) {
+      setVisor({ doc, url: '', cargando: false, error: handleError(e2) });
+    }
+  };
+
+  const cerrarVisor = () => {
+    setVisor((v) => {
+      if (v.url) URL.revokeObjectURL(v.url);
+      return { doc: null, url: '', cargando: false, error: '' };
+    });
+  };
+
   const eliminarArchivo = async () => {
     try {
       await api.delete(`/documentos/${delDocId}`);
@@ -294,7 +369,12 @@ export default function ClienteDetalle() {
   };
 
   const notas = c.notasItems?.filter((n) => n.tipo === 'NOTA') || [];
-  const recordatorios = c.notasItems?.filter((n) => n.tipo === 'RECORDATORIO') || [];
+  // Recordatorios segmentados: los del asesor (su propia gestión: llamadas,
+  // seguimientos) y los que tocan al cliente (pagos, renovaciones). Los de
+  // pago los genera el sistema desde la póliza, por eso entran aquí también.
+  const recordatoriosTodos = c.notasItems?.filter((n) => n.tipo === 'RECORDATORIO' || n.tipo === 'RECORDATORIO_PAGO') || [];
+  const recordatoriosAsesor = recordatoriosTodos.filter((n) => n.destinatario !== 'CLIENTE');
+  const recordatoriosCliente = recordatoriosTodos.filter((n) => n.destinatario === 'CLIENTE');
   const fichaAjena = esAdmin() && c.asesorId !== user?.id;
   const proxima = siguienteEtapa(c.estado);
 
@@ -340,13 +420,12 @@ export default function ClienteDetalle() {
                 Avanzar etapa →
               </button>
             )}
-            <button onClick={() => { startEdit(); setEditing(true); }} className="btn-secondary">Editar</button>
             <MenuAcciones
               label="Más acciones del cliente"
               items={c.archivadoEn ? [
                 { label: 'Restaurar cliente', onClick: restaurarCliente },
               ] : [
-                { label: 'Editar datos del cliente', onClick: () => { startEdit(); setEditing(true); } },
+                { label: 'Agregar datos del cliente', onClick: () => { startEdit(); setEditing(true); } },
                 { label: c.necesitaSeguimiento ? 'Quitar marca de seguimiento' : 'Marcar «necesita seguimiento»', onClick: toggleSeguimiento },
                 'sep',
                 { label: 'Archivar cliente', danger: true, onClick: () => setArchivarOpen(true) },
@@ -384,24 +463,26 @@ export default function ClienteDetalle() {
       <div className="grid lg:grid-cols-[320px_1fr] gap-4 items-start">
         {/* Riel izquierdo: contacto + resumen + referidos */}
         <div className="space-y-4">
-          <Card title="Contacto" actions={<button className="btn-secondary text-xs py-1 px-2" onClick={() => { startEdit(); setEditing(true); }}>Editar</button>}>
+          <Card
+            title="Contacto"
+            actions={<button className="btn-secondary text-xs py-1 px-2" onClick={() => { startEdit(); setEditing(true); }}>Agregar datos</button>}
+          >
             <div className="space-y-3">
               <div><p className="kv-k">Teléfono</p><p className="kv-v tabular-nums">{c.telefono || <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
               <div><p className="kv-k">Email</p><p className="kv-v break-all">{c.email || <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
               <div><p className="kv-k">RFC</p><p className="kv-v">{c.rfc || <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
+              <div><p className="kv-k">CURP</p><p className="kv-v">{c.curp || <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
+              <div><p className="kv-k">Fecha de nacimiento</p><p className="kv-v">{c.fechaNacimiento ? `${fechaCorta(c.fechaNacimiento)} · ${edad(c.fechaNacimiento)} años` : <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
               <div><p className="kv-k">Dirección</p><p className="kv-v">{c.direccion || <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
-              <div><p className="kv-k">Fuente</p><p className="kv-v">{c.fuente || <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
+              <div><p className="kv-k">Fuente</p><p className="kv-v">{infoFuente(c.fuente).label || <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
               <div className="pt-3 border-t border-slate-100 dark:border-slate-700">
                 <div className="flex items-center justify-between">
                   <p className="kv-k !mb-0">Producto de interés</p>
                   <button onClick={abrirProducto} className="text-xs font-medium text-brand-600 dark:text-brand-400 hover:underline">{c.productoInteres ? 'Editar' : '+ Registrar'}</button>
                 </div>
-                {c.productoInteres ? (
-                  <>
-                    <p className="kv-v mt-1">{RAMOS_LABEL[c.productoInteres]}</p>
-                    {c.detalleInteres && <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{c.detalleInteres}</p>}
-                  </>
-                ) : <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">Sin registrar</p>}
+                {c.productoInteres
+                  ? <p className="kv-v mt-1">{RAMOS_LABEL[c.productoInteres]}</p>
+                  : <p className="text-sm text-slate-400 dark:text-slate-500 mt-1">Sin registrar</p>}
               </div>
             </div>
           </Card>
@@ -557,28 +638,25 @@ export default function ClienteDetalle() {
               ) : !c.notas && <p className="text-sm text-slate-400 dark:text-slate-500 py-1">Sin notas todavía.</p>}
             </Card>
 
-            <Card title="Recordatorios" actions={<button className="btn-secondary text-xs py-1 px-2" onClick={() => abrirNota('RECORDATORIO')}>+ Recordatorio</button>}>
-              {recordatorios.length ? (
-                <ul className="space-y-2 text-sm">
-                  {recordatorios.map((n) => (
-                    <li key={n.id} className="group flex items-start justify-between gap-2 border-b border-slate-100 dark:border-slate-700 pb-2 last:border-0 last:pb-0">
-                      <div>
-                        <p className="text-slate-700 dark:text-slate-300">{n.texto}</p>
-                        {n.fechaAviso && (
-                          <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">Avisar: {fechaHora(n.fechaAviso)}</p>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => setDelNotaId(n.id)}
-                        className="opacity-0 group-hover:opacity-100 text-red-500 text-xs transition-opacity shrink-0"
-                        title="Eliminar recordatorio"
-                      >Eliminar</button>
-                    </li>
-                  ))}
-                </ul>
-              ) : <p className="text-sm text-slate-400 dark:text-slate-500 py-1">Sin recordatorios.</p>}
+            <Card
+              title="Recordatorios del asesor"
+              subtitle="Tu propia gestión: llamadas, seguimientos, pendientes"
+              actions={<button className="btn-secondary text-xs py-1 px-2" onClick={() => abrirNota('RECORDATORIO', 'ASESOR')}>+ Recordatorio</button>}
+            >
+              <ListaRecordatorios items={recordatoriosAsesor} onEliminar={setDelNotaId} vacio="Sin recordatorios de gestión." />
             </Card>
           </div>
+
+          {/* Recordatorios sobre el cliente: pagos, renovaciones. Ojo — el CRM
+              NO le escribe al asegurado: estos avisos le llegan al asesor para
+              que sea él quien lo contacte. */}
+          <Card
+            title="Recordatorios sobre el cliente"
+            subtitle="Pagos y renovaciones · el aviso te llega a ti para que lo contactes"
+            actions={<button className="btn-secondary text-xs py-1 px-2" onClick={() => abrirNota('RECORDATORIO', 'CLIENTE')}>+ Recordatorio</button>}
+          >
+            <ListaRecordatorios items={recordatoriosCliente} onEliminar={setDelNotaId} vacio="Sin recordatorios de pago o renovación." />
+          </Card>
 
           <Card
             title="Archivos del cliente"
@@ -602,16 +680,23 @@ export default function ClienteDetalle() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <button
-                        onClick={() => descargarArchivo(d)}
+                        onClick={() => verArchivo(d)}
                         className="block max-w-full truncate font-medium text-slate-700 dark:text-slate-200 hover:text-brand-600 dark:hover:text-brand-400 hover:underline text-left"
-                        title="Descargar archivo"
+                        title="Previsualizar archivo"
                       >{d.nombre}</button>
                       <p className="text-xs text-slate-400 dark:text-slate-500">
                         {tamanoLegible(d.tamano)} · subido el {fechaCorta(d.creadoEn)}{d.asesor ? ` por ${d.asesor.nombre} ${d.asesor.apellidoP}` : ''}
                       </p>
                     </div>
-                    <button onClick={() => descargarArchivo(d)} className="text-brand-600 dark:text-brand-400 text-xs font-medium hover:underline shrink-0">Descargar</button>
-                    <button onClick={() => setDelDocId(d.id)} className="text-red-500 text-xs font-medium hover:underline shrink-0">Eliminar</button>
+                    <button onClick={() => verArchivo(d)} className="text-brand-600 dark:text-brand-400 text-xs font-medium hover:underline shrink-0">Ver</button>
+                    <MenuAcciones
+                      label={`Más acciones de ${d.nombre}`}
+                      items={[
+                        { label: 'Descargar', onClick: () => descargarArchivo(d) },
+                        'sep',
+                        { label: 'Eliminar archivo', danger: true, onClick: () => setDelDocId(d.id) },
+                      ]}
+                    />
                   </li>
                 ))}
               </ul>
@@ -625,7 +710,7 @@ export default function ClienteDetalle() {
       </div>
 
       {/* Modal editar cliente */}
-      <Modal open={editing} onClose={() => setEditing(false)} title="Editar cliente">
+      <Modal open={editing} onClose={() => setEditing(false)} title="Agregar datos del cliente">
         {form && (
           <form onSubmit={save} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
@@ -635,11 +720,19 @@ export default function ClienteDetalle() {
               <Field label="Teléfono"><input className="input" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} /></Field>
               <Field label="Email"><input className="input" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
               <Field label="Etapa del pipeline"><select className="input" value={form.estado} onChange={(e) => setForm({ ...form, estado: e.target.value })}>{ETAPAS.map((e) => <option key={e.value} value={e.value}>{e.label}</option>)}{infoEtapa(form.estado).orden === -1 && <option value={form.estado}>{infoEtapa(form.estado).label}</option>}</select></Field>
-              <Field label="RFC"><input className="input" value={form.rfc} onChange={(e) => setForm({ ...form, rfc: e.target.value })} /></Field>
-              <Field label="Fuente"><input className="input" value={form.fuente} onChange={(e) => setForm({ ...form, fuente: e.target.value })} /></Field>
+              <Field label="RFC"><input className="input" value={form.rfc} onChange={(e) => setForm({ ...form, rfc: e.target.value.toUpperCase() })} placeholder="13 caracteres" /></Field>
+              <Field label="CURP"><input className="input" value={form.curp} onChange={(e) => setForm({ ...form, curp: e.target.value.toUpperCase() })} placeholder="18 caracteres" /></Field>
+              <Field label="Fecha de nacimiento">
+                <DatePicker value={form.fechaNacimiento} onChange={(v) => setForm({ ...form, fechaNacimiento: v })} />
+              </Field>
+              <Field label="Fuente">
+                <select className="input" value={form.fuente} onChange={(e) => setForm({ ...form, fuente: e.target.value })}>
+                  <option value="">Sin especificar</option>
+                  {opcionesFuente(form.fuente).map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+                </select>
+              </Field>
             </div>
             <Field label="Dirección"><input className="input" value={form.direccion} onChange={(e) => setForm({ ...form, direccion: e.target.value })} /></Field>
-            <Field label="Notas generales"><textarea className="input" rows={3} value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} /></Field>
             {err && <p className="text-sm text-red-600">{err}</p>}
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" onClick={() => setEditing(false)} className="btn-secondary">Cancelar</button>
@@ -650,7 +743,13 @@ export default function ClienteDetalle() {
       </Modal>
 
       {/* Modal nota / recordatorio */}
-      <Modal open={notaOpen} onClose={() => setNotaOpen(false)} title={notaForm.tipo === 'NOTA' ? 'Agregar nota' : 'Agregar recordatorio'}>
+      <Modal
+        open={notaOpen}
+        onClose={() => setNotaOpen(false)}
+        title={notaForm.tipo === 'NOTA'
+          ? 'Agregar nota'
+          : notaForm.destinatario === 'CLIENTE' ? 'Recordatorio sobre el cliente' : 'Recordatorio del asesor'}
+      >
         <form onSubmit={guardarNota} className="space-y-3">
           <Field label={notaForm.tipo === 'NOTA' ? 'Nota' : 'Recordatorio'}>
             <textarea
@@ -672,7 +771,9 @@ export default function ClienteDetalle() {
                 onChange={(e) => setNotaForm({ ...notaForm, fechaAviso: e.target.value })}
               />
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Te avisaremos mediante notificación push cuando se acerque esta fecha.
+                Te avisamos <strong>un día antes</strong> y el <strong>mismo día</strong>, en tu
+                bandeja de notificaciones y por push.
+                {notaForm.destinatario === 'CLIENTE' && ' El aviso llega a ti, no al cliente.'}
               </p>
             </Field>
           )}
@@ -703,9 +804,9 @@ export default function ClienteDetalle() {
                 {RAMOS.map((r) => <option key={r} value={r}>{RAMOS_LABEL[r]}</option>)}
               </select>
             </Field>
-            <Field label="Detalle / observaciones">
-              <textarea className="input" rows={4} value={productoForm.detalleInteres} onChange={(e) => setProductoForm({ ...productoForm, detalleInteres: e.target.value })} placeholder="Ej. Busca protección para su familia, 2 hijos, ingreso aproximado $35K mensual…" />
-            </Field>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Las observaciones del cliente van en <strong>Notas y recordatorios</strong>, más abajo en la ficha.
+            </p>
             <div className="flex justify-end gap-2 pt-2">
               <button type="button" onClick={() => setProductoOpen(false)} className="btn-secondary">Cancelar</button>
               <button type="submit" disabled={productoSaving} className="btn-primary">{productoSaving ? 'Guardando…' : 'Guardar'}</button>
@@ -723,6 +824,31 @@ export default function ClienteDetalle() {
         asesorId={fichaAjena ? c.asesorId : null}
         onSaved={() => qc.invalidateQueries(['cliente', id])}
       />
+
+      {/* Visor de archivos: previsualiza en la app; descargar es secundario.
+          Imágenes y PDF se muestran en línea; el resto (Word, Excel…) no se
+          puede renderizar en el navegador y ofrece la descarga. */}
+      <Modal open={Boolean(visor.doc)} onClose={cerrarVisor} title={visor.doc?.nombre || 'Archivo'} wide>
+        <div className="space-y-3">
+          {visor.cargando && <p className="text-sm text-slate-500 dark:text-slate-400 py-10 text-center">Cargando archivo…</p>}
+          {visor.error && <p className="text-sm text-red-600 py-6 text-center">{visor.error}</p>}
+          {visor.url && visor.doc?.mime?.startsWith('image/') && (
+            <img src={visor.url} alt={visor.doc.nombre} className="max-h-[70vh] w-full object-contain rounded-lg bg-slate-50 dark:bg-slate-900" />
+          )}
+          {visor.url && visor.doc?.mime === 'application/pdf' && (
+            <iframe src={visor.url} title={visor.doc.nombre} className="w-full h-[70vh] rounded-lg border border-slate-200 dark:border-slate-700" />
+          )}
+          {visor.url && !visor.doc?.mime?.startsWith('image/') && visor.doc?.mime !== 'application/pdf' && (
+            <div className="rounded-lg border border-dashed border-slate-300 dark:border-slate-600 px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+              Este tipo de archivo no se puede previsualizar en el navegador. Descárgalo para abrirlo.
+            </div>
+          )}
+          <div className="flex justify-between gap-2 pt-1">
+            <button type="button" onClick={() => descargarArchivo(visor.doc)} className="btn-secondary" disabled={!visor.doc}>Descargar</button>
+            <button type="button" onClick={cerrarVisor} className="btn-primary">Cerrar</button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Confirmación archivar cliente (borrado lógico) */}
       <Modal open={archivarOpen} onClose={() => setArchivarOpen(false)} title="Archivar cliente">

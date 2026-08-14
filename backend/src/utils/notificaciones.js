@@ -11,6 +11,8 @@ export const TIPOS_NOTIFICACION = [
   'CITA_SUGERENCIA_RESPUESTA',  // el asesor respondió la sugerencia de horario
   'RECORDATORIO',
   'RECORDATORIO_PAGO',
+  'PROSPECTO_ESTANCADO',         // prospecto sin avance ni contacto en 15 días
+  'META_AVANCE',                 // avance de la meta mensual de pólizas
 ];
 
 // Punto de entrada ÚNICO para avisar a un usuario. Persiste la notificación
@@ -52,17 +54,23 @@ export async function notificar(destinatarioId, tipo, { titulo, cuerpo, datos = 
 // Recordatorio vencido (Nota RECORDATORIO / RECORDATORIO_PAGO) → notificación
 // in-app + push. Sustituye a la antigua notificarRecordatorio() de
 // services/push.js, conservando el mismo payload que ya se enviaba.
-export async function notificarRecordatorioNota(nota) {
+// `previo: true` = aviso anticipado (un día antes del vencimiento). Es una
+// notificación distinta, con su propio tag, para que no reemplace a la del día
+// en la bandeja del navegador.
+export async function notificarRecordatorioNota(nota, { previo = false } = {}) {
   const esPago = nota.tipo === 'RECORDATORIO_PAGO';
+  const sufijo = previo ? ' (mañana)' : '';
   const titulo = esPago
-    ? 'Recordatorio de pago · Origen Promotoría'
-    : 'Recordatorio · Origen Promotoría';
-  const cuerpo = nota.texto?.slice(0, 180) || 'Tienes un recordatorio pendiente';
+    ? `Recordatorio de pago${sufijo} · Origen Promotoría`
+    : `Recordatorio${sufijo} · Origen Promotoría`;
+  const base = nota.texto?.slice(0, 180) || 'Tienes un recordatorio pendiente';
+  const cuerpo = previo ? `Mañana: ${base}` : base;
   const datos = {
     url: `${process.env.PUBLIC_URL || ''}/clientes/${nota.clienteId}`,
     notaId: nota.id,
     clienteId: nota.clienteId,
     ventaId: nota.ventaId || null,
+    previo,
   };
   return notificar(nota.asesorId, esPago ? 'RECORDATORIO_PAGO' : 'RECORDATORIO', {
     titulo,
@@ -71,9 +79,9 @@ export async function notificarRecordatorioNota(nota) {
     pushPayload: {
       title: titulo,
       body: cuerpo,
-      tag: esPago ? `pago-${nota.ventaId || nota.id}` : `nota-${nota.id}`,
+      tag: `${esPago ? `pago-${nota.ventaId || nota.id}` : `nota-${nota.id}`}${previo ? '-previo' : ''}`,
       data: { ...datos, tipo: esPago ? 'RECORDATORIO_PAGO' : 'RECORDATORIO' },
-      requerirInteraccion: esPago,
+      requerirInteraccion: esPago && !previo,
       icon: '/origen-blanco.png',
     },
   });

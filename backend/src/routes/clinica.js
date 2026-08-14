@@ -94,6 +94,90 @@ router.post('/prospectos', asyncHandler(async (req, res) => {
   res.status(201).json(prospecto);
 }));
 
+// Candidatos a importar al evaluador: clientes del CRM marcados como
+// "necesita seguimiento" que todavía no son clientes cerrados. Es la lista
+// que antes había que teclear prospecto por prospecto en el formato.
+//
+// Se excluyen los que ya están en la semana indicada (por `clienteId`) para
+// que importar dos veces no duplique filas.
+router.get('/prospectos/sugeridos', asyncHandler(async (req, res) => {
+  const inicio = fechaDia(req.query?.semanaInicio);
+  if (!inicio) return res.status(400).json({ error: 'semanaInicio (YYYY-MM-DD) es requerida' });
+  const asesorId = asesorScope(req, req.query.asesorId);
+
+  const yaEnSemana = await prisma.prospectoClinica.findMany({
+    where: { asesorId, semanaInicio: inicio, clienteId: { not: null } },
+    select: { clienteId: true },
+  });
+  const excluir = yaEnSemana.map((p) => p.clienteId);
+
+  const clientes = await prisma.cliente.findMany({
+    where: {
+      asesorId,
+      archivadoEn: null,
+      necesitaSeguimiento: true,
+      id: excluir.length ? { notIn: excluir } : undefined,
+      // Ya cerrada la venta no hay que llamarlo para conseguir cita.
+      ventas: { none: { estado: { in: ['APROBADA', 'PAGADA'] } } },
+    },
+    select: {
+      id: true, nombre: true, apellidoP: true, apellidoM: true,
+      telefono: true, email: true, estado: true, fechaNacimiento: true,
+    },
+    orderBy: { actualizadoEn: 'asc' },
+    take: 100,
+  });
+  res.json(clientes);
+}));
+
+// Importa al evaluador de la semana los clientes indicados (o todos los
+// sugeridos si no se manda lista). Cada fila queda enlazada por `clienteId`.
+router.post('/prospectos/importar', asyncHandler(async (req, res) => {
+  const inicio = fechaDia(req.body?.semanaInicio);
+  if (!inicio) return res.status(400).json({ error: 'semanaInicio (YYYY-MM-DD) es requerida' });
+  const asesorId = asesorScope(req, req.body?.asesorId);
+  const ids = Array.isArray(req.body?.clienteIds) ? req.body.clienteIds : null;
+  if (!ids || ids.length === 0) return res.status(400).json({ error: 'clienteIds es requerido' });
+
+  // Solo clientes propios (o del asesor consultado, si es promotor).
+  const clientes = await prisma.cliente.findMany({
+    where: { id: { in: ids }, asesorId, archivadoEn: null },
+    select: { id: true, nombre: true, apellidoP: true, apellidoM: true, telefono: true, email: true, fechaNacimiento: true },
+  });
+  if (!clientes.length) return res.status(400).json({ error: 'Ningún cliente válido para importar' });
+
+  const yaEnSemana = await prisma.prospectoClinica.findMany({
+    where: { asesorId, semanaInicio: inicio, clienteId: { in: clientes.map((c) => c.id) } },
+    select: { clienteId: true },
+  });
+  const dup = new Set(yaEnSemana.map((p) => p.clienteId));
+  const nuevos = clientes.filter((c) => !dup.has(c.id));
+  if (!nuevos.length) return res.json({ importados: 0, duplicados: clientes.length });
+
+  const edadDe = (f) => {
+    if (!f) return null;
+    const n = new Date(f);
+    const hoy = new Date();
+    let e = hoy.getFullYear() - n.getFullYear();
+    const m = hoy.getMonth() - n.getMonth();
+    if (m < 0 || (m === 0 && hoy.getDate() < n.getDate())) e -= 1;
+    return e >= 0 && e < 130 ? e : null;
+  };
+
+  await prisma.prospectoClinica.createMany({
+    data: nuevos.map((c) => ({
+      asesorId,
+      semanaInicio: inicio,
+      clienteId: c.id,
+      nombre: `${c.nombre} ${c.apellidoP} ${c.apellidoM || ''}`.trim(),
+      contacto: c.telefono || c.email || null,
+      edad: edadDe(c.fechaNacimiento),
+      resultado: 'PENDIENTE',
+    })),
+  });
+  res.status(201).json({ importados: nuevos.length, duplicados: clientes.length - nuevos.length });
+}));
+
 // Dueño o promotor: mismas reglas de propiedad que el resto del sistema.
 async function prospectoConAcceso(req, res) {
   const prospecto = await prisma.prospectoClinica.findUnique({ where: { id: req.params.id } });
