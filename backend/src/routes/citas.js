@@ -7,6 +7,7 @@ import { permiteSeccion } from '../middleware/permisos.js';
 import { registrarActividad } from '../utils/actividad.js';
 import { notificar } from '../utils/notificaciones.js';
 import { crearEvento, borrarEvento, horarioLibre } from '../services/googleCalendar.js';
+import { marcarCitaObtenidaEnClinica } from '../utils/clinica.js';
 
 const router = Router();
 router.use(authenticate);
@@ -353,6 +354,13 @@ router.post('/', asyncHandler(async (req, res) => {
       modalidad: modalidad || 'CITA_UNICA',
       ...(creadas.length > 1 ? { repeticiones: creadas.length } : {}),
     });
+    // Agendar la cita ES el objetivo de la clínica telefónica: si el cliente
+    // tenía una fila abierta en el evaluador, se cierra como CITA_OBTENIDA
+    // aunque la cita se haya agendado desde el calendario o la ficha. Mejor
+    // esfuerzo: la cita ya quedó creada, esto solo mantiene el evaluador al día.
+    marcarCitaObtenidaEnClinica(cliente.id).catch((e) =>
+      console.warn(`[citas] no se pudo cerrar la clínica de ${cliente.id}: ${e.message}`)
+    );
   } else if (candidato) {
     await registrarActividad(asesorId, 'CITA_CREADA', {
       citaId: primera.id,

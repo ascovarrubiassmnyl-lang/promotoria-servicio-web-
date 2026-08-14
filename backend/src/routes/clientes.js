@@ -101,7 +101,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
 const normalizarEtapa = (estado) => (estado === 'NECESITA_SEGUIMIENTO' ? null : estado);
 
 router.post('/', asyncHandler(async (req, res) => {
-  const { nombre, apellidoP, apellidoM, email, telefono, fechaNacimiento, rfc, curp, direccion, estado, notas, fuente, productoInteres, detalleInteres, referidoPorId, necesitaSeguimiento, yaContactado, yaTuvoCita } = req.body || {};
+  const { nombre, apellidoP, apellidoM, email, telefono, fechaNacimiento, rfc, curp, direccion, estado, notas, fuente, productoInteres, detalleInteres, referidoPorId, necesitaSeguimiento } = req.body || {};
   // Solo nombre y apellido son obligatorios: un "cliente frío" es un prospecto
   // del que todavía no se tienen datos de contacto (antes se inventaba un
   // correo falso tipo aaa@gmail.com para poder darlo de alta).
@@ -130,13 +130,15 @@ router.post('/', asyncHandler(async (req, res) => {
     cliente: `${nombre} ${apellidoP}`,
   });
 
-  // Un prospecto que nunca se ha contactado y nunca ha dado cita es
-  // exactamente lo que la clínica telefónica existe para trabajar: entra solo
-  // al evaluador de la semana en curso, sin que el asesor tenga que
-  // importarlo a mano después ("Traer de mi cartera" sigue existiendo para la
-  // cartera anterior a este cambio).
+  // Un prospecto recién registrado es exactamente lo que la clínica telefónica
+  // existe para trabajar: entra SOLO al evaluador de la semana en curso, sin
+  // preguntarle nada al asesor y sin que tenga que importarlo a mano. Si más
+  // tarde sigue atorado en PROSPECTO, el job horario lo vuelve a meter
+  // (`sincronizarClinicaDeAsesor` en utils/clinica.js) — este alta solo cubre
+  // el primer disparador: "acaba de registrarse y nadie lo ha llamado".
+  // Un alta que nace en otra etapa (ya viene con cita, propuesta…) no aplica.
   let enClinica = false;
-  if (yaContactado === false && yaTuvoCita === false) {
+  if (cliente.estado === 'PROSPECTO') {
     try {
       enClinica = Boolean(await agregarClienteAClinica(cliente, { asesorId }));
     } catch (e) {

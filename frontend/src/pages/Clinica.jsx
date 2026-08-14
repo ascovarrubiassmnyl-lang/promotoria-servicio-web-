@@ -135,10 +135,6 @@ export default function Clinica() {
   const inicioIso = isoDia(semana.inicio);
 
   const [modalOpen, setModalOpen] = useState(false);
-  // Importar desde la cartera: evita capturar a mano prospecto por prospecto.
-  const [importOpen, setImportOpen] = useState(false);
-  const [importSel, setImportSel] = useState([]);
-  const [importando, setImportando] = useState(false);
   const [prospectoEdit, setProspectoEdit] = useState(null);
   const [toDelete, setToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -162,32 +158,6 @@ export default function Clinica() {
     queryFn: async () => (await api.get('/clinica/resumen', { params: { inicio: inicioIso } })).data,
     enabled: esAdmin(),
   });
-
-  // Clientes marcados "necesita seguimiento" que aún no están en el evaluador
-  // de esta semana. El servidor ya excluye los duplicados y los ya cerrados.
-  const { data: sugeridos, isLoading: sugeridosLoading } = useQuery({
-    queryKey: ['clinica-sugeridos', inicioIso, asesorId || 'yo'],
-    queryFn: async () => (await api.get('/clinica/prospectos/sugeridos', {
-      params: { semanaInicio: inicioIso, asesorId: asesorId || undefined },
-    })).data,
-    enabled: importOpen,
-  });
-
-  const importar = async () => {
-    if (!importSel.length) return;
-    setImportando(true);
-    try {
-      setErr('');
-      await api.post('/clinica/prospectos/importar', {
-        semanaInicio: inicioIso,
-        asesorId: asesorId || undefined,
-        clienteIds: importSel,
-      });
-      setImportOpen(false);
-      setImportSel([]);
-      refrescar();
-    } catch (e) { setErr(handleError(e)); } finally { setImportando(false); }
-  };
 
   const prospectos = data?.prospectos || [];
   const sesiones = data?.sesiones || [];
@@ -267,7 +237,6 @@ export default function Clinica() {
               {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
             </select>
           )}
-          <button onClick={() => setImportOpen(true)} className="btn-secondary">Traer de mi cartera</button>
           <button onClick={() => { setProspectoEdit(null); setModalOpen(true); }} className="btn-primary">+ Agregar prospecto</button>
         </div>
       </div>
@@ -312,9 +281,8 @@ export default function Clinica() {
             <div className="py-6 text-center text-slate-400 dark:text-slate-500">Cargando…</div>
           ) : !prospectos.length ? (
             <div className="space-y-3">
-              <EmptyState message="Sin prospectos esta semana. Trae los que ya marcaste para seguimiento o agrégalos a mano." />
+              <EmptyState message="Sin prospectos esta semana. Los prospectos del CRM entran aquí solos en cuanto llevan días sin que les llames." />
               <div className="flex flex-wrap gap-2">
-                <button onClick={() => setImportOpen(true)} className="btn-primary text-xs">Traer de mi cartera</button>
                 <button onClick={() => { setProspectoEdit(null); setModalOpen(true); }} className="btn-secondary text-xs">+ Agregar prospecto</button>
               </div>
             </div>
@@ -484,74 +452,6 @@ export default function Clinica() {
         semanaInicio={inicioIso}
         asesorId={asesorId}
       />
-
-      {/* Importar desde la cartera: los clientes marcados "necesita seguimiento"
-          entran al evaluador de la semana sin capturarlos uno por uno. */}
-      <Modal open={importOpen} onClose={() => setImportOpen(false)} title="Traer prospectos de mi cartera" wide>
-        <div className="space-y-3">
-          <p className="text-sm text-slate-600 dark:text-slate-300">
-            Clientes marcados como <strong>«necesita seguimiento»</strong> que todavía no están
-            en el evaluador de esta semana y no tienen póliza cerrada.
-          </p>
-
-          {sugeridosLoading ? (
-            <p className="text-sm text-slate-400 dark:text-slate-500 py-6 text-center">Buscando en tu cartera…</p>
-          ) : !sugeridos?.length ? (
-            <div className="rounded-lg border border-dashed border-slate-300 dark:border-slate-600 px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">
-              No hay clientes marcados para seguimiento. Marca la bandera desde el menú ⋯ de su ficha.
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => setImportSel(importSel.length === sugeridos.length ? [] : sugeridos.map((c) => c.id))}
-                  className="text-xs font-medium text-brand-600 dark:text-brand-400 hover:underline"
-                >
-                  {importSel.length === sugeridos.length ? 'Quitar selección' : `Seleccionar todos (${sugeridos.length})`}
-                </button>
-                <span className="text-xs text-slate-500 dark:text-slate-400">{importSel.length} seleccionado{importSel.length === 1 ? '' : 's'}</span>
-              </div>
-              <ul className="max-h-[45vh] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700 rounded-lg border border-slate-200 dark:border-slate-700">
-                {sugeridos.map((c) => {
-                  const sel = importSel.includes(c.id);
-                  return (
-                    <li key={c.id}>
-                      <label className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/40">
-                        <input
-                          type="checkbox"
-                          checked={sel}
-                          onChange={() => setImportSel((s) => (sel ? s.filter((x) => x !== c.id) : [...s, c.id]))}
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-sm font-medium text-slate-700 dark:text-slate-200 truncate">
-                            {c.nombre} {c.apellidoP} {c.apellidoM || ''}
-                          </span>
-                          <span className="block text-xs text-slate-400 dark:text-slate-500">
-                            {c.telefono || c.email || 'Sin datos de contacto'}
-                          </span>
-                        </span>
-                      </label>
-                    </li>
-                  );
-                })}
-              </ul>
-            </>
-          )}
-
-          <div className="flex justify-end gap-2 pt-1">
-            <button type="button" onClick={() => setImportOpen(false)} className="btn-secondary">Cancelar</button>
-            <button
-              type="button"
-              onClick={importar}
-              disabled={importando || !importSel.length}
-              className="btn-primary"
-            >
-              {importando ? 'Importando…' : `Traer ${importSel.length || ''} al evaluador`.trim()}
-            </button>
-          </div>
-        </div>
-      </Modal>
 
       <Modal open={!!toDelete} onClose={() => setToDelete(null)} title="Eliminar prospecto">
         {toDelete && (

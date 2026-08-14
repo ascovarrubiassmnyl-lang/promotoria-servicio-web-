@@ -255,8 +255,14 @@ Mapa único `frontend/src/components/polizas/tipos.js` (`MONEDAS`,
   "Star Dotal 20 años", "Imagina Ser PPR — Pagos Limitados 15") porque cada
   plazo es una **variante distinta del catálogo**, no un campo aparte.
   `plazoDesdeNombre()` en `PolizaFormModal.jsx` lo extrae al elegir producto
-  y el campo sigue siendo editable. Los 5 productos sin plazo en el nombre
-  (SeguBeca, Vida Mujer, los 3 Alfa Medical) devuelven '' y no lo tocan.
+  y el campo sigue siendo editable. Los **21 productos** autorrellenan: los 5
+  que no declaran plazo en el nombre salen del mapa explícito
+  `PLAZO_POR_PRODUCTO` en ese mismo archivo, con el dato del manual SMNYL —
+  Vida Mujer "20 años" (periodo de cobertura y de pago de primas, manual
+  §"Periodo de pago de primas"), los 3 Alfa Medical "Anual renovable" (GMM,
+  no tiene plazo en años) y SeguBeca "18 menos la edad del menor" (su plazo
+  **no es fijo**: la presentación lo define como `18 − edad del menor`, así
+  que se prellena la fórmula para que el asesor ponga el número del caso).
   **No se agregó campo al modelo**: reestructurar el catálogo consolidando
   variantes rompería `productoCatalogoId` y la matriz de coberturas/monedas.
 - **Coberturas**: el shape Json creció a `[{nombre, detalle, monto, costo}]`.
@@ -669,26 +675,38 @@ obtenidas, notas).
   `Cliente` con `fuente: "Clínica telefónica"`, lo enlaza (`clienteId`), marca
   `CONVERTIDO` y registra `CLIENTE_CREADO` en la bitácora. "Pasar a la próxima
   semana" = PATCH de `semanaInicio` (arrastre de no contactados).
-- **Poblar desde la cartera** (2026-08-13, "Traer de mi cartera"): en vez de
-  capturar prospecto por prospecto, `GET /clinica/prospectos/sugeridos`
-  devuelve los clientes marcados **«necesita seguimiento»** que no están ya
-  en el evaluador de esa semana y no tienen póliza APROBADA/PAGADA;
-  `POST /clinica/prospectos/importar` (`{semanaInicio, clienteIds}`) crea las
-  filas enlazadas por `clienteId`. La anti-duplicación es por `clienteId` +
-  `semanaInicio`, así que importar dos veces no duplica (responde
-  `{importados, duplicados}`).
-- **Entrada automática desde el alta de cliente** (2026-08-14): el alta
-  (`ClientesView.jsx`) pregunta "¿Ya lo contacté?" y "¿Ya me ha dado una
-  cita?" — **dos flags que NO se guardan en `Cliente`**, solo viajan en el
-  body de `POST /clientes`. Si ambas son `false`, el backend crea la fila de
-  `ProspectoClinica` de la semana en curso (mejor esfuerzo: si la clínica
-  falla, el alta del cliente no se cae; la respuesta incluye `enClinica`).
-  Helpers compartidos en `backend/src/utils/clinica.js`
-  (`inicioSemana`, `filaProspectoDesdeCliente`, `agregarClienteAClinica`) —
-  los usa tanto `POST /clientes` como el importador manual, para que la fila
-  se arme igual en ambos caminos. "Traer de mi cartera" **se conserva** para
-  la cartera anterior a este cambio (clientes que nunca pasaron por las dos
-  preguntas).
+- **La clínica se llena SOLA — no se importa a mano** (2026-08-14). La
+  importación manual ("Traer de mi cartera", `GET
+  /clinica/prospectos/sugeridos` + `POST /clinica/prospectos/importar`) **se
+  eliminó**, junto con las dos preguntas del alta ("¿Ya lo contacté?" / "¿Ya
+  me ha dado una cita?"): decidir a quién perseguir era justo el trabajo que
+  el asesor evitaba hacer. **No reintroducirlas.** Un prospecto entra al
+  evaluador de la semana por **dos disparadores**, ambos en
+  `backend/src/utils/clinica.js`:
+  1. **Recién registrado** — `POST /clientes` mete la fila si el cliente nace
+     en etapa `PROSPECTO` (mejor esfuerzo: si la clínica falla el alta no se
+     cae; la respuesta incluye `enClinica`).
+  2. **Atorado en PROSPECTO** — `DIAS_SIN_AVANCE = 4`: sigue en etapa
+     `PROSPECTO`, sin cita viva, sin póliza viva, sin `fechaUltimaCita`, y o
+     nunca se le llamó o la última llamada fue hace más de 4 días.
+     `sincronizarClinicaDeAsesor()` lo corre el **job horario**
+     (`jobs/automatizacionesJob.js`, regla 3, para todos los usuarios
+     activos). No manda notificación: el resultado es una fila en `/clinica`.
+- **El "contador" es DERIVADO, no una columna**: sale de `creadoEn`,
+  `fechaUltimaLlamada`, `fechaUltimaCita` y `estado`, que ya se mantienen.
+  **No agregar un contador persistido**: se desincroniza en cuanto alguien
+  llama al cliente fuera del CRM, igual que pasaba con `TipoContacto`.
+- La anti-duplicación sigue siendo `clienteId` + `semanaInicio`: no se
+  duplica dentro de la semana, pero **sí reaparece la semana siguiente** si
+  sigue sin avanzar (arrastre automático, que es lo buscado).
+  `sincronizarClinicaDeAsesor()` **solo agrega, nunca borra**: una fila ya
+  trabajada es registro de lo que el asesor hizo, no un cache regenerable.
+- **Agendar cita cierra la fila** aunque la cita se agende desde el
+  calendario o la ficha: `POST /citas` con `clienteId` llama
+  `marcarCitaObtenidaEnClinica()`, que pasa a `CITA_OBTENIDA` las filas en
+  `PENDIENTE`/`CONTACTADO` (nunca pisa `CONVERTIDO`/`DESCARTADO`). Sin esto
+  el asesor seguiría viendo en la clínica a alguien con quien ya quedó y el
+  conteo de citas de la semana se quedaría corto.
 - **El avance en la clínica se refleja en la ficha** (2026-08-14): `PATCH
   /clinica/prospectos/:id` propaga al `Cliente` enlazado (solo si hay
   `clienteId` y el `resultado` realmente cambió): `CONTACTADO` →
@@ -885,6 +903,11 @@ requisito. Corre cada hora (nada de lo que vigila cambia por minuto).
 - **Avance de meta** (`META_AVANCE`): hitos 50/80/100% de `metaVentasNum`
   del mes, una vez cada uno. Reusa la **misma** definición de venta ganada
   que Pólizas y Metas (APROBADA/PAGADA creadas en el mes).
+- **Llenado de la clínica telefónica**: `sincronizarClinicaDeAsesor()` para
+  cada usuario activo (regla y consultas en `utils/clinica.js`, ver la
+  sección de Clínica). **Es la única regla que no notifica**: su resultado es
+  una fila en `/clinica`, no un aviso — su idempotencia es la propia
+  anti-duplicación por `clienteId` + `semanaInicio`, no `datos.clave`.
 - **Idempotencia sin tabla extra**: la propia bandeja (`Notificacion`) es el
   registro — cada aviso lleva `datos.clave` (`prospecto:<id>`,
   `meta:<anio>-<mes>:<hito>`) y se consulta con

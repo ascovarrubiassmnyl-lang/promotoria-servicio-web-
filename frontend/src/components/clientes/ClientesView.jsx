@@ -23,10 +23,6 @@ const FORM_VACIO = {
   nombre: '', apellidoP: '', apellidoM: '', email: '', telefono: '',
   estado: 'PROSPECTO', notas: '', fuente: '',
   productoInteres: '', productoCatalogoId: '', detalleInteres: '', referidoPorId: '',
-  // Solo se preguntan en el alta y NO se guardan en Cliente: deciden si el
-  // prospecto entra automáticamente a la clínica telefónica (sin contactar y
-  // sin cita = hay que llamarle para conseguir la cita).
-  yaContactado: false, yaTuvoCita: false,
 };
 
 const mismoDia = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
@@ -237,9 +233,6 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
       if (!payload.productoInteres) delete payload.productoInteres;
       if (!payload.referidoPorId) delete payload.referidoPorId;
       delete payload.productoCatalogoId;
-      // Las dos preguntas de contacto solo existen en el alta.
-      delete payload.yaContactado;
-      delete payload.yaTuvoCita;
       if (editId) {
         await api.patch(`/clientes/${editId}`, {
           ...payload,
@@ -252,8 +245,6 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
         await api.post('/clientes', {
           ...payload,
           asesorId: asesorId || formAsesorId || undefined,
-          yaContactado: form.yaContactado,
-          yaTuvoCita: form.yaTuvoCita,
         });
       }
       setOpen(false);
@@ -534,39 +525,14 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
             </p>
           )}
 
-          {/* Estado de contacto (solo en el alta): si nunca se le ha llamado y
-              nunca ha dado cita, el prospecto entra solo a la clínica
-              telefónica, que es justo el trabajo de conseguir esa primera cita. */}
-          {!editId && (
-            <div className="border-t border-slate-100 dark:border-slate-700 pt-3 mt-1">
-              <p className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400 mb-2">¿En qué punto está el contacto?</p>
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="rounded border-slate-300 dark:border-slate-600 text-brand-600 focus:ring-brand-500"
-                    checked={form.yaContactado}
-                    onChange={(e) => setForm({ ...form, yaContactado: e.target.checked })}
-                  />
-                  Ya lo contacté
-                </label>
-                <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="rounded border-slate-300 dark:border-slate-600 text-brand-600 focus:ring-brand-500"
-                    checked={form.yaTuvoCita}
-                    onChange={(e) => setForm({ ...form, yaTuvoCita: e.target.checked })}
-                  />
-                  Ya me ha dado una cita
-                </label>
-              </div>
-              {!form.yaContactado && !form.yaTuvoCita && (
-                <p className="text-xs text-slate-500 dark:text-slate-400 rounded-lg bg-amber-50 dark:bg-amber-500/10 px-3 py-2 mt-2">
-                  Se agregará a tu <strong>clínica telefónica</strong> de esta semana para que le
-                  llames y consigas la cita.
-                </p>
-              )}
-            </div>
+          {/* La clínica telefónica se llena sola: un prospecto sin llamada
+              registrada entra al evaluador de la semana, y vuelve a entrar si
+              se queda atorado en PROSPECTO. Aquí solo se avisa, no se pregunta. */}
+          {!editId && form.estado === 'PROSPECTO' && (
+            <p className="text-xs text-slate-500 dark:text-slate-400 rounded-lg bg-amber-50 dark:bg-amber-500/10 px-3 py-2">
+              Entrará a tu <strong>clínica telefónica</strong> hasta que le llames y avance a cita
+              (o lo descartes).
+            </p>
           )}
 
           {/* Producto de interés — catálogo de productos NYL */}

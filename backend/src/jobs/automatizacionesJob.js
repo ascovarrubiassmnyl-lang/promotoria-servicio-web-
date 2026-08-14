@@ -1,5 +1,6 @@
 import { prisma } from '../prisma.js';
 import { notificar } from '../utils/notificaciones.js';
+import { sincronizarClinicaDeAsesor } from '../utils/clinica.js';
 
 // Automatizaciones "cableadas" del CRM: reglas fijas, no un motor configurable
 // (un motor tipo n8n quedó como pendiente/experimento, no como requisito).
@@ -133,13 +134,42 @@ async function avanceDeMeta() {
   return avisados;
 }
 
+// Regla 3 — Llenado automático de la clínica telefónica.
+//
+// Los prospectos entran solos al evaluador de la semana: los recién
+// registrados que nadie ha llamado y los que llevan DIAS_SIN_AVANCE días
+// atorados en PROSPECTO. Así el asesor no decide a quién perseguir — la
+// clínica se lo pone enfrente (regla y consultas en utils/clinica.js).
+//
+// No manda notificación: el resultado es una fila en /clinica, no un aviso.
+// Corre para todos los usuarios activos (un promotor también tiene cartera).
+async function llenarClinica() {
+  const usuarios = await prisma.usuario.findMany({
+    where: { activo: true },
+    select: { id: true },
+  });
+  let agregados = 0;
+  for (const u of usuarios) {
+    try {
+      agregados += await sincronizarClinicaDeAsesor(u.id);
+    } catch (err) {
+      console.warn(`[automatizaciones] no se pudo llenar la clínica de ${u.id}: ${err.message}`);
+    }
+  }
+  return agregados;
+}
+
 async function correr() {
   if (corriendo) return;
   corriendo = true;
   try {
-    const [estancados, metas] = await Promise.all([prospectosEstancados(), avanceDeMeta()]);
-    if (estancados || metas) {
-      console.log(`[automatizaciones] ${estancados} prospecto(s) estancados · ${metas} aviso(s) de meta`);
+    const [estancados, metas, clinica] = await Promise.all([
+      prospectosEstancados(),
+      avanceDeMeta(),
+      llenarClinica(),
+    ]);
+    if (estancados || metas || clinica) {
+      console.log(`[automatizaciones] ${estancados} prospecto(s) estancados · ${metas} aviso(s) de meta · ${clinica} a clínica`);
     }
   } catch (err) {
     console.error('[automatizaciones] error:', err.message);

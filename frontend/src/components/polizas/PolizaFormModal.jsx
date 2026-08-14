@@ -34,15 +34,31 @@ function finDeVigenciaSugerido(inicioISO) {
   return isoLocalDateInput(fin);
 }
 
-// El plazo de PAGO ya viene codificado en el nombre del producto del catálogo
-// ("Orvi 10 pagos", "Star Dotal 20 años", "Imagina Ser PPR — Pagos Limitados
-// 15"): cada plazo es una variante distinta del catálogo, no un campo aparte.
-// Esto solo lo extrae para prellenar el campo, que sigue siendo editable.
-// Si el nombre no declara plazo (ej. "Alfa Medical Flex", GMM anual) devuelve
-// '' y no se toca lo que el asesor haya escrito.
+// Plazo de PAGO por producto del catálogo. En la mayoría ya viene codificado en
+// el nombre ("Orvi 10 pagos", "Star Dotal 20 años", "Imagina Ser PPR — Pagos
+// Limitados 15") porque cada plazo es una variante distinta del catálogo, no un
+// campo aparte. Los 5 que no lo declaran en el nombre se resuelven con este mapa
+// explícito, con el plazo que fija el manual SMNYL de cada uno:
+//  - Vida Mujer: 20 años de cobertura y de pago de primas (manual, §"Periodo de
+//    cobertura"/"Periodo de pago de primas").
+//  - SeguBeca: el plazo NO es fijo — son (18 − edad del menor) años, así que se
+//    deja la fórmula como texto para que el asesor la sustituya por el número
+//    del caso concreto.
+//  - Alfa Medical (los 3): GMM anual renovable; no tiene plazo de pago en años.
+const PLAZO_POR_PRODUCTO = {
+  'Vida Mujer': '20 años',
+  SeguBeca: '18 menos la edad del menor',
+  'Alfa Medical': 'Anual renovable',
+  'Alfa Medical Flex': 'Anual renovable',
+  'Alfa Medical Internacional': 'Anual renovable',
+};
+
+// Devuelve el plazo sugerido para prellenar el campo, que sigue siendo editable.
+// Si no se puede determinar devuelve '' y no se toca lo que el asesor escribió.
 function plazoDesdeNombre(nombre) {
   if (!nombre) return '';
   const n = String(nombre);
+  if (PLAZO_POR_PRODUCTO[n]) return PLAZO_POR_PRODUCTO[n];
   const pagosLimitados = n.match(/Pagos Limitados\s+(\d+)/i);
   if (pagosLimitados) return `${pagosLimitados[1]} pagos`;
   const nPagos = n.match(/(\d+)\s*pagos/i);
