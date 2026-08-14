@@ -4,6 +4,7 @@ import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion } from '../middleware/permisos.js';
 import { registrarActividad } from '../utils/actividad.js';
+import { filaProspectoDesdeCliente } from '../utils/clinica.js';
 
 // Clínica telefónica: digitaliza el "Evaluador de Prospectos" semanal de la
 // promotoría (formato diseñado para conseguir 10 citas a la semana) y el
@@ -154,26 +155,8 @@ router.post('/prospectos/importar', asyncHandler(async (req, res) => {
   const nuevos = clientes.filter((c) => !dup.has(c.id));
   if (!nuevos.length) return res.json({ importados: 0, duplicados: clientes.length });
 
-  const edadDe = (f) => {
-    if (!f) return null;
-    const n = new Date(f);
-    const hoy = new Date();
-    let e = hoy.getFullYear() - n.getFullYear();
-    const m = hoy.getMonth() - n.getMonth();
-    if (m < 0 || (m === 0 && hoy.getDate() < n.getDate())) e -= 1;
-    return e >= 0 && e < 130 ? e : null;
-  };
-
   await prisma.prospectoClinica.createMany({
-    data: nuevos.map((c) => ({
-      asesorId,
-      semanaInicio: inicio,
-      clienteId: c.id,
-      nombre: `${c.nombre} ${c.apellidoP} ${c.apellidoM || ''}`.trim(),
-      contacto: c.telefono || c.email || null,
-      edad: edadDe(c.fechaNacimiento),
-      resultado: 'PENDIENTE',
-    })),
+    data: nuevos.map((c) => filaProspectoDesdeCliente(c, { asesorId, semanaInicio: inicio })),
   });
   res.status(201).json({ importados: nuevos.length, duplicados: clientes.length - nuevos.length });
 }));
@@ -202,6 +185,30 @@ router.patch('/prospectos/:id', asyncHandler(async (req, res) => {
     data.semanaInicio = inicio;
   }
   const prospecto = await prisma.prospectoClinica.update({ where: { id: existente.id }, data });
+
+  // El avance en la clínica se refleja en la ficha del cliente: si no, el
+  // asesor tendría que actualizar la etapa dos veces (aquí y en el CRM) y el
+  // embudo quedaría desfasado. Solo aplica a filas enlazadas a un Cliente.
+  if (prospecto.clienteId && data.resultado && data.resultado !== existente.resultado) {
+    const cambios = {};
+    if (data.resultado === 'CONTACTADO') {
+      cambios.fechaUltimaLlamada = new Date();
+    } else if (data.resultado === 'CITA_OBTENIDA') {
+      cambios.fechaUltimaCita = new Date();
+      cambios.estado = 'CITA';
+      // Ya tiene cita: deja de ser un pendiente de contacto.
+      cambios.necesitaSeguimiento = false;
+    } else if (data.resultado === 'DESCARTADO') {
+      // No se archiva ni se cambia de etapa: descartar en la clínica solo
+      // significa "no sigo llamándole esta semana". Archivar es decisión
+      // aparte, desde la ficha.
+      cambios.necesitaSeguimiento = false;
+    }
+    if (Object.keys(cambios).length) {
+      await prisma.cliente.update({ where: { id: prospecto.clienteId }, data: cambios }).catch(() => {});
+    }
+  }
+
   res.json(prospecto);
 }));
 

@@ -661,7 +661,9 @@ function CalendarioEscritorio() {
               }`}
             >
               <div className="text-xs uppercase text-slate-500 dark:text-slate-400">{DIAS_SEM[d.getDay()]}</div>
-              <div className={`mt-0.5 mx-auto w-7 h-7 leading-7 rounded-full text-sm font-semibold ${esHoy(d) ? 'bg-brand-600 text-white' : 'text-slate-600 dark:text-slate-300'}`}>{d.getDate()}</div>
+              {/* Mismo indicador de "hoy" que la vista Mes (w-5 h-5): el
+                  calendario se lee igual en ambas vistas. */}
+              <div className={`mt-0.5 mx-auto text-xs font-semibold ${esHoy(d) ? 'w-5 h-5 rounded-full bg-brand-600 text-white flex items-center justify-center' : 'text-slate-600 dark:text-slate-300'}`}>{d.getDate()}</div>
             </button>
           );
         })}
@@ -685,7 +687,7 @@ function CalendarioEscritorio() {
               {Array.from({ length: HORA_FIN - HORA_INI + 1 }, (_, i) => HORA_INI + i).map((h) => (
                 <div
                   key={h}
-                  className="border-b border-slate-50 dark:border-slate-700/60 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/40"
+                  className="border-b border-slate-50 dark:border-slate-700/60 cursor-pointer transition hover:bg-slate-50 dark:hover:bg-slate-700/60"
                   style={{ height: ALTO_HORA }}
                   onClick={() => { const dt = new Date(d); dt.setHours(h, 0, 0, 0); abrirAgendar(dt); }}
                   title="Clic para agendar a esta hora"
@@ -725,11 +727,16 @@ function CalendarioEscritorio() {
                     key={c.id}
                     onClick={(e) => { e.stopPropagation(); setSelectedDay(d); setDetalle(c); }}
                     title={`${c.titulo} — clic para ver y editar`}
-                    className={`absolute left-0.5 right-0.5 rounded-md border-l-2 px-1.5 py-0.5 text-left overflow-hidden hover:ring-1 hover:ring-brand-400 ${color.chip} ${color.borde} ${cancelada ? 'line-through opacity-50' : ''}`}
+                    className={`absolute left-0.5 right-0.5 rounded px-1 py-0.5 text-left overflow-hidden text-[10px] font-medium cursor-pointer hover:ring-1 hover:ring-brand-400 ${color.chip} ${cancelada ? 'line-through opacity-50' : ''}`}
                     style={{ top, height: Math.max(alto, 20) }}
                   >
-                    <div className={`text-[10px] font-semibold tabular-nums ${color.text}`}>{hora(c.fechaHoraInicio)}</div>
-                    <div className="text-[10px] font-medium text-slate-700 dark:text-slate-200 truncate">{c.titulo}</div>
+                    {/* Mismo lenguaje visual que LineaCita (vista Mes): punto de
+                        color + hora tabular + título truncado. */}
+                    <div className="flex items-center gap-1">
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${color.dot}`} />
+                      <span className="tabular-nums shrink-0">{hora(c.fechaHoraInicio)}</span>
+                    </div>
+                    <div className="truncate">{c.titulo}</div>
                   </button>
                 );
               })}

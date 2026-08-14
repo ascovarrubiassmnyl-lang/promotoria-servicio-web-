@@ -4,6 +4,7 @@ import { authenticate, esAdmin } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion } from '../middleware/permisos.js';
 import { registrarActividad } from '../utils/actividad.js';
+import { agregarClienteAClinica } from '../utils/clinica.js';
 
 const router = Router();
 router.use(authenticate);
@@ -100,7 +101,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
 const normalizarEtapa = (estado) => (estado === 'NECESITA_SEGUIMIENTO' ? null : estado);
 
 router.post('/', asyncHandler(async (req, res) => {
-  const { nombre, apellidoP, apellidoM, email, telefono, fechaNacimiento, rfc, curp, direccion, estado, notas, fuente, productoInteres, detalleInteres, referidoPorId, necesitaSeguimiento } = req.body || {};
+  const { nombre, apellidoP, apellidoM, email, telefono, fechaNacimiento, rfc, curp, direccion, estado, notas, fuente, productoInteres, detalleInteres, referidoPorId, necesitaSeguimiento, yaContactado, yaTuvoCita } = req.body || {};
   // Solo nombre y apellido son obligatorios: un "cliente frío" es un prospecto
   // del que todavía no se tienen datos de contacto (antes se inventaba un
   // correo falso tipo aaa@gmail.com para poder darlo de alta).
@@ -128,7 +129,23 @@ router.post('/', asyncHandler(async (req, res) => {
     clienteId: cliente.id,
     cliente: `${nombre} ${apellidoP}`,
   });
-  res.status(201).json(cliente);
+
+  // Un prospecto que nunca se ha contactado y nunca ha dado cita es
+  // exactamente lo que la clínica telefónica existe para trabajar: entra solo
+  // al evaluador de la semana en curso, sin que el asesor tenga que
+  // importarlo a mano después ("Traer de mi cartera" sigue existiendo para la
+  // cartera anterior a este cambio).
+  let enClinica = false;
+  if (yaContactado === false && yaTuvoCita === false) {
+    try {
+      enClinica = Boolean(await agregarClienteAClinica(cliente, { asesorId }));
+    } catch (e) {
+      // Mejor esfuerzo: el alta del cliente no se cae porque la clínica falle.
+      console.error(`[clientes] no se pudo agregar ${cliente.id} a la clínica: ${e.message}`);
+    }
+  }
+
+  res.status(201).json({ ...cliente, enClinica });
 }));
 
 router.patch('/:id', asyncHandler(async (req, res) => {

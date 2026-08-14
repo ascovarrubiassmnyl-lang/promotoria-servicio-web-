@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Origen Promotoría</title>
+    <!-- PWA: instalable en el teléfono. En iOS es REQUISITO de Apple para que
+         el Web Push funcione — la app debe agregarse a la pantalla de inicio
+         ("Compartir → Añadir a pantalla de inicio"); en el navegador suelto
+         Safari no entrega notificaciones. -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#0f172a" />
+    <link rel="icon" type="image/png" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Origen" />
   </head>
   <body class="bg-slate-50">
     <div id="root"></div>

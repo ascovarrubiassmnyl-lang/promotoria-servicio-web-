@@ -38,7 +38,11 @@ export async function notificar(destinatarioId, tipo, { titulo, cuerpo, datos = 
 
   let pushEnviado = false;
   try {
-    const payload = pushPayload || { title: titulo, body: cuerpo, data: datos };
+    // El icono va siempre: sin él el teléfono muestra el genérico del
+    // navegador y el aviso no se lee como "de la app".
+    const payload = pushPayload
+      ? { icon: '/icon-192.png', badge: '/icon-192.png', ...pushPayload }
+      : { title: titulo, body: cuerpo, data: datos, icon: '/icon-192.png', badge: '/icon-192.png' };
     const r = await sendPushToUser(destinatarioId, payload);
     pushEnviado = (r?.enviadas || 0) > 0;
   } catch (err) {
@@ -82,7 +86,7 @@ export async function notificarRecordatorioNota(nota, { previo = false } = {}) {
       tag: `${esPago ? `pago-${nota.ventaId || nota.id}` : `nota-${nota.id}`}${previo ? '-previo' : ''}`,
       data: { ...datos, tipo: esPago ? 'RECORDATORIO_PAGO' : 'RECORDATORIO' },
       requerirInteraccion: esPago && !previo,
-      icon: '/origen-blanco.png',
+      icon: '/icon-192.png',
     },
   });
 }

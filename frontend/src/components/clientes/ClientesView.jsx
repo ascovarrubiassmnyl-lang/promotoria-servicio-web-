@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Card, Modal, Field, EmptyState, MenuAcciones } from '../ui.jsx';
 import CandidatoFormModal from '../candidatos/CandidatoFormModal.jsx';
+import NotaFormModal from '../notas/NotaFormModal.jsx';
 import { ETAPAS, infoEtapa, FLAG_SEGUIMIENTO } from './etapas.js';
 import { infoFuente, opcionesFuente } from './fuentes.js';
 import { RAMOS_LABEL, fechaCorta, hora } from '../../lib/format.js';
@@ -22,6 +23,10 @@ const FORM_VACIO = {
   nombre: '', apellidoP: '', apellidoM: '', email: '', telefono: '',
   estado: 'PROSPECTO', notas: '', fuente: '',
   productoInteres: '', productoCatalogoId: '', detalleInteres: '', referidoPorId: '',
+  // Solo se preguntan en el alta y NO se guardan en Cliente: deciden si el
+  // prospecto entra automáticamente a la clínica telefónica (sin contactar y
+  // sin cita = hay que llamarle para conseguir la cita).
+  yaContactado: false, yaTuvoCita: false,
 };
 
 const mismoDia = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
@@ -49,12 +54,53 @@ function ProximaAccion({ pa }) {
 
 // Celda de etapa: pill de la etapa + bandera de seguimiento + mini indicador
 // de posición en el embudo (segmentos, color por progreso).
-function EtapaCell({ cliente }) {
+// La pill es un botón: abre un popover para cambiar la etapa sin entrar al
+// expediente (mismo PATCH que usa la ficha). Patrón de click-outside clonado
+// de MenuAcciones — su contrato es de acciones, no de selección de valor.
+function EtapaCell({ cliente, onCambiarEtapa }) {
   const e = infoEtapa(cliente.estado);
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const cerrar = (ev) => { if (!ref.current?.contains(ev.target)) setOpen(false); };
+    document.addEventListener('click', cerrar);
+    return () => document.removeEventListener('click', cerrar);
+  }, [open]);
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold ${e.pill}`}>{e.label}</span>
+        <div className="relative" ref={ref}>
+          <button
+            type="button"
+            title="Cambiar etapa"
+            onClick={(ev) => { ev.stopPropagation(); setOpen((o) => !o); }}
+            className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold transition hover:ring-1 hover:ring-brand-400 ${e.pill}`}
+          >
+            {e.label}
+            <svg className="w-3 h-3 opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6" /></svg>
+          </button>
+          {open && (
+            <div className="absolute left-0 top-full mt-1 z-30 min-w-[200px] rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-lg p-1.5">
+              {ETAPAS.map((et) => {
+                const activa = et.value === cliente.estado;
+                return (
+                  <button
+                    key={et.value}
+                    type="button"
+                    onClick={(ev) => { ev.stopPropagation(); setOpen(false); if (!activa) onCambiarEtapa(cliente, et.value); }}
+                    className={`w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg text-sm font-medium transition ${activa
+                      ? 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-slate-100'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'}`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${infoEtapa(et.value).dot}`} />
+                    {et.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
         {cliente.necesitaSeguimiento && (
           <span className={`inline-flex items-center gap-1 text-[11px] font-semibold ${FLAG_SEGUIMIENTO.text}`}>
             <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" /></svg>
@@ -94,6 +140,9 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
 
   const [toArchive, setToArchive] = useState(null);
   const [archiving, setArchiving] = useState(false);
+
+  // Recordatorio desde el menú ⋯ ({cliente, destinatario} o null).
+  const [recordatorio, setRecordatorio] = useState(null);
 
   // Captura de candidato a asesor (reclutamiento): mismo botón de alta, el
   // selector "Cliente | Candidato" del modal rutea al formulario correcto.
@@ -188,6 +237,9 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
       if (!payload.productoInteres) delete payload.productoInteres;
       if (!payload.referidoPorId) delete payload.referidoPorId;
       delete payload.productoCatalogoId;
+      // Las dos preguntas de contacto solo existen en el alta.
+      delete payload.yaContactado;
+      delete payload.yaTuvoCita;
       if (editId) {
         await api.patch(`/clientes/${editId}`, {
           ...payload,
@@ -197,7 +249,12 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
         });
       } else {
         // En vista scoped los clientes nuevos se asignan al asesor consultado.
-        await api.post('/clientes', { ...payload, asesorId: asesorId || formAsesorId || undefined });
+        await api.post('/clientes', {
+          ...payload,
+          asesorId: asesorId || formAsesorId || undefined,
+          yaContactado: form.yaContactado,
+          yaTuvoCita: form.yaTuvoCita,
+        });
       }
       setOpen(false);
       setForm(FORM_VACIO);
@@ -226,6 +283,22 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
     try {
       await api.patch(`/clientes/${c.id}`, { archivado: false });
       qc.invalidateQueries(['clientes']);
+    } catch (e) {
+      alert(handleError(e));
+    }
+  };
+
+  // Recordatorio desde el menú ⋯ (mismo modal que la ficha del cliente).
+  const abrirRecordatorio = (c, destinatario) => {
+    setRecordatorio({ cliente: c, destinatario });
+  };
+
+  // Cambio de etapa desde la lista (mismo endpoint que la ficha).
+  const cambiarEtapa = async (c, estado) => {
+    try {
+      await api.patch(`/clientes/${c.id}`, { estado });
+      qc.invalidateQueries(['clientes']);
+      qc.invalidateQueries(['cliente', c.id]);
     } catch (e) {
       alert(handleError(e));
     }
@@ -371,7 +444,7 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
                         </div>
                       </td>
                     )}
-                    <td className="py-2.5 pr-4"><EtapaCell cliente={c} /></td>
+                    <td className="py-2.5 pr-4"><EtapaCell cliente={c} onCambiarEtapa={cambiarEtapa} /></td>
                     <td className="py-2.5 pr-4"><ProximaAccion pa={c.proximaAccion} /></td>
                     <td className="py-2.5 pr-4 text-center tabular-nums text-slate-600 dark:text-slate-300">{c._count?.citas || 0}</td>
                     <td className="py-2.5 pr-4 text-center tabular-nums text-slate-600 dark:text-slate-300">{c._count?.ventas || 0}</td>
@@ -387,6 +460,9 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
                           { label: 'Ver expediente', onClick: () => navigate(`/clientes/${c.id}`) },
                           { label: 'Editar', onClick: () => abrirEditar(c) },
                           { label: 'Agendar cita', onClick: () => navigate(`/clientes/${c.id}`, { state: { abrirCita: true } }) },
+                          'sep',
+                          { label: 'Recordatorio para el asesor', onClick: () => abrirRecordatorio(c, 'ASESOR') },
+                          { label: 'Recordatorio para el cliente', onClick: () => abrirRecordatorio(c, 'CLIENTE') },
                           'sep',
                           { label: 'Archivar cliente', danger: true, onClick: () => setToArchive(c) },
                         ]}
@@ -458,6 +534,41 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
             </p>
           )}
 
+          {/* Estado de contacto (solo en el alta): si nunca se le ha llamado y
+              nunca ha dado cita, el prospecto entra solo a la clínica
+              telefónica, que es justo el trabajo de conseguir esa primera cita. */}
+          {!editId && (
+            <div className="border-t border-slate-100 dark:border-slate-700 pt-3 mt-1">
+              <p className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400 mb-2">¿En qué punto está el contacto?</p>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300 dark:border-slate-600 text-brand-600 focus:ring-brand-500"
+                    checked={form.yaContactado}
+                    onChange={(e) => setForm({ ...form, yaContactado: e.target.checked })}
+                  />
+                  Ya lo contacté
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300 dark:border-slate-600 text-brand-600 focus:ring-brand-500"
+                    checked={form.yaTuvoCita}
+                    onChange={(e) => setForm({ ...form, yaTuvoCita: e.target.checked })}
+                  />
+                  Ya me ha dado una cita
+                </label>
+              </div>
+              {!form.yaContactado && !form.yaTuvoCita && (
+                <p className="text-xs text-slate-500 dark:text-slate-400 rounded-lg bg-amber-50 dark:bg-amber-500/10 px-3 py-2 mt-2">
+                  Se agregará a tu <strong>clínica telefónica</strong> de esta semana para que le
+                  llames y consigas la cita.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Producto de interés — catálogo de productos NYL */}
           <div className="border-t border-slate-100 dark:border-slate-700 pt-3 mt-1">
             <p className="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400 mb-2">Producto de interés (Seguros Monterrey NYL)</p>
@@ -524,6 +635,16 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
           // al módulo) solo captura y recibe la confirmación del cierre.
           if (creado && esAdmin()) navigate(`/candidatos/${creado.id}`);
         }}
+      />
+
+      {/* Recordatorio desde el menú ⋯ (mismo modal que usa la ficha) */}
+      <NotaFormModal
+        open={!!recordatorio}
+        onClose={() => setRecordatorio(null)}
+        clienteId={recordatorio?.cliente?.id}
+        tipo="RECORDATORIO"
+        destinatario={recordatorio?.destinatario || 'ASESOR'}
+        nombreCliente={recordatorio ? `${recordatorio.cliente.nombre} ${recordatorio.cliente.apellidoP}` : null}
       />
 
       <Modal open={!!toArchive} onClose={() => setToArchive(null)} title="Archivar cliente">

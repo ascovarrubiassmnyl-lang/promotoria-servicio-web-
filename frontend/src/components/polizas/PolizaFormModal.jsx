@@ -34,6 +34,29 @@ function finDeVigenciaSugerido(inicioISO) {
   return isoLocalDateInput(fin);
 }
 
+// El plazo de PAGO ya viene codificado en el nombre del producto del catálogo
+// ("Orvi 10 pagos", "Star Dotal 20 años", "Imagina Ser PPR — Pagos Limitados
+// 15"): cada plazo es una variante distinta del catálogo, no un campo aparte.
+// Esto solo lo extrae para prellenar el campo, que sigue siendo editable.
+// Si el nombre no declara plazo (ej. "Alfa Medical Flex", GMM anual) devuelve
+// '' y no se toca lo que el asesor haya escrito.
+function plazoDesdeNombre(nombre) {
+  if (!nombre) return '';
+  const n = String(nombre);
+  const pagosLimitados = n.match(/Pagos Limitados\s+(\d+)/i);
+  if (pagosLimitados) return `${pagosLimitados[1]} pagos`;
+  const nPagos = n.match(/(\d+)\s*pagos/i);
+  if (nPagos) return `${nPagos[1]} pagos`;
+  const nAnios = n.match(/(\d+)\s*años/i);
+  if (nAnios) return `${nAnios[1]} años`;
+  const edad = n.match(/Edad\s+(\d+)/i);
+  if (edad) return `Hasta edad ${edad[1]}`;
+  if (/Todos los pagos/i.test(n)) return 'Todos los pagos';
+  if (/Plazo Largo/i.test(n)) return 'Plazo largo (20+ años)';
+  if (/Plazo Medio/i.test(n)) return 'Plazo medio (10-19 años)';
+  return '';
+}
+
 // Modal único para crear (venta=null) o editar (venta=objeto) una póliza.
 // asesorId (opcional): scope de promotor — la póliza nueva se asigna a ese
 // asesor y el selector de clientes se limita a su cartera.
@@ -100,6 +123,7 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
     // se preselecciona; con varias se respeta lo que el asesor ya eligió si
     // es válido para ese producto.
     const disponibles = Array.isArray(p?.monedas) ? p.monedas : null;
+    const plazoSugerido = plazoDesdeNombre(p?.nombre);
     setForm((f) => {
       const moneda = disponibles && !disponibles.includes(f.moneda) ? disponibles[0] : f.moneda;
       return {
@@ -107,6 +131,9 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
         productoCatalogoId: id,
         producto: p?.nombre || f.producto,
         comisionPct: p?.comisionPct ?? f.comisionPct,
+        // El plazo del producto elegido manda: si el nombre lo declara, se
+        // actualiza aunque ya hubiera un valor (el anterior era de otro plazo).
+        plazo: plazoSugerido || f.plazo,
         moneda,
         // Al cambiar a divisa, el monto capturado pasa al campo de moneda original.
         primaMoneda: requiereTipoCambio(moneda) ? (f.primaMoneda || f.primaAnual) : '',

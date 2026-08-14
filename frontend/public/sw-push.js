@@ -15,10 +15,15 @@ self.addEventListener('push', (event) => {
     body: payload.body || '',
     tag: payload.tag || 'origen-default',
     data: payload.data || {},
-    icon: payload.icon || '/origen-negro.png',
-    badge: payload.badge || '/origen-negro.png',
+    // Íconos cuadrados del manifest: el logo rectangular se recortaba mal en
+    // la bandeja del teléfono.
+    icon: payload.icon || '/icon-192.png',
+    badge: payload.badge || '/icon-192.png',
     requireInteraction: !!payload.requerirInteraccion,
-    vibrate: [80, 40, 80],
+    // Patrón más largo/notorio: el corto se sentía como un tap y pasaba
+    // desapercibido con el teléfono en el bolsillo.
+    vibrate: payload.vibrate || [200, 100, 200],
+    renotify: true,
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });

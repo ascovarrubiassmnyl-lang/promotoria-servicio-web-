@@ -6,12 +6,13 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { Card, Modal, Field, CitaBadge, VentaBadge, EmptyState, MenuAcciones, DatePicker } from '../components/ui.jsx';
 import PolizaFormModal from '../components/polizas/PolizaFormModal.jsx';
 import CitaFormModal from '../components/citas/CitaFormModal.jsx';
+import NotaFormModal from '../components/notas/NotaFormModal.jsx';
 import ActivityTimeline from '../components/actividad/ActivityTimeline.jsx';
 import { ETAPAS, infoEtapa, siguienteEtapa } from '../components/clientes/etapas.js';
 import { infoFuente, opcionesFuente } from '../components/clientes/fuentes.js';
 import { infoCanal, CITA_VIVA } from '../components/citas/tipos.js';
 import {
-  mxn, fechaHora, fechaCorta, isoLocalInput, edad,
+  mxn, fechaHora, fechaCorta, edad,
   RAMOS, RAMOS_LABEL,
   FORMAS_PAGO, esVentaGanada, esVentaPipeline,
 } from '../lib/format.js';
@@ -117,8 +118,7 @@ export default function ClienteDetalle() {
 
   // Nota / recordatorio
   const [notaOpen, setNotaOpen] = useState(false);
-  const [notaForm, setNotaForm] = useState({ tipo: 'NOTA', destinatario: 'ASESOR', texto: '', fechaAviso: '' });
-  const [notaSaving, setNotaSaving] = useState(false);
+  const [notaForm, setNotaForm] = useState({ tipo: 'RECORDATORIO', destinatario: 'ASESOR' });
 
   // Cita: modal compartido del módulo de Citas (clienteId fija el cliente)
   const [citaOpen, setCitaOpen] = useState(false);
@@ -224,31 +224,11 @@ export default function ClienteDetalle() {
     } catch (e2) { alert(handleError(e2)); }
   };
 
-  // Notas y recordatorios
+  // Notas y recordatorios (el formulario vive en NotaFormModal, compartido con
+  // el menú ⋯ de la lista de clientes).
   const abrirNota = (tipo, destinatario = 'ASESOR') => {
-    setNotaForm({
-      tipo,
-      destinatario,
-      texto: '',
-      fechaAviso: tipo === 'RECORDATORIO' ? isoLocalInput(new Date(Date.now() + 24 * 60 * 60 * 1000)) : '',
-    });
+    setNotaForm({ tipo, destinatario });
     setNotaOpen(true);
-  };
-
-  const guardarNota = async (e) => {
-    e.preventDefault();
-    setNotaSaving(true);
-    try {
-      await api.post('/notas', {
-        clienteId: id,
-        tipo: notaForm.tipo,
-        destinatario: notaForm.destinatario,
-        texto: notaForm.texto,
-        fechaAviso: notaForm.fechaAviso || null,
-      });
-      setNotaOpen(false);
-      qc.invalidateQueries(['cliente', id]);
-    } catch (e2) { alert(handleError(e2)); } finally { setNotaSaving(false); }
   };
 
   const eliminarNota = async () => {
@@ -368,7 +348,6 @@ export default function ClienteDetalle() {
     } catch (e2) { alert(handleError(e2)); }
   };
 
-  const notas = c.notasItems?.filter((n) => n.tipo === 'NOTA') || [];
   // Recordatorios segmentados: los del asesor (su propia gestión: llamadas,
   // seguimientos) y los que tocan al cliente (pagos, renovaciones). Los de
   // pago los genera el sistema desde la póliza, por eso entran aquí también.
@@ -618,26 +597,10 @@ export default function ClienteDetalle() {
             />
           </Card>
 
-          {/* Notas y recordatorios: compactas, abajo — no dominan la ficha cuando están vacías */}
+          {/* Recordatorios: compactos, abajo — no dominan la ficha cuando están
+              vacíos. Los de "sobre el cliente" (pagos, renovaciones) le llegan
+              igual al asesor: el CRM NO le escribe al asegurado. */}
           <div className="grid md:grid-cols-2 gap-4">
-            <Card title="Notas generales" actions={<button className="btn-secondary text-xs py-1 px-2" onClick={() => abrirNota('NOTA')}>+ Nota</button>}>
-              {c.notas && <p className="text-sm text-slate-600 dark:text-slate-300 whitespace-pre-wrap border-l-2 border-slate-200 dark:border-slate-700 pl-3 italic">{c.notas}</p>}
-              {notas.length ? (
-                <ul className={`space-y-2 text-sm ${c.notas ? 'mt-3' : ''}`}>
-                  {notas.map((n) => (
-                    <li key={n.id} className="group flex items-start justify-between gap-2 border-b border-slate-100 dark:border-slate-700 pb-2 last:border-0 last:pb-0">
-                      <p className="text-slate-600 dark:text-slate-300">{n.texto}</p>
-                      <button
-                        onClick={() => setDelNotaId(n.id)}
-                        className="opacity-0 group-hover:opacity-100 text-red-500 text-xs transition-opacity shrink-0"
-                        title="Eliminar nota"
-                      >Eliminar</button>
-                    </li>
-                  ))}
-                </ul>
-              ) : !c.notas && <p className="text-sm text-slate-400 dark:text-slate-500 py-1">Sin notas todavía.</p>}
-            </Card>
-
             <Card
               title="Recordatorios del asesor"
               subtitle="Tu propia gestión: llamadas, seguimientos, pendientes"
@@ -645,18 +608,15 @@ export default function ClienteDetalle() {
             >
               <ListaRecordatorios items={recordatoriosAsesor} onEliminar={setDelNotaId} vacio="Sin recordatorios de gestión." />
             </Card>
-          </div>
 
-          {/* Recordatorios sobre el cliente: pagos, renovaciones. Ojo — el CRM
-              NO le escribe al asegurado: estos avisos le llegan al asesor para
-              que sea él quien lo contacte. */}
-          <Card
-            title="Recordatorios sobre el cliente"
-            subtitle="Pagos y renovaciones · el aviso te llega a ti para que lo contactes"
-            actions={<button className="btn-secondary text-xs py-1 px-2" onClick={() => abrirNota('RECORDATORIO', 'CLIENTE')}>+ Recordatorio</button>}
-          >
-            <ListaRecordatorios items={recordatoriosCliente} onEliminar={setDelNotaId} vacio="Sin recordatorios de pago o renovación." />
-          </Card>
+            <Card
+              title="Recordatorios sobre el cliente"
+              subtitle="Pagos y renovaciones · el aviso te llega a ti para que lo contactes"
+              actions={<button className="btn-secondary text-xs py-1 px-2" onClick={() => abrirNota('RECORDATORIO', 'CLIENTE')}>+ Recordatorio</button>}
+            >
+              <ListaRecordatorios items={recordatoriosCliente} onEliminar={setDelNotaId} vacio="Sin recordatorios de pago o renovación." />
+            </Card>
+          </div>
 
           <Card
             title="Archivos del cliente"
@@ -742,47 +702,14 @@ export default function ClienteDetalle() {
         )}
       </Modal>
 
-      {/* Modal nota / recordatorio */}
-      <Modal
+      {/* Modal nota / recordatorio (compartido con la lista de clientes) */}
+      <NotaFormModal
         open={notaOpen}
         onClose={() => setNotaOpen(false)}
-        title={notaForm.tipo === 'NOTA'
-          ? 'Agregar nota'
-          : notaForm.destinatario === 'CLIENTE' ? 'Recordatorio sobre el cliente' : 'Recordatorio del asesor'}
-      >
-        <form onSubmit={guardarNota} className="space-y-3">
-          <Field label={notaForm.tipo === 'NOTA' ? 'Nota' : 'Recordatorio'}>
-            <textarea
-              className="input"
-              rows={4}
-              required
-              value={notaForm.texto}
-              onChange={(e) => setNotaForm({ ...notaForm, texto: e.target.value })}
-              placeholder={notaForm.tipo === 'NOTA' ? 'Escribe aquí…' : 'Qué quieres recordar…'}
-            />
-          </Field>
-          {notaForm.tipo === 'RECORDATORIO' && (
-            <Field label="Fecha y hora de aviso">
-              <input
-                type="datetime-local"
-                className="input"
-                required
-                value={notaForm.fechaAviso}
-                onChange={(e) => setNotaForm({ ...notaForm, fechaAviso: e.target.value })}
-              />
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Te avisamos <strong>un día antes</strong> y el <strong>mismo día</strong>, en tu
-                bandeja de notificaciones y por push.
-                {notaForm.destinatario === 'CLIENTE' && ' El aviso llega a ti, no al cliente.'}
-              </p>
-            </Field>
-          )}
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={() => setNotaOpen(false)} className="btn-secondary">Cancelar</button>
-            <button type="submit" disabled={notaSaving} className="btn-primary">{notaSaving ? 'Guardando…' : 'Guardar'}</button>
-          </div>
-        </form>
-      </Modal>
+        clienteId={id}
+        tipo={notaForm.tipo}
+        destinatario={notaForm.destinatario}
+      />
 
       {/* Agendar cita: modal compartido del módulo de Citas (cliente fijo; con
           ficha ajena el asesorId del dueño delimita clientes y aviso de empalme) */}

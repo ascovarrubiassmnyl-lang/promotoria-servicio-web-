@@ -246,6 +246,19 @@ Mapa único `frontend/src/components/polizas/tipos.js` (`MONEDAS`,
   capturar el inicio se sugiere un año menos un día, solo si el campo está
   vacío (no pisa un ajuste manual). El plazo del producto ("20 pagos") es
   periodo de PAGO, no de cobertura — no usarlo para la vigencia.
+  **Reconfirmado 2026-08-14**: los planes duran de 10 a 20+ años, pero la
+  póliza es de **vigencia anual** y se paga anual/semestral/trimestral/
+  mensual durante todo ese plazo. `finDeVigenciaSugerido()` NO debe derivarse
+  del plazo del producto.
+- **El campo "Plazo" se autorrellena desde el catálogo** (2026-08-14): el
+  plazo ya viene codificado en el `nombre` del producto ("Orvi 10 pagos",
+  "Star Dotal 20 años", "Imagina Ser PPR — Pagos Limitados 15") porque cada
+  plazo es una **variante distinta del catálogo**, no un campo aparte.
+  `plazoDesdeNombre()` en `PolizaFormModal.jsx` lo extrae al elegir producto
+  y el campo sigue siendo editable. Los 5 productos sin plazo en el nombre
+  (SeguBeca, Vida Mujer, los 3 Alfa Medical) devuelven '' y no lo tocan.
+  **No se agregó campo al modelo**: reestructurar el catálogo consolidando
+  variantes rompería `productoCatalogoId` y la matriz de coberturas/monedas.
 - **Coberturas**: el shape Json creció a `[{nombre, detalle, monto, costo}]`.
   `monto` sigue siendo el texto libre de la suma asegurada ("$800,000",
   "Incluida"); `costo` es el costo extra **numérico en MXN**, y `null`/0
@@ -356,8 +369,22 @@ que se guardaron ya formateados — no volver a escribirla.
   PROGRAMADA/CONFIRMADA más antigua y el recordatorio sin completar más
   próximo) — **no se inventa en el frontend**; vencida se pinta en rojo.
   Acciones por fila en menú ⋯ (Ver expediente / Editar / Agendar cita /
+  **Recordatorio para el asesor** / **Recordatorio para el cliente** /
   Archivar); la acción primaria es abrir el expediente. Con `asesorId` los
   clientes nuevos se asignan a ese asesor (el modal oculta su selector).
+- **La etapa se cambia desde la lista** (2026-08-14): la pill de `EtapaCell`
+  es un botón que abre un popover con las `ETAPAS` y dispara el mismo
+  `PATCH /clientes/:id { estado }` que la ficha (con `stopPropagation` para
+  no navegar al expediente). El patrón de click-outside está clonado de
+  `MenuAcciones`, **no reusado**: su contrato es de acciones, no de selección
+  de valor. No duplicar labels/colores — salen de `etapas.js`.
+- **Los recordatorios se crean desde la lista, no solo desde la ficha**
+  (2026-08-14): el formulario vive en `components/notas/NotaFormModal.jsx`,
+  **componente único compartido** (mismo patrón que `CitaFormModal` /
+  `PolizaFormModal`) por `ClienteDetalle.jsx` y `ClientesView.jsx`. Props:
+  `open`, `onClose`, `clienteId`, `tipo`, `destinatario`, `nombreCliente`.
+  Las dos entradas del menú ⋯ son **planas** (una por `destinatario`): no hay
+  submenús anidados en el proyecto y no se introdujo uno para esto.
 - **Asesores → "CRM por asesor"** (`pages/Asesores.jsx`, solo promotores):
   roster estilo Equipo (avatar, fila clicable, prima en `.money-earned`) →
   detalle con breadcrumb, 4 KPIs `.kpi` y pestañas; la pestaña Clientes
@@ -404,6 +431,15 @@ alcance de datos por rol (ver matriz de visibilidad).
   y dirección que no se piden al registrar. El campo `detalleInteres` ya no
   se muestra ni se edita en la ficha (duplicaba las notas); la columna se
   conserva por los datos históricos y **sí** se sigue capturando en el alta.
+- **La ficha ya no tiene "Notas generales"** (2026-08-14): esa tarjeta
+  mezclaba dos cosas distintas — el string legacy `Cliente.notas` (solo
+  lectura ahí) y las `Nota` de `tipo: NOTA` — y duplicaba el propósito de los
+  recordatorios. Se eliminó la Card completa; las dos tarjetas de
+  recordatorios (asesor / cliente) quedan lado a lado. **`Cliente.notas` NO
+  se borró**: se sigue capturando y editando en el modal de alta/edición de
+  `ClientesView.jsx`, y la columna conserva los datos históricos. Desde la
+  ficha ya no se crean `Nota` de tipo `NOTA` (los recordatorios cubren el
+  caso real).
 - **Archivos: clic = previsualizar, descargar es secundario.** `GET
   /documentos/:id/ver` sirve el archivo con `Content-Disposition: inline`;
   el visor es un modal que renderiza imágenes y PDF (otros formatos ofrecen
@@ -463,6 +499,12 @@ conservan sus nombres históricos; la traducción a UI vive en el **mapa único*
   filtros por canal/estado y panel lateral del día. `CitaFormModal.jsx` es el
   formulario único (alta y reagendar), reutilizado por la ficha de cliente
   (`clienteId` fija el cliente, `asesorId` delimita scope y empalmes).
+  **Semana y Mes comparten lenguaje visual** (2026-08-14): mismo círculo de
+  "hoy" (`w-5 h-5`), mismas tarjetas de cita (punto de color + hora tabular +
+  título truncado, como `LineaCita`) y mismo hover. Lo que **no** se unifica
+  es la rejilla: Semana necesita su posicionamiento absoluto por hora/minuto
+  (`ALTO_HORA`, `HORA_INI`/`HORA_FIN`) para mostrar granularidad horaria —
+  no intentar convertirla al grid de celdas de Mes.
 - **Roles**: asesor ve solo su agenda (la API fuerza `asesorId = req.user.id`);
   promotor ve el equipo con filtro por asesor y "Mis acompañamientos"
   (`GET /api/citas?promotorId=`). Las citas de acompañamiento son visibles
@@ -635,6 +677,27 @@ obtenidas, notas).
   filas enlazadas por `clienteId`. La anti-duplicación es por `clienteId` +
   `semanaInicio`, así que importar dos veces no duplica (responde
   `{importados, duplicados}`).
+- **Entrada automática desde el alta de cliente** (2026-08-14): el alta
+  (`ClientesView.jsx`) pregunta "¿Ya lo contacté?" y "¿Ya me ha dado una
+  cita?" — **dos flags que NO se guardan en `Cliente`**, solo viajan en el
+  body de `POST /clientes`. Si ambas son `false`, el backend crea la fila de
+  `ProspectoClinica` de la semana en curso (mejor esfuerzo: si la clínica
+  falla, el alta del cliente no se cae; la respuesta incluye `enClinica`).
+  Helpers compartidos en `backend/src/utils/clinica.js`
+  (`inicioSemana`, `filaProspectoDesdeCliente`, `agregarClienteAClinica`) —
+  los usa tanto `POST /clientes` como el importador manual, para que la fila
+  se arme igual en ambos caminos. "Traer de mi cartera" **se conserva** para
+  la cartera anterior a este cambio (clientes que nunca pasaron por las dos
+  preguntas).
+- **El avance en la clínica se refleja en la ficha** (2026-08-14): `PATCH
+  /clinica/prospectos/:id` propaga al `Cliente` enlazado (solo si hay
+  `clienteId` y el `resultado` realmente cambió): `CONTACTADO` →
+  `fechaUltimaLlamada`; `CITA_OBTENIDA` → `estado: 'CITA'` +
+  `fechaUltimaCita` + baja la bandera de seguimiento; `DESCARTADO` → solo
+  baja la bandera (**no archiva ni cambia etapa**: descartar en la clínica es
+  "no le sigo llamando esta semana", archivar es decisión aparte desde la
+  ficha). Sin esto el asesor tenía que actualizar la etapa dos veces y el
+  embudo quedaba desfasado.
 - Alcance por rol igual que 25 puntos: asesor solo lo suyo; promotor con
   selector + `GET /clinica/resumen` (avance de cada asesor hacia 10 citas y
   2 sesiones).
@@ -741,6 +804,18 @@ push sobre esa fila ya guardada.
   suscripción `rota` no se puede reenviar tal cual (quedó atada a la VAPID
   key vieja): primero des-suscribe del navegador y crea una nueva contra la
   key vigente.
+- **La app es una PWA instalable** (2026-08-14): `frontend/public/manifest.json`
+  (`display: standalone`, íconos cuadrados `icon-192.png`/`icon-512.png`
+  generados con `sips` sobre `origen-blanco.png` — los logos originales son
+  2550×1032 y se recortaban mal) + `<link rel="manifest">` y metas
+  `apple-mobile-web-app-*` en `index.html`. Esto es **requisito de Apple**:
+  en iOS el Web Push solo funciona si el usuario hizo "Compartir → Añadir a
+  pantalla de inicio"; en Safari suelto no llega nada. En Android sí llega
+  sin instalar, pero sin manifest la notificación aparecía bajo "Chrome" en
+  vez de con la marca. El SW usa `vibrate: [200,100,200]` + `renotify: true`
+  (el patrón corto anterior pasaba desapercibido) y `notificar()` manda
+  siempre `icon`/`badge`. **El "sonido" NO es controlable por Web Push**: lo
+  decide el canal de notificaciones que el SO asignó al navegador/PWA.
 - **Activar push ya no depende de encontrar el botón en Configuración.**
   `components/notificaciones/BannerActivarPush.jsx` se muestra en toda vista
   del panel (montado una vez en `Layout.jsx`, arriba del `Outlet`) mientras
