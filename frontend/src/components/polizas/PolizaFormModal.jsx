@@ -174,6 +174,29 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
   });
   const productosPorRamo = useMemo(() => (catalogo || []).filter((p) => p.ramo === form.ramo), [catalogo, form.ramo]);
 
+  // Tipos de cambio oficiales del día (Banxico: FIX para USD, valor de la UDI).
+  // Alimentan el equivalente en pesos de cada monto y prellenan el tipo de
+  // cambio de la prima. Si el endpoint no trae datos (sin BANXICO_TOKEN o
+  // Banxico caído), todo sigue funcionando con captura manual.
+  const { data: tipos } = useQuery({
+    queryKey: ['tipo-cambio'],
+    queryFn: async () => (await api.get('/ventas/tipo-cambio')).data,
+    enabled: open,
+    staleTime: 60 * 60 * 1000, // el FIX se publica una vez al día
+  });
+
+  // Prellena el tipo de cambio de la prima con el oficial del día cuando el
+  // asesor elige USD/UDI y aún no ha escrito uno. Solo prellena: si ya hay un
+  // valor (capturado a mano o de una póliza que se está editando) no se pisa,
+  // porque la póliza pudo haberse pactado a otra paridad.
+  useEffect(() => {
+    if (!open) return;
+    if (!requiereTipoCambio(form.moneda)) return;
+    if (form.tipoCambio !== '' && form.tipoCambio != null) return;
+    const oficial = tipos?.[form.moneda]?.valor;
+    if (oficial) setForm((f) => (f.tipoCambio === '' || f.tipoCambio == null ? { ...f, tipoCambio: String(oficial) } : f));
+  }, [open, form.moneda, form.tipoCambio, tipos]);
+
   const set = (campo, valor) => setForm((f) => ({ ...f, [campo]: valor }));
 
   const onProductoCatalogo = (id) => {
@@ -258,9 +281,20 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
   const quitarFila = (lista, i) => set(lista, form[lista].filter((_, x) => x !== i));
 
   const sumaPct = form.beneficiarios.reduce((s, b) => s + (+b.porcentaje || 0), 0);
-  // Costo extra sumado de las coberturas marcadas con costo (informativo: la
-  // prima la captura el asesor, no se deriva de aquí).
-  const costoCoberturas = form.coberturas.reduce((s, c) => s + (+c.costo || 0), 0);
+  // Costo extra sumado de las coberturas (informativo: la prima la captura el
+  // asesor, no se deriva de aquí). Cada fila puede estar en una moneda
+  // distinta, así que se convierte todo a pesos ANTES de sumar — sumar dólares
+  // con pesos daría un número sin significado. Una fila en divisa sin tipo de
+  // cambio disponible no se puede convertir: se excluye del total y se avisa,
+  // en vez de contarla como si fueran pesos.
+  const costoCoberturas = form.coberturas.reduce((s, c) => {
+    const m = c.costoMoneda || 'MXN';
+    if (m === 'MXN') return s + (+c.costo || 0);
+    return s + (equivalenteMXN(c.costo, m, tipos) || 0);
+  }, 0);
+  const costosSinConvertir = form.coberturas.some(
+    (c) => +c.costo > 0 && (c.costoMoneda || 'MXN') !== 'MXN' && equivalenteMXN(c.costo, c.costoMoneda, tipos) == null
+  );
 
   const submit = async (e) => {
     e.preventDefault(); setSaving(true); setErr('');
@@ -289,8 +323,12 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
         fechaEmision: form.fechaEmision || null,
         sumaAsegurada: form.sumaAsegurada !== '' ? +form.sumaAsegurada : null,
         sumaAseguradaMoneda: form.sumaAseguradaMoneda || 'MXN',
+        // Foto del tipo de cambio con el que se mostró el equivalente en pesos
+        // de la suma asegurada (informativo, no alimenta métricas).
+        sumaAseguradaTC: tipos?.[form.sumaAseguradaMoneda]?.valor ?? null,
         plazo: form.plazo || null,
         deducible: form.deducible !== '' ? +form.deducible : null,
+        deducibleMoneda: form.deducibleMoneda || 'MXN',
         coaseguro: form.coaseguro || null,
         fechaFirma: form.fechaFirma || null,
         fechaInicioVigencia: form.fechaInicioVigencia || null,
@@ -298,6 +336,7 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
         fechaProximoPago: form.fechaProximoPago || null,
         diaPago: form.diaPago !== '' ? +form.diaPago : null,
         montoPago: form.montoPago !== '' ? +form.montoPago : null,
+        montoPagoMoneda: form.montoPagoMoneda || 'MXN',
         notas: form.notas || null,
         coberturas: form.coberturas,
         beneficiarios: form.beneficiarios,
@@ -464,23 +503,15 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
               {ESTADOS_VENTA.map((x) => <option key={x} value={x}>{ESTADOS_VENTA_LABEL[x]}</option>)}
             </select>
           </Field>
-          <Field label={`Suma asegurada (${infoMoneda(form.sumaAseguradaMoneda).sufijo})`}>
-            <div className="flex gap-1.5">
-              <NumeroFormateado
-                className="flex-1"
-                placeholder="Ej. 350,000"
-                value={form.sumaAsegurada}
-                onChange={(v) => set('sumaAsegurada', v)}
-              />
-              <select
-                className="input w-[6.5rem] shrink-0"
-                title="Moneda de la suma asegurada"
-                value={form.sumaAseguradaMoneda}
-                onChange={(e) => set('sumaAseguradaMoneda', e.target.value)}
-              >
-                {MONEDAS.map((m) => <option key={m.value} value={m.value}>{m.sufijo}</option>)}
-              </select>
-            </div>
+          <Field label="Suma asegurada">
+            <MontoMoneda
+              value={form.sumaAsegurada}
+              onChange={(v) => set('sumaAsegurada', v)}
+              moneda={form.sumaAseguradaMoneda}
+              onMoneda={(m) => set('sumaAseguradaMoneda', m)}
+              tipos={tipos}
+              placeholder="Ej. 350,000"
+            />
           </Field>
           <Field label="Plazo">
             <input className="input" placeholder="Ej. 20 pagos, Anual renovable" value={form.plazo} onChange={(e) => set('plazo', e.target.value)} />
@@ -524,13 +555,27 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
           <Field label="Día de pago recurrente (1-28)">
             <input type="number" min="1" max="28" className="input" value={form.diaPago} onChange={(e) => set('diaPago', e.target.value)} />
           </Field>
-          <Field label="Monto por pago (MXN)">
-            <input type="number" step="0.01" className="input" value={form.montoPago} onChange={(e) => set('montoPago', e.target.value)} />
+          <Field label="Monto por pago">
+            <MontoMoneda
+              value={form.montoPago}
+              onChange={(v) => set('montoPago', v)}
+              moneda={form.montoPagoMoneda}
+              onMoneda={(m) => set('montoPagoMoneda', m)}
+              tipos={tipos}
+              placeholder="Ej. 12,500"
+            />
           </Field>
           {(form.ramo === 'GMM' || form.ramo === 'SALUD') && (
             <>
-              <Field label="Deducible (MXN)">
-                <input type="number" step="0.01" className="input" value={form.deducible} onChange={(e) => set('deducible', e.target.value)} />
+              <Field label="Deducible">
+                <MontoMoneda
+                  value={form.deducible}
+                  onChange={(v) => set('deducible', v)}
+                  moneda={form.deducibleMoneda}
+                  onMoneda={(m) => set('deducibleMoneda', m)}
+                  tipos={tipos}
+                  placeholder="Ej. 25,000"
+                />
               </Field>
               <Field label="Coaseguro">
                 <input className="input" placeholder="Ej. 10% (tope $50,000)" value={form.coaseguro} onChange={(e) => set('coaseguro', e.target.value)} />
@@ -611,16 +656,26 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
                     <input className="input" placeholder="Detalle" value={c.detalle || ''} onChange={(e) => setFila('coberturas', i, 'detalle', e.target.value)} />
                   )}
                   <input className="input" placeholder="$ / Incluida" value={c.monto || ''} onChange={(e) => setFila('coberturas', i, 'monto', e.target.value)} />
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    className="input"
-                    placeholder="Incluida"
-                    title="Costo adicional en MXN. Déjalo vacío si la cobertura va incluida en la prima."
-                    value={c.costo ?? ''}
-                    onChange={(e) => setFila('coberturas', i, 'costo', e.target.value)}
-                  />
+                  <div className="flex gap-1">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="input flex-1 min-w-0"
+                      placeholder="Incluida"
+                      title="Costo adicional de contratar esta cobertura. Déjalo vacío si va incluida en la prima."
+                      value={c.costo ?? ''}
+                      onChange={(e) => setFila('coberturas', i, 'costo', e.target.value)}
+                    />
+                    <select
+                      className="input w-[4.5rem] shrink-0 px-1 text-xs"
+                      title="Moneda del costo extra"
+                      value={c.costoMoneda || 'MXN'}
+                      onChange={(e) => setFila('coberturas', i, 'costoMoneda', e.target.value)}
+                    >
+                      {MONEDAS.map((m) => <option key={m.value} value={m.value}>{m.sufijo}</option>)}
+                    </select>
+                  </div>
                   <button type="button" onClick={() => quitarFila('coberturas', i)} className="text-slate-400 hover:text-red-500 px-1" aria-label="quitar cobertura">✕</button>
                 </div>
               );
@@ -629,7 +684,12 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
           {costoCoberturas > 0 && (
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5">
               Costo extra de coberturas: <strong className="tabular-nums">{mxn(costoCoberturas)}</strong>
-              {' '}· es informativo, la prima anual la capturas arriba.
+              {' '}· convertido a pesos al tipo de cambio del día; es informativo, la prima anual la capturas arriba.
+            </p>
+          )}
+          {costosSinConvertir && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+              Hay coberturas con costo en moneda extranjera sin tipo de cambio disponible: no se incluyen en el total.
             </p>
           )}
         </div>
