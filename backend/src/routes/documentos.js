@@ -25,7 +25,7 @@ const storage = multer.diskStorage({
     cb(null, `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`);
   },
 });
-const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } }); // 20 MB máx
+const upload = multer({ storage, limits: { fileSize: 35 * 1024 * 1024 } }); // 35 MB máx
 
 // ASESOR solo accede a documentos de sus propios clientes
 async function verificarAccesoCliente(req, clienteId) {

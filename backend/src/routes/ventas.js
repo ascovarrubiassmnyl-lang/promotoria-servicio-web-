@@ -29,7 +29,7 @@ const storage = multer.diskStorage({
     cb(null, `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`);
   },
 });
-const uploadPoliza = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } }); // 20 MB máx
+const uploadPoliza = multer({ storage, limits: { fileSize: 35 * 1024 * 1024 } }); // 35 MB máx
 
 // Crea (o regenera) el próximo recordatorio de pago para una venta.
 // Si ya existe un RECORDATORIO_PAGO pendiente (no completado, no enviado) para esta venta,

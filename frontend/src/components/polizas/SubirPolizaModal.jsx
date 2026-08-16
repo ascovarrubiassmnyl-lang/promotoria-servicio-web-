@@ -60,7 +60,7 @@ export default function SubirPolizaModal({ open, onClose, clienteId, onListo }) 
             className="input"
             onChange={(e) => setArchivo(e.target.files?.[0] || null)}
           />
-          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Máximo 20 MB. El documento quedará adjunto a la póliza, con vista previa y descarga.</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Máximo 35 MB. El documento quedará adjunto a la póliza, con vista previa y descarga.</p>
         </div>
         {err && <p className="text-sm text-red-600">{err}</p>}
         <div className="flex justify-end gap-2 pt-2">
