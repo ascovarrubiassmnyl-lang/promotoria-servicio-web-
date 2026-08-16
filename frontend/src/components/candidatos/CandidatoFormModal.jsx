@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { Modal, Field } from '../ui.jsx';
+import { Modal, Field, NumeroFormateado } from '../ui.jsx';
 import { edad } from '../../lib/format.js';
 
 const FORM_VACIO = {
@@ -141,7 +141,7 @@ export default function CandidatoFormModal({ open, onClose, onSaved, candidato =
             <Field label="Antigüedad de residencia"><input className="input" value={form.antiguedadResidencia} onChange={(e) => setForm({ ...form, antiguedadResidencia: e.target.value })} /></Field>
             <Field label="Estado civil"><input className="input" value={form.estadoCivil} onChange={(e) => setForm({ ...form, estadoCivil: e.target.value })} /></Field>
             <Field label="Número de hijos"><input type="number" min="0" className="input" value={form.numeroHijos} onChange={(e) => setForm({ ...form, numeroHijos: e.target.value })} /></Field>
-            <Field label="Ingresos anuales"><input type="number" min="0" step="0.01" className="input" value={form.ingresosAnuales} onChange={(e) => setForm({ ...form, ingresosAnuales: e.target.value })} /></Field>
+            <Field label="Ingresos anuales"><NumeroFormateado value={form.ingresosAnuales} onChange={(v) => setForm({ ...form, ingresosAnuales: v })} /></Field>
           </div>
         )}
 

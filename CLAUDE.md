@@ -229,11 +229,13 @@ Mapa único `frontend/src/components/polizas/tipos.js` (`MONEDAS`,
 
 - **`Venta.primaAnual` SIEMPRE está en MXN.** Es el campo que suman todas
   las métricas, comisiones, metas y ranking; una póliza en USD/UDI guarda su
-  monto original en `primaMoneda` + `tipoCambio` (solo informativos, ningún
-  cálculo de negocio los lee) y la conversión la hace **el servidor** en
-  `resolverPrima()` (`routes/ventas.js`), no cada consumidor. Sin tipo de
-  cambio, USD/UDI responde 400. El tipo de cambio se captura a mano (no hay
-  integración con Banxico).
+  monto original en `primaMoneda` y la conversión la hace **el servidor** en
+  `resolverPrima()` (`routes/ventas.js`), no cada consumidor. **El asesor
+  NUNCA captura el tipo de cambio** (corregido 2026-08-16, ver más abajo
+  "Tipo de cambio 100% automático"): solo transcribe la prima en la moneda
+  del contrato y el servidor resuelve `tipoCambio` solo. Sin ninguna fuente
+  de tipo de cambio disponible, USD/UDI responde 400 en vez de inventar una
+  paridad.
 - **Nombre del producto bloqueado**: con `productoCatalogoId` elegido, el
   nombre lo define la compañía y queda de solo lectura en `PolizaFormModal`
   (mismo patrón que las coberturas del catálogo). Para escribirlo libre hay
@@ -331,12 +333,8 @@ pesos obligaba a convertir a mano.
   con que se liquidan estas pólizas y porque **la UDI solo la publica Banxico**
   — ninguna API de FX genérica la tiene. Cache en memoria de 3h (el FIX se
   publica una vez al día) y timeout de 6s.
-- **Requiere `BANXICO_TOKEN` en `.env`** (gratuito:
-  banxico.org.mx/SieAPIRest/service/v1/token). **Sin token no se rompe nada**:
-  el endpoint responde `{disponible:false}` con las monedas en `null`, el
-  formulario deja de mostrar equivalentes y el asesor captura el tipo de cambio
-  a mano como antes — mismo criterio que `GEMINI_API_KEY`, la automatización es
-  un extra sobre el flujo manual, nunca un bloqueo para registrar una póliza.
+- **`BANXICO_TOKEN` en `.env`** (gratuito:
+  banxico.org.mx/SieAPIRest/service/v1/token) da el dato oficial del día.
 - **El equivalente en pesos NO se guarda: se calcula al vuelo** con el TC del
   día, en `equivalenteMXN()` (`components/polizas/tipos.js`). Por eso siempre
   refleja el valor actual y no una foto vieja. `equivalenteMXN` devuelve `null`
@@ -347,15 +345,83 @@ pesos obligaba a convertir a mano.
   que se le enseñó la cifra al cliente al capturar. Informativo puro (nadie más
   lo lee), igual que `tipoCambio` para la prima.
 - **Componente único `components/polizas/MontoMoneda.jsx`** (monto +
-  selector de moneda + equivalente en pesos) para suma asegurada, monto por
-  pago y deducible. No volver a armar ese trío a mano en otro campo.
+  selector de moneda + equivalente en pesos) para **prima, suma asegurada,
+  monto por pago y deducible** (2026-08-16: la prima se unificó al mismo
+  componente, ver abajo). No volver a armar ese trío a mano en otro campo.
 - **Sumar montos de monedas distintas exige convertir primero**: el total de
   "costo extra de coberturas" (formulario y `PolicyDetail`) convierte cada
   fila a MXN antes de sumar, y excluye —avisando— las filas en divisa sin TC.
   Nunca sumar los números crudos.
-- En el formulario, el TC de la prima se **prellena** con el oficial del día
-  pero solo si está vacío: una póliza pudo pactarse a otra paridad, y al editar
-  no se pisa el valor histórico (hay botón "usar este" para adoptar el actual).
+
+### Tipo de cambio 100% automático — el asesor nunca lo captura (2026-08-16)
+
+**Corrección de diseño** sobre la sección anterior: la primera versión de
+multi-moneda (2026-08-15) seguía pidiéndole al asesor un campo "Tipo de
+cambio" obligatorio junto a la prima en USD/UDI. El usuario lo rechazó de
+raíz: *"esto no fue lo que yo quería […] ni siquiera quiero que esto me
+impida poder crear una póliza"*. Además, ese campo era la causa raíz de un
+bug real reportado por el usuario — con el tipo de cambio en blanco o mal
+capturado, `primaEnPesos` colapsaba y el asesor terminaba tecleando el
+número de la **suma asegurada** en el campo de prima por confusión visual
+entre dos campos casi idénticos, así que una póliza podía quedar con
+`primaAnual` idéntica a `sumaAsegurada` — dos conceptos financieros
+totalmente distintos (la prima es lo que cuesta el seguro; la suma asegurada
+es lo que se cobra en un siniestro). Ambos problemas se resolvieron juntos:
+
+- **`PolizaFormModal` ya no tiene ningún campo de tipo de cambio.** El campo
+  "Prima anual" usa `MontoMoneda` igual que suma asegurada/deducible/monto
+  por pago: el asesor solo transcribe la cifra tal cual viene en el
+  documento de la compañía, en la moneda que sea, y ve el equivalente en
+  pesos informativo debajo (o un aviso ámbar si no hay TC disponible en ese
+  momento) — nunca un bloqueo para guardar.
+- **`resolverPrima()` (`routes/ventas.js`) resuelve el TC ella misma**, de
+  forma async, contra `tipoCambioVigente()`. Solo usa un `tipoCambio`
+  explícito si alguien lo manda (edición de una póliza histórica pactada a
+  otra paridad); en el flujo normal de alta, el frontend nunca lo manda.
+- **Respaldo manual cuando Banxico no responde**
+  (`TIPO_CAMBIO_USD_RESPALDO` / `TIPO_CAMBIO_UDI_RESPALDO` en `.env`,
+  decisión explícita del usuario: tiene su propia alerta que le avisa cuando
+  cambia el valor de la UDI y los actualiza él mismo a mano cuando
+  corresponde — **no hay integración automática para esto, es intencional**,
+  no reintroducir un servicio que lo intente). `tipoCambioVigente()`
+  (`services/tipoCambio.js`) cae a este respaldo solo si Banxico no
+  responde (sin token, caído, o sin publicar ese día) y no hay nada en
+  cache; el resultado se marca `fuente: 'respaldo-manual'`. Si NINGUNA
+  fuente tiene un valor real (ni Banxico ni respaldo), la API rechaza con
+  400 en vez de inventar una paridad 1:1 — una comisión mal calculada por un
+  tipo de cambio ficticio es peor que pedirle al asesor reintentar en un
+  momento.
+- **Editar sin tocar la prima no debe re-disparar la conversión**: el
+  formulario reenvía `moneda`/`primaMoneda` en cada PATCH aunque el asesor
+  no los haya tocado (son parte fija del payload). Si eso disparara siempre
+  un nuevo `resolverPrima()`, cualquier edición trivial (cambiar solo el
+  estado, por ejemplo) volvería a consultar el TC del día y movería
+  `primaAnual` sin que nadie lo pidiera. Por eso el PATCH solo recalcula
+  cuando `primaMoneda`/`moneda` **realmente cambiaron** contra lo ya
+  guardado; si no cambiaron, conserva el `tipoCambio` existente de la
+  póliza aunque el TC del día ya sea otro.
+- **`resolverPrima` es async** (antes síncrona) porque consulta
+  `tipoCambioVigente()`; ambos call sites (`POST /` y `PATCH /:id`) la
+  esperan con `await`.
+
+### Formato de miles en todos los montos capturados a mano (2026-08-16)
+
+El usuario notó que solo uno o dos campos mostraban separador de miles al
+escribir (ej. "20,000") y pidió aplicarlo **en todo el sistema** donde se
+captura una cifra de dinero. `components/ui.jsx: NumeroFormateado` ya
+existía (usado en `sumaAsegurada` desde 2026-08-14) — el trabajo fue barrer
+el resto de los formularios y reemplazar cada `<input type="number">` de
+**dinero** (no de conteos/porcentajes/edades/años, que se quedan como
+número simple) por este componente: prima anual y costo de cobertura en
+`PolizaFormModal`, monto pagado en `PolicyDetail`, ingresos anuales en
+`CandidatoFormModal`, y la métrica de prima + meta de ingreso (PRP) en
+`Targets.jsx` (el catálogo `METRICAS` de `components/metas/metricas.js` ya
+distinguía `money: true/false` por métrica — se usó ese flag para decidir
+cuáles llevan `NumeroFormateado` y cuáles siguen siendo `<input
+type="number">` normal, ya que ventas/citas/prospectos/referidos/llamadas
+son conteos, no dinero). `NumeroFormateado` es `type="text"`, así que donde
+reemplazó a un `<input required>` la validación de "no vacío" se movió al
+handler de submit en JS.
 
 ### Documento de la póliza y extracción con IA (2026-08-14)
 

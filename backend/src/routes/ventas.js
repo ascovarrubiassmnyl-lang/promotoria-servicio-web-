@@ -10,7 +10,7 @@ import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion } from '../middleware/permisos.js';
 import { registrarActividad } from '../utils/actividad.js';
 import { analizarPolizaPdf, extraccionDisponible } from '../services/extraccionPoliza.js';
-import { tiposDeCambioVigentes } from '../services/tipoCambio.js';
+import { tiposDeCambioVigentes, tipoCambioVigente } from '../services/tipoCambio.js';
 
 const router = Router();
 router.use(authenticate);
@@ -121,20 +121,42 @@ const METODOS_PAGO = ['TARJETA_CREDITO', 'TARJETA_CREDITO_MSI', 'TARJETA_DEBITO'
 // Prima en MXN a partir del monto en la moneda original. `primaAnual` SIEMPRE
 // queda en pesos porque es la que suman métricas, comisiones, metas y ranking;
 // convertirla aquí evita que cada consumidor invente su propia conversión.
-function resolverPrima({ moneda, primaAnual, primaMoneda, tipoCambio }) {
+//
+// El tipo de cambio YA NO lo captura el asesor (2026-08-15, corrección de
+// diseño): la póliza se firma en la moneda que diga el contrato — el asesor
+// solo transcribe la cifra tal cual viene, nunca debería tener que ir a
+// buscar ni calcular un tipo de cambio para poder guardarla. Esta función
+// resuelve el TC ella misma contra `tipoCambioVigente()` (Banxico, o el
+// respaldo manual en .env si Banxico no respondió — ver tipoCambio.js) y solo
+// usa `tipoCambio` si alguien lo manda explícito (edición de una póliza
+// histórica pactada a otra paridad, o el "usar este" de la UI). Si NINGUNA
+// fuente tiene un valor real (ni Banxico ni respaldo configurado), se rechaza
+// con 400 en vez de inventar una cifra: una comisión mal calculada por una
+// paridad ficticia es peor que pedirle al asesor que reintente en un minuto.
+async function resolverPrima({ moneda, primaAnual, primaMoneda, tipoCambio }) {
   const divisa = MONEDAS.includes(moneda) ? moneda : 'MXN';
   if (divisa === 'MXN') {
     return { moneda: 'MXN', primaAnual: +primaAnual, primaMoneda: null, tipoCambio: null };
   }
-  const tc = +tipoCambio;
-  if (!tc || tc <= 0) return { error: 'Con moneda USD o UDI se requiere el tipo de cambio' };
   const original = primaMoneda != null && primaMoneda !== '' ? +primaMoneda : +primaAnual;
   if (!original || original <= 0) return { error: 'Prima inválida' };
+
+  let tc = +tipoCambio;
+  let fuenteTC = 'manual';
+  if (!tc || tc <= 0) {
+    const oficial = await tipoCambioVigente(divisa);
+    if (!(oficial?.valor > 0)) {
+      return { error: `No se pudo obtener el tipo de cambio de ${divisa}. Intenta de nuevo en un momento.` };
+    }
+    tc = oficial.valor;
+    fuenteTC = oficial.fuente;
+  }
   return {
     moneda: divisa,
     primaAnual: +(original * tc).toFixed(2),
     primaMoneda: original,
     tipoCambio: tc,
+    fuenteTC,
   };
 }
 
@@ -299,7 +321,11 @@ router.post('/', asyncHandler(async (req, res) => {
     moneda: monedaBody, primaMoneda, tipoCambio, domiciliada, metodoPago,
     documentoTmp,
   } = req.body || {};
-  if (!clienteId || !ramo || !producto || primaAnual == null) return res.status(400).json({ error: 'clienteId, ramo, producto y primaAnual son requeridos' });
+  // Con moneda extranjera la prima viaja en `primaMoneda` (su denominación
+  // original) y `primaAnual` en MXN la calcula resolverPrima más abajo — por
+  // eso aquí basta con que venga alguna de las dos.
+  const primaCapturada = primaAnual != null ? primaAnual : primaMoneda;
+  if (!clienteId || !ramo || !producto || primaCapturada == null) return res.status(400).json({ error: 'clienteId, ramo, producto y prima anual son requeridos' });
   const cliente = await prisma.cliente.findUnique({ where: { id: clienteId } });
   if (!cliente) return res.status(400).json({ error: 'Cliente no encontrado' });
   const asesorId = (req.user.rol === 'ASESOR') ? req.user.id : (req.body.asesorId || cliente.asesorId);
@@ -310,7 +336,7 @@ router.post('/', asyncHandler(async (req, res) => {
   if (productoCatalogoId) {
     catalogo = await prisma.productoCatalogo.findUnique({ where: { id: productoCatalogoId } });
   }
-  const divisa = resolverPrima({ moneda: monedaBody, primaAnual, primaMoneda, tipoCambio });
+  const divisa = await resolverPrima({ moneda: monedaBody, primaAnual, primaMoneda, tipoCambio });
   if (divisa.error) return res.status(400).json({ error: divisa.error });
   const pctFinal = comisionPct ?? (catalogo?.comisionPct ?? 10);
   const comisionMontoFinal = +(divisa.primaAnual * pctFinal / 100).toFixed(2);
@@ -408,14 +434,24 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   if (ramo) data.ramo = ramo;
   if (producto) data.producto = producto;
   if (productoCatalogoId !== undefined) data.productoCatalogoId = productoCatalogoId || null;
-  // La moneda y la prima se resuelven juntas: cambiar solo el tipo de cambio
-  // debe recalcular la prima en pesos, y viceversa.
-  if (primaAnual != null || monedaBody !== undefined || primaMoneda !== undefined || tipoCambio !== undefined) {
-    const divisa = resolverPrima({
+  // La moneda y la prima se resuelven juntas: cambiar el monto original o la
+  // moneda debe recalcular la prima en pesos. OJO: el formulario reenvía
+  // `moneda`/`primaMoneda` en CADA guardado aunque el asesor no haya tocado
+  // esos campos (son parte fija del payload) — si eso disparara siempre un
+  // nuevo `resolverPrima()`, cada edición trivial (solo cambiar el estado, por
+  // ejemplo) volvería a consultar el tipo de cambio del día y movería
+  // `primaAnual` sin que el asesor lo pidiera. Por eso solo se recalcula
+  // cuando el monto/moneda originales REALMENTE cambiaron, o cuando llega un
+  // `tipoCambio` explícito (ajuste manual de una paridad histórica).
+  const monedaCambio = monedaBody !== undefined && monedaBody !== existente.moneda;
+  const primaMonedaCambio = primaMoneda !== undefined && Number(primaMoneda) !== Number(existente.primaMoneda);
+  const primaAnualCambio = primaAnual != null && Number(primaAnual) !== Number(existente.primaAnual);
+  if (monedaCambio || primaMonedaCambio || primaAnualCambio || tipoCambio !== undefined) {
+    const divisa = await resolverPrima({
       moneda: monedaBody !== undefined ? monedaBody : existente.moneda,
       primaAnual: primaAnual != null ? primaAnual : existente.primaAnual,
       primaMoneda: primaMoneda !== undefined ? primaMoneda : existente.primaMoneda,
-      tipoCambio: tipoCambio !== undefined ? tipoCambio : existente.tipoCambio,
+      tipoCambio: tipoCambio !== undefined ? tipoCambio : (monedaCambio || primaMonedaCambio ? undefined : existente.tipoCambio),
     });
     if (divisa.error) return res.status(400).json({ error: divisa.error });
     data.primaAnual = divisa.primaAnual;

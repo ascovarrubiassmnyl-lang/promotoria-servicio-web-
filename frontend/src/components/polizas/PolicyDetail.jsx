@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { Card, VentaBadge, EmptyState, Modal, Field } from '../ui.jsx';
+import { Card, VentaBadge, EmptyState, Modal, Field, NumeroFormateado } from '../ui.jsx';
 import {
   mxn, fechaCorta, fechaHora, RAMOS_LABEL, FORMAS_PAGO,
   esVentaGanada, esVentaPipeline, PAGOS_POR_ANIO, edad, tamanoLegible,
@@ -111,6 +111,13 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
 
   const confirmarCobro = async (e) => {
     e.preventDefault();
+    // NumeroFormateado no es un <input required> nativo (es type="text" para
+    // poder mostrar comas), así que la validación de "otro monto" capturado
+    // se hace aquí en vez de depender del required de HTML.
+    if (cobro.otroMonto && !(+cobro.monto > 0)) {
+      setCobro((c) => ({ ...c, err: 'Captura el monto pagado.' }));
+      return;
+    }
     setCobro((c) => ({ ...c, saving: true, err: '' }));
     try {
       await api.post(`/ventas/${p.id}/cobroconfirmado`, {
@@ -438,14 +445,9 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
           {cobro.otroMonto && (
             <div className="grid gap-3">
               <Field label="Monto pagado (MXN)*">
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  className="input"
-                  required
+                <NumeroFormateado
                   value={cobro.monto}
-                  onChange={(e) => setCobro((c) => ({ ...c, monto: e.target.value }))}
+                  onChange={(v) => setCobro((c) => ({ ...c, monto: v }))}
                 />
               </Field>
               <Field label="Justificación (opcional)">

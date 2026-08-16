@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, handleError } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
-import { Card, EmptyState } from '../components/ui.jsx';
+import { Card, EmptyState, NumeroFormateado } from '../components/ui.jsx';
 import { mxn, num, nombreMes } from '../lib/format.js';
 import GoalBlock, { MiniBar } from '../components/metas/GoalBlock.jsx';
 import { infoRitmo, pctAvance, diasPeriodo, ESTADOS_RITMO } from '../components/metas/ritmo.js';
@@ -53,16 +53,26 @@ function Reconciliacion({ equipo }) {
   );
 }
 
-// Formulario de las 6 métricas (meta de equipo o fila de asesor).
+// Formulario de las 6 métricas (meta de equipo o fila de asesor). La de dinero
+// (prima) lleva separador de miles en vivo, como cualquier otro monto grande
+// del sistema; las de conteo (ventas, citas…) se quedan como número simple.
 function CamposMeta({ valores, onChange, autoFocus = false }) {
   return METRICAS.map((m, i) => (
     <label key={m.key} className="label !mb-0">
       {m.label}
-      <input
-        type="number" min="0" className="input w-32 mt-1" placeholder={m.placeholder}
-        value={valores[m.key]} autoFocus={autoFocus && i === 0}
-        onChange={(e) => onChange({ ...valores, [m.key]: e.target.value })}
-      />
+      {m.money ? (
+        <NumeroFormateado
+          className="w-32 mt-1" placeholder={m.placeholder}
+          value={valores[m.key]} autoFocus={autoFocus && i === 0}
+          onChange={(v) => onChange({ ...valores, [m.key]: v })}
+        />
+      ) : (
+        <input
+          type="number" min="0" className="input w-32 mt-1" placeholder={m.placeholder}
+          value={valores[m.key]} autoFocus={autoFocus && i === 0}
+          onChange={(e) => onChange({ ...valores, [m.key]: e.target.value })}
+        />
+      )}
     </label>
   ));
 }
@@ -264,18 +274,26 @@ export default function Targets() {
                           <>
                             {METRICAS.map((m, j) => (
                               <td key={m.key} className="py-3 pr-4">
-                                <input
-                                  type="number" min="0" className="input w-24" placeholder={m.placeholder}
-                                  value={editRow.valores[m.key]} autoFocus={j === 0}
-                                  onChange={(e) => setEditRow({ ...editRow, valores: { ...editRow.valores, [m.key]: e.target.value } })}
-                                />
+                                {m.money ? (
+                                  <NumeroFormateado
+                                    className="w-24" placeholder={m.placeholder}
+                                    value={editRow.valores[m.key]} autoFocus={j === 0}
+                                    onChange={(v) => setEditRow({ ...editRow, valores: { ...editRow.valores, [m.key]: v } })}
+                                  />
+                                ) : (
+                                  <input
+                                    type="number" min="0" className="input w-24" placeholder={m.placeholder}
+                                    value={editRow.valores[m.key]} autoFocus={j === 0}
+                                    onChange={(e) => setEditRow({ ...editRow, valores: { ...editRow.valores, [m.key]: e.target.value } })}
+                                  />
+                                )}
                               </td>
                             ))}
                             <td className="py-3 pr-4">
-                              <input
-                                type="number" min="0" className="input w-32" placeholder="Ingreso MXN"
+                              <NumeroFormateado
+                                className="w-32" placeholder="Ingreso MXN"
                                 value={editRow.ingreso}
-                                onChange={(e) => setEditRow({ ...editRow, ingreso: e.target.value })}
+                                onChange={(v) => setEditRow({ ...editRow, ingreso: v })}
                               />
                             </td>
                             <td className="py-3 pr-4" colSpan={2}>

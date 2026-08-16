@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
-import { Modal, Field, DatePicker } from '../ui.jsx';
+import { Modal, Field, DatePicker, NumeroFormateado } from '../ui.jsx';
 import {
   RAMOS, RAMOS_LABEL, FORMAS_PAGO, FORMAS_PAGO_LIST,
   ESTADOS_VENTA, ESTADOS_VENTA_LABEL, isoLocalDateInput, mxn,
@@ -185,18 +185,6 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
     staleTime: 60 * 60 * 1000, // el FIX se publica una vez al día
   });
 
-  // Prellena el tipo de cambio de la prima con el oficial del día cuando el
-  // asesor elige USD/UDI y aún no ha escrito uno. Solo prellena: si ya hay un
-  // valor (capturado a mano o de una póliza que se está editando) no se pisa,
-  // porque la póliza pudo haberse pactado a otra paridad.
-  useEffect(() => {
-    if (!open) return;
-    if (!requiereTipoCambio(form.moneda)) return;
-    if (form.tipoCambio !== '' && form.tipoCambio != null) return;
-    const oficial = tipos?.[form.moneda]?.valor;
-    if (oficial) setForm((f) => (f.tipoCambio === '' || f.tipoCambio == null ? { ...f, tipoCambio: String(oficial) } : f));
-  }, [open, form.moneda, form.tipoCambio, tipos]);
-
   const set = (campo, valor) => setForm((f) => ({ ...f, [campo]: valor }));
 
   const onProductoCatalogo = (id) => {
@@ -228,9 +216,10 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
             ? finDeVigenciaSugerido(f.fechaInicioVigencia, aniosDePlazo(plazo))
             : f.fechaFinVigencia,
         moneda,
-        // Al cambiar a divisa, el monto capturado pasa al campo de moneda original.
+        // Al cambiar a divisa, el monto capturado pasa al campo de moneda
+        // original; el tipo de cambio ya NO lo captura el asesor, lo resuelve
+        // el servidor (Banxico o el respaldo manual) al guardar.
         primaMoneda: requiereTipoCambio(moneda) ? (f.primaMoneda || f.primaAnual) : '',
-        tipoCambio: requiereTipoCambio(moneda) ? f.tipoCambio : '',
         // La suma asegurada sigue a la moneda de la póliza por defecto (el
         // caso normal); su propio selector la puede cambiar después.
         sumaAseguradaMoneda: moneda,
@@ -253,12 +242,11 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
     ? MONEDAS.filter((m) => productoCatalogoActual.monedas.includes(m.value))
     : null;
 
-  // Conversión de moneda. `primaAnual` viaja SIEMPRE en MXN al backend; aquí
-  // solo se calcula la vista previa de lo que se va a guardar.
+  // `primaAnual` viaja SIEMPRE en MXN al backend, pero el asesor ya no
+  // captura el tipo de cambio: el servidor lo resuelve solo (Banxico o el
+  // respaldo manual) al guardar. El equivalente en pesos que se ve bajo el
+  // campo (vía MontoMoneda) es solo vista previa informativa.
   const necesitaTC = requiereTipoCambio(form.moneda);
-  const primaEnPesos = necesitaTC
-    ? (+form.primaMoneda || 0) * (+form.tipoCambio || 0)
-    : (+form.primaAnual || 0);
   // Coberturas del catálogo que aún no se agregaron a la póliza (para el selector).
   const coberturasDisponibles = (productoCatalogoActual?.coberturas || []).filter(
     (c) => !form.coberturas.some((fc) => fc.nombre === c.nombre)
@@ -298,9 +286,9 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
 
   const submit = async (e) => {
     e.preventDefault(); setSaving(true); setErr('');
-    if (necesitaTC && !(+form.tipoCambio > 0)) {
+    if (necesitaTC && !(+form.primaMoneda > 0)) {
       setSaving(false);
-      setErr('Captura el tipo de cambio para convertir la prima a pesos.');
+      setErr(`Captura la prima anual en ${infoMoneda(form.moneda).sufijo}.`);
       return;
     }
     try {
@@ -308,13 +296,14 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
         ramo: form.ramo,
         producto: form.producto,
         productoCatalogoId: form.productoCatalogoId || null,
-        // La prima siempre viaja en MXN; el backend recalcula con el TC.
-        primaAnual: necesitaTC
-          ? (primaEnPesos || undefined)
-          : (form.primaAnual !== '' ? +form.primaAnual : undefined),
+        // Con moneda extranjera, la prima se manda en su moneda original
+        // (primaMoneda) y el SERVIDOR calcula primaAnual en MXN con el tipo
+        // de cambio del día (Banxico o el respaldo manual) — el asesor nunca
+        // captura ni ve un tipo de cambio en este formulario. `primaAnual` en
+        // pesos solo se manda directo cuando la póliza ya está en MXN.
+        primaAnual: necesitaTC ? undefined : (form.primaAnual !== '' ? +form.primaAnual : undefined),
         moneda: form.moneda,
         primaMoneda: necesitaTC && form.primaMoneda !== '' ? +form.primaMoneda : null,
-        tipoCambio: necesitaTC && form.tipoCambio !== '' ? +form.tipoCambio : null,
         comisionPct: form.comisionPct !== '' ? +form.comisionPct : undefined,
         estado: form.estado,
         formaPago: form.formaPago,
@@ -461,61 +450,29 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
               <input className="input" required value={form.producto} onChange={(e) => set('producto', e.target.value)} />
             )}
           </Field>
-          <Field label="Moneda de la póliza">
-            <select
-              className="input"
-              title={monedasDelProducto ? 'Monedas en que la compañía ofrece este producto' : undefined}
-              value={form.moneda}
-              onChange={(e) => {
-                const moneda = e.target.value;
-                setForm((f) => ({
-                  ...f,
-                  moneda,
-                  // Al pasar a divisa, el monto capturado se mueve al campo de
-                  // la moneda original; al volver a pesos se limpian TC y monto.
-                  primaMoneda: requiereTipoCambio(moneda) ? (f.primaMoneda || f.primaAnual) : '',
-                  tipoCambio: requiereTipoCambio(moneda) ? f.tipoCambio : '',
-                }));
-              }}
-            >
-              {(monedasDelProducto || MONEDAS).map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-            </select>
+          {/* Un solo control de moneda para la prima: MontoMoneda trae su
+              propio selector (igual que suma asegurada/deducible/monto por
+              pago), así que no se duplica un <select> de "Moneda de la
+              póliza" aparte. Cambiar la moneda aquí mueve el monto capturado
+              entre `primaAnual` (MXN) y `primaMoneda` (divisa); el tipo de
+              cambio para convertir a MXN lo resuelve el servidor al guardar,
+              nunca lo captura el asesor. */}
+          <Field label="Prima anual*">
+            <MontoMoneda
+              value={necesitaTC ? form.primaMoneda : form.primaAnual}
+              onChange={(v) => set(necesitaTC ? 'primaMoneda' : 'primaAnual', v)}
+              moneda={form.moneda}
+              onMoneda={(moneda) => setForm((f) => ({
+                ...f,
+                moneda,
+                primaMoneda: requiereTipoCambio(moneda) ? (f.primaMoneda || f.primaAnual) : '',
+                primaAnual: !requiereTipoCambio(moneda) ? (f.primaAnual || f.primaMoneda) : f.primaAnual,
+              }))}
+              monedas={monedasDelProducto ? monedasDelProducto.map((m) => m.value) : null}
+              tipos={tipos}
+              placeholder="Ej. 20,000"
+            />
           </Field>
-          {necesitaTC ? (
-            <>
-              <Field label={`Prima anual (${infoMoneda(form.moneda).sufijo})*`}>
-                <input type="number" step="0.01" className="input" required value={form.primaMoneda} onChange={(e) => set('primaMoneda', e.target.value)} />
-              </Field>
-              <Field label={`Tipo de cambio (1 ${infoMoneda(form.moneda).sufijo} = MXN)*`}>
-                <input type="number" step="0.0001" className="input" required value={form.tipoCambio} onChange={(e) => set('tipoCambio', e.target.value)} placeholder="Ej. 17.50" />
-                {tipos?.[form.moneda]?.valor ? (
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                    Banxico {tipos[form.moneda].fecha || 'hoy'}:{' '}
-                    <strong className="tabular-nums font-medium">
-                      {tipos[form.moneda].valor.toLocaleString('es-MX', { maximumFractionDigits: 4 })}
-                    </strong>
-                    {+form.tipoCambio > 0 && Math.abs(+form.tipoCambio - tipos[form.moneda].valor) > 0.0001 && (
-                      <button
-                        type="button"
-                        className="ml-1.5 font-medium text-brand-600 dark:text-brand-400 hover:underline"
-                        onClick={() => set('tipoCambio', String(tipos[form.moneda].valor))}
-                      >
-                        usar este
-                      </button>
-                    )}
-                  </p>
-                ) : (
-                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                    No se pudo consultar el tipo de cambio oficial: captúralo a mano.
-                  </p>
-                )}
-              </Field>
-            </>
-          ) : (
-            <Field label="Prima anual (MXN)*">
-              <input type="number" step="0.01" className="input" required value={form.primaAnual} onChange={(e) => set('primaAnual', e.target.value)} />
-            </Field>
-          )}
           <Field label="Comisión (%)">
             <input type="number" step="0.1" className="input" value={form.comisionPct} onChange={(e) => set('comisionPct', e.target.value)} />
           </Field>
@@ -605,15 +562,6 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
           )}
         </div>
 
-        {/* Conversión de moneda: se guarda en pesos porque es la cifra que
-            suman comisiones, metas y ranking. */}
-        {necesitaTC && primaEnPesos > 0 && (
-          <p className="text-xs text-slate-500 dark:text-slate-400 -mt-1">
-            Se guardará como <strong className="tabular-nums">{mxn(primaEnPesos)}</strong> en pesos
-            (la comisión y las metas siempre se calculan en MXN).
-          </p>
-        )}
-
         {/* Domiciliación: apaga los recordatorios de cobro de esta póliza */}
         <label className="flex items-start gap-2 cursor-pointer rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2.5">
           <input
@@ -678,15 +626,12 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
                   )}
                   <input className="input" placeholder="$ / Incluida" value={c.monto || ''} onChange={(e) => setFila('coberturas', i, 'monto', e.target.value)} />
                   <div className="flex gap-1">
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      className="input flex-1 min-w-0"
+                    <NumeroFormateado
+                      className="flex-1 min-w-0"
                       placeholder="Incluida"
                       title="Costo adicional de contratar esta cobertura. Déjalo vacío si va incluida en la prima."
                       value={c.costo ?? ''}
-                      onChange={(e) => setFila('coberturas', i, 'costo', e.target.value)}
+                      onChange={(v) => setFila('coberturas', i, 'costo', v)}
                     />
                     <select
                       className="input w-[4.5rem] shrink-0 px-1 text-xs"
