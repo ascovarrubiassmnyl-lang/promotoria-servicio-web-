@@ -317,6 +317,33 @@ export default function CandidatoDetalle() {
             </dl>
             {candidato.notas && <p className="mt-3 text-xs text-slate-500 dark:text-slate-400 whitespace-pre-wrap">{candidato.notas}</p>}
           </Card>
+
+          {/* Notas y recordatorios del reclutador. Viven en el riel izquierdo,
+              debajo de Reclutamiento: son consulta rápida mientras se revisa la
+              evaluación, no algo que se busque haciendo scroll hasta el final. */}
+          <Card
+            title="Notas"
+            actions={<button onClick={() => setOpenNota('NOTA')} className="btn-secondary text-xs">+ Nota</button>}
+          >
+            <ListaNotas
+              notas={candidato.notasSeguimiento}
+              tipo="NOTA"
+              onCompletar={completarNota}
+              onEliminar={setNotaABorrar}
+            />
+          </Card>
+          <Card
+            title="Recordatorios"
+            subtitle="Te avisamos un día antes y el mismo día."
+            actions={<button onClick={() => setOpenNota('RECORDATORIO')} className="btn-secondary text-xs">+ Recordatorio</button>}
+          >
+            <ListaNotas
+              notas={candidato.notasSeguimiento}
+              tipo="RECORDATORIO"
+              onCompletar={completarNota}
+              onEliminar={setNotaABorrar}
+            />
+          </Card>
         </div>
 
         {/* Columna principal: evaluación + citas */}
@@ -375,34 +402,6 @@ export default function CandidatoDetalle() {
 
           {/* POP: cuestionario propio de la promotoría (ver components/candidatos/PopCandidato.jsx) */}
           <PopCandidato candidato={candidato} onCambio={() => refetch()} />
-
-          {/* Notas y recordatorios del reclutador, lado a lado (mismo patrón
-              que las dos tarjetas de recordatorios de la ficha de cliente). */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Card
-              title="Notas"
-              actions={<button onClick={() => setOpenNota('NOTA')} className="btn-secondary text-xs">+ Nota</button>}
-            >
-              <ListaNotas
-                notas={candidato.notasSeguimiento}
-                tipo="NOTA"
-                onCompletar={completarNota}
-                onEliminar={setNotaABorrar}
-              />
-            </Card>
-            <Card
-              title="Recordatorios"
-              subtitle="Te avisamos un día antes y el mismo día."
-              actions={<button onClick={() => setOpenNota('RECORDATORIO')} className="btn-secondary text-xs">+ Recordatorio</button>}
-            >
-              <ListaNotas
-                notas={candidato.notasSeguimiento}
-                tipo="RECORDATORIO"
-                onCompletar={completarNota}
-                onEliminar={setNotaABorrar}
-              />
-            </Card>
-          </div>
         </div>
       </div>
 

@@ -114,7 +114,13 @@ export default function PopPlantillaModal({ open, onClose, plantilla = null, onS
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={plantilla ? 'Editar cuestionario POP' : 'Nuevo cuestionario POP'} wide>
+    <Modal open={open} onClose={onClose} title={plantilla ? 'Preguntas del POP' : 'Nuevo cuestionario POP'} wide>
+      {plantilla?.clave === 'estandar' && (
+        <p className="mb-3 rounded-lg bg-slate-50 dark:bg-slate-700/50 px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+          Este es el cuestionario que se manda por default; ya viene cargado y listo para enviar.
+          Solo entra aquí si quieres ajustar la redacción o cuántos puntos vale cada respuesta.
+        </p>
+      )}
       <form onSubmit={guardar} className="space-y-4">
         <Field label="Nombre del cuestionario">
           <input

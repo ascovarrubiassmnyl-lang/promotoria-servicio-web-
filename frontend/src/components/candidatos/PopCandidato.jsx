@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
-import { Card, Modal, EmptyState, MenuAcciones, Field } from '../ui.jsx';
+import { Card, Modal, EmptyState, MenuAcciones } from '../ui.jsx';
+import CandidatoFormModal from './CandidatoFormModal.jsx';
 import PopPlantillaModal from './PopPlantillaModal.jsx';
-import { infoRecomendacion, infoEstadoPop } from './tipos.js';
-import { fechaCorta } from '../../lib/format.js';
+import { infoRecomendacion, infoEstadoPop, camposFaltantesPop } from './tipos.js';
+import { fechaCorta, edad } from '../../lib/format.js';
 
 // Barra de un bloque del resultado (ADN en Ventas, Experiencia…), el
 // equivalente de las barras del "Gráfico del Potencial de Ventas" del reporte
@@ -115,19 +116,26 @@ export default function PopCandidato({ candidato, onCambio }) {
   const qc = useQueryClient();
   const [openEnviar, setOpenEnviar] = useState(false);
   const [openPlantilla, setOpenPlantilla] = useState(false);
-  const [plantillaId, setPlantillaId] = useState('');
+  const [openCompletar, setOpenCompletar] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [linkNuevo, setLinkNuevo] = useState(null);
   const [copiado, setCopiado] = useState(false);
   const [verResultado, setVerResultado] = useState(null);
   const [aBorrar, setABorrar] = useState(null);
 
+  const envios = candidato.popEnvios || [];
+  // Los mismos campos que valida el servidor (camposFaltantes en routes/pop.js):
+  // aquí solo para no dejar que la promotora pida un link que sería rechazado.
+  const faltan = camposFaltantesPop(candidato);
+
+  // GET /pop/plantillas siembra el cuestionario de fábrica si no existe, así
+  // que esta consulta también es la que garantiza que "Enviar POP" funcione la
+  // primera vez. La primera de la lista es la estándar (el servidor la ordena).
   const { data: plantillas = [] } = useQuery({
     queryKey: ['pop-plantillas'],
     queryFn: async () => (await api.get('/pop/plantillas')).data,
   });
-
-  const envios = candidato.popEnvios || [];
+  const estandar = plantillas.find((p) => p.clave === 'estandar') || plantillas[0] || null;
   const linkDe = (token) => `${window.location.origin}/pop/${token}`;
 
   const copiar = async (texto) => {
@@ -141,11 +149,12 @@ export default function PopCandidato({ candidato, onCambio }) {
     }
   };
 
+  // Sin plantillaId el servidor manda el POP estándar (el de fábrica, con las
+  // preguntas ya cargadas): la promotora no elige ni arma nada.
   const enviar = async () => {
-    if (!plantillaId) return;
     setEnviando(true);
     try {
-      const { data } = await api.post('/pop/envios', { candidatoId: candidato.id, plantillaId });
+      const { data } = await api.post('/pop/envios', { candidatoId: candidato.id });
       setLinkNuevo(linkDe(data.token));
       setOpenEnviar(false);
       onCambio?.();
@@ -168,22 +177,29 @@ export default function PopCandidato({ candidato, onCambio }) {
     } catch (e) { alert(handleError(e)); }
   };
 
-  const activas = plantillas.filter((p) => !p.archivadaEn);
-
   return (
     <>
       <Card
         title="POP · Evaluación de potencial"
-        subtitle="Cuestionario propio de la promotoría. Se manda por link y el resultado llega solo."
+        subtitle="Cuestionario ya listo. Se manda por link y el resultado llega solo."
         actions={
           <div className="flex items-center gap-2">
-            <button onClick={() => setOpenPlantilla(true)} className="btn-secondary text-xs">Cuestionarios</button>
-            <button onClick={() => { setPlantillaId(activas[0]?.id || ''); setOpenEnviar(true); }} className="btn-primary text-xs">
+            <button onClick={() => setOpenPlantilla(true)} className="btn-secondary text-xs">Ver preguntas</button>
+            <button
+              onClick={() => (faltan.length ? setOpenCompletar(true) : setOpenEnviar(true))}
+              className="btn-primary text-xs"
+            >
               Enviar POP
             </button>
           </div>
         }
       >
+        {faltan.length > 0 && (
+          <p className="mb-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+            Antes de enviar el POP falta capturar: <strong>{faltan.join(', ')}</strong>.{' '}
+            <button onClick={() => setOpenCompletar(true)} className="underline font-medium">Completar ahora</button>
+          </p>
+        )}
         {envios.length === 0 ? (
           <EmptyState message="Sin POP enviados. Manda uno con el botón de arriba para medir su potencial de ventas." />
         ) : (
@@ -247,46 +263,36 @@ export default function PopCandidato({ candidato, onCambio }) {
         )}
       </Card>
 
-      {/* Enviar: elegir cuestionario */}
+      {/* Enviar: confirmar los datos con los que se manda. Sin elegir
+          cuestionario — va el POP estándar, que ya viene con sus preguntas. */}
       <Modal open={openEnviar} onClose={() => setOpenEnviar(false)} title="Enviar POP al candidato">
-        {activas.length === 0 ? (
-          <div className="space-y-3">
-            <p className="text-sm text-slate-600 dark:text-slate-300">
-              Todavía no tienes ningún cuestionario. Crea el primero para poder enviarlo.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setOpenEnviar(false)} className="btn-secondary">Cancelar</button>
-              <button onClick={() => { setOpenEnviar(false); setOpenPlantilla(true); }} className="btn-primary">
-                Crear cuestionario
-              </button>
-            </div>
+        <div className="space-y-3">
+          <dl className="rounded-lg border border-slate-100 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-700 text-sm">
+            {[
+              ['Nombre', `${candidato.nombre} ${candidato.apellidoP} ${candidato.apellidoM || ''}`.trim()],
+              ['Teléfono', candidato.telefono],
+              ['Correo', candidato.email],
+              ['Edad', candidato.fechaNacimiento ? `${edad(candidato.fechaNacimiento)} años` : null],
+              ['Sexo', candidato.sexo === 'F' ? 'Femenino' : candidato.sexo === 'M' ? 'Masculino' : null],
+              ['RFC', candidato.rfc],
+            ].map(([k, v]) => (
+              <div key={k} className="flex justify-between gap-3 px-3 py-2">
+                <dt className="kv-k">{k}</dt>
+                <dd className="kv-v text-right">{v || '—'}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Se genera un link de un solo uso, válido 14 días, que tú le compartes por WhatsApp o
+            correo. Cuando lo conteste te llega una notificación y el resultado queda aquí, en su ficha.
+          </p>
+          <div className="flex justify-end gap-2 pt-1">
+            <button onClick={() => { setOpenEnviar(false); setOpenCompletar(true); }} className="btn-secondary">Corregir datos</button>
+            <button onClick={enviar} disabled={enviando} className="btn-primary">
+              {enviando ? 'Generando…' : 'Generar link'}
+            </button>
           </div>
-        ) : (
-          <div className="space-y-3">
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Candidato: <strong className="text-slate-700 dark:text-slate-200">{candidato.nombre} {candidato.apellidoP}</strong>
-            </p>
-            <Field label="Cuestionario">
-              <select className="input" value={plantillaId} onChange={(e) => setPlantillaId(e.target.value)}>
-                {activas.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nombre} ({(p.preguntas || []).length} preguntas)
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Se genera un link de un solo uso, válido 14 días, que tú le compartes por WhatsApp o
-              correo. Cuando lo conteste te llega una notificación con el resultado.
-            </p>
-            <div className="flex justify-end gap-2 pt-1">
-              <button onClick={() => setOpenEnviar(false)} className="btn-secondary">Cancelar</button>
-              <button onClick={enviar} disabled={enviando || !plantillaId} className="btn-primary">
-                {enviando ? 'Generando…' : 'Generar link'}
-              </button>
-            </div>
-          </div>
-        )}
+        </div>
       </Modal>
 
       {/* Link recién generado, para copiar y compartir a mano */}
@@ -326,7 +332,22 @@ export default function PopCandidato({ candidato, onCambio }) {
         </div>
       </Modal>
 
-      <PopPlantillaModal open={openPlantilla} onClose={() => setOpenPlantilla(false)} />
+      {/* Completar la ficha antes de enviar: reusa el mismo formulario de
+          alta/edición del candidato, no un formulario paralelo. */}
+      <CandidatoFormModal
+        open={openCompletar}
+        onClose={() => setOpenCompletar(false)}
+        candidato={candidato}
+        onSaved={() => { setOpenCompletar(false); onCambio?.(); }}
+      />
+
+      {/* "Ver preguntas": abre el cuestionario estándar ya cargado. Se puede
+          ajustar (puntos, redacción), pero nadie tiene que armarlo de cero. */}
+      <PopPlantillaModal
+        open={openPlantilla}
+        onClose={() => setOpenPlantilla(false)}
+        plantilla={estandar}
+      />
     </>
   );
 }

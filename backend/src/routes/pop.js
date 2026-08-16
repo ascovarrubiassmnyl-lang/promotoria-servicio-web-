@@ -5,6 +5,7 @@ import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion } from '../middleware/permisos.js';
 import { validarPreguntas, validarUmbrales, puntosPosibles } from '../utils/pop.js';
+import { asegurarPlantillaEstandar, CLAVE_POP_ESTANDAR } from '../utils/popPlantillaEstandar.js';
 
 // POP propio de la promotoría: plantillas de cuestionario y envíos por
 // candidato. Todo este router exige la sección `candidatos` (que tiene piso de
@@ -30,6 +31,13 @@ const seleccionEnvio = {
 // ─── Plantillas ────────────────────────────────────────────────────────────
 
 router.get('/plantillas', asyncHandler(async (req, res) => {
+  // El POP de fábrica se siembra solo la primera vez que alguien mira la
+  // lista: la promotora nunca captura preguntas para poder mandar un POP.
+  if (req.query.archivadas !== '1') {
+    await asegurarPlantillaEstandar(req.user.id).catch((err) => {
+      console.error(`[pop] no se pudo asegurar el cuestionario estándar: ${err.message}`);
+    });
+  }
   const plantillas = await prisma.popPlantilla.findMany({
     where: { archivadaEn: req.query.archivadas === '1' ? { not: null } : null },
     include: {
@@ -38,7 +46,9 @@ router.get('/plantillas', asyncHandler(async (req, res) => {
     },
     orderBy: { creadoEn: 'desc' },
   });
-  res.json(plantillas.map((p) => ({ ...p, puntosPosibles: puntosPosibles(p.preguntas) })));
+  // El estándar va primero: es el que se manda por default.
+  const ordenadas = [...plantillas].sort((a, b) => (b.clave === CLAVE_POP_ESTANDAR ? 1 : 0) - (a.clave === CLAVE_POP_ESTANDAR ? 1 : 0));
+  res.json(ordenadas.map((p) => ({ ...p, puntosPosibles: puntosPosibles(p.preguntas) })));
 }));
 
 router.get('/plantillas/:id', asyncHandler(async (req, res) => {
@@ -118,6 +128,22 @@ router.delete('/plantillas/:id', asyncHandler(async (req, res) => {
 
 // ─── Envíos ────────────────────────────────────────────────────────────────
 
+// Datos que la ficha del candidato debe tener antes de mandarle el POP: son
+// los mismos que la compañía imprime en la carátula de su reporte (nombre,
+// correo, RFC) más teléfono, edad y sexo, que la promotora usa para dar
+// seguimiento. Si falta alguno, la UI abre el formulario para completarlo en
+// vez de generar un link que después no se pueda atribuir.
+export function camposFaltantes(candidato) {
+  const faltan = [];
+  if (!candidato.nombre?.trim() || !candidato.apellidoP?.trim()) faltan.push('nombre completo');
+  if (!candidato.telefono?.trim()) faltan.push('teléfono');
+  if (!candidato.email?.trim()) faltan.push('correo');
+  if (!candidato.fechaNacimiento) faltan.push('fecha de nacimiento (edad)');
+  if (!candidato.sexo) faltan.push('sexo');
+  if (!candidato.rfc?.trim()) faltan.push('RFC');
+  return faltan;
+}
+
 // GET /pop/envios?candidatoId=… — historial de POP de un candidato.
 router.get('/envios', asyncHandler(async (req, res) => {
   const where = {};
@@ -153,13 +179,27 @@ router.get('/envios/:id', asyncHandler(async (req, res) => {
 // comparte a mano (es el respaldo que siempre funciona).
 router.post('/envios', asyncHandler(async (req, res) => {
   const { candidatoId, plantillaId } = req.body || {};
-  if (!candidatoId || !plantillaId) {
-    return res.status(400).json({ error: 'candidatoId y plantillaId son requeridos' });
-  }
+  if (!candidatoId) return res.status(400).json({ error: 'candidatoId es requerido' });
+
   const candidato = await prisma.candidato.findUnique({ where: { id: candidatoId } });
   if (!candidato) return res.status(400).json({ error: 'Candidato no encontrado' });
 
-  const plantilla = await prisma.popPlantilla.findUnique({ where: { id: plantillaId } });
+  // Sin ficha completa no se manda POP: el resultado tiene que quedar
+  // atribuido a una persona identificable (mismos datos que pide el formato de
+  // la compañía en su carátula).
+  const faltan = camposFaltantes(candidato);
+  if (faltan.length) {
+    return res.status(400).json({
+      error: `Faltan datos del candidato para poder enviarle el POP: ${faltan.join(', ')}.`,
+      faltan,
+    });
+  }
+
+  // Sin plantillaId se manda el POP estándar (el caso normal: la promotora no
+  // elige nada, solo oprime "Enviar POP").
+  const plantilla = plantillaId
+    ? await prisma.popPlantilla.findUnique({ where: { id: plantillaId } })
+    : await asegurarPlantillaEstandar(req.user.id);
   if (!plantilla) return res.status(400).json({ error: 'Cuestionario no encontrado' });
   if (plantilla.archivadaEn) return res.status(400).json({ error: 'Ese cuestionario está archivado' });
 
@@ -172,7 +212,7 @@ router.post('/envios', asyncHandler(async (req, res) => {
   const envio = await prisma.popEnvio.create({
     data: {
       candidatoId,
-      plantillaId,
+      plantillaId: plantilla.id,
       token: crypto.randomBytes(32).toString('base64url'),
       expiraEn,
       // Copia congelada: el candidato contestará exactamente esto aunque la

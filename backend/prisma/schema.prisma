@@ -530,6 +530,11 @@ enum RecomendacionPop {
 
 model PopPlantilla {
   id          String  @id @default(cuid())
+  // Identificador estable del cuestionario que viene de fábrica (`estandar`),
+  // para poder encontrarlo y actualizarlo sin depender del nombre, que la
+  // promotora puede cambiar. Los cuestionarios que ella cree van con clave
+  // null (unique lo permite en Postgres: varios NULL conviven).
+  clave       String? @unique
   nombre      String
   descripcion String?
   // Preguntas embebidas como Json (no tabla por pregunta): una plantilla se

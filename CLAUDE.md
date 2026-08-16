@@ -901,6 +901,67 @@ no extenderlo). Modelos: `Candidato` (datos del formulario SMNYL + `etapa` +
 - UI: `pages/Candidatos.jsx` (lista con chips de etapa/semáforo como filtro,
   archivar/restaurar) y `pages/CandidatoDetalle.jsx` (stepper, wizard de
   evaluación, citas). Archivado = borrado lógico, igual que clientes.
+  En la ficha, **Notas y Recordatorios viven en el riel izquierdo** bajo
+  "Reclutamiento" (2026-08-15): estaban hasta el fondo de la columna
+  principal y había que hacer scroll para llegar; son consulta rápida
+  mientras se revisa la evaluación.
+
+### POP · Evaluación de potencial (2026-08-15)
+
+Replica el **POP Screen** que SMNYL aplica a sus candidatos a asesor, para
+dejar de depender de la compañía. Modelos `PopPlantilla` (cuestionario) y
+`PopEnvio` (link por candidato + resultado), router autenticado
+`routes/pop.js` (`permiteSeccion('candidatos')`) y router **público**
+`routes/popPublico.js` montado en `/api/pop-publico`.
+
+- **El cuestionario ya viene hecho — nadie lo captura.** Las 12 preguntas de
+  la sección "Información general" del POP Screen están **en código**:
+  `backend/src/utils/popEstandar.js`. `asegurarPlantillaEstandar()`
+  (`utils/popPlantillaEstandar.js`) siembra la fila con `clave: 'estandar'`
+  la primera vez que alguien abre `GET /pop/plantillas` o manda un POP, y
+  `POST /pop/envios` **sin `plantillaId`** usa esa. La promotora oprime
+  "Enviar POP" y sale el link: **no reintroducir un paso de "crear
+  cuestionario" antes de poder enviar.** El editor (`PopPlantillaModal`)
+  sigue existiendo detrás de "Ver preguntas", solo para ajustar redacción o
+  puntos.
+- **Es CREATE-ONLY sobre el contenido**: si la promotora edita preguntas o
+  umbrales desde la UI, un redeploy no se los pisa. Solo repone las
+  preguntas si la fila quedó vacía, y desarchiva la plantilla estándar (sin
+  ella "Enviar POP" no funcionaría).
+- **Lo que NO se replica es el algoritmo**: el POP Screen lo califica un
+  tercero (Selection Testing Consultants) con un modelo propietario. Los
+  puntos por opción son criterio propio de la promotoría, en el mismo
+  archivo, y el cálculo vive en `utils/pop.js` (función pura, única
+  implementación — mismo criterio que `semaforoCandidato.js`).
+- **Umbrales calibrados contra la escala real, no a ojo** (85 verde / 62
+  ámbar): como ninguna pregunta puede valer 0 en todas sus opciones, el piso
+  alcanzable es ~24/100 y no 0 — con los genéricos 70/40 casi cualquier
+  perfil salía verde. Referencias medidas: mejor opción siempre = 100,
+  segunda mejor = 83, peor = 24. **Si se editan los puntos, recalibrar.**
+- **Sin ficha completa no hay link**: `camposFaltantes()` en `routes/pop.js`
+  exige nombre, teléfono, correo, fecha de nacimiento, sexo y RFC (los datos
+  que la compañía imprime en su carátula). El espejo en el frontend es
+  `camposFaltantesPop()` en `components/candidatos/tipos.js` — el servidor es
+  el que manda; la UI solo evita pedir un link que sería rechazado y ofrece
+  completar la ficha con el **mismo** `CandidatoFormModal`, no un formulario
+  paralelo.
+- **Link de un solo uso, 14 días** (`DIAS_VIGENCIA`), mismo patrón que
+  `InvitacionUsuario`: se copia y se comparte a mano — el CRM no tiene canal
+  saliente hacia el candidato.
+- **Los puntos nunca viajan al navegador del candidato** (`sinPuntos()` en
+  `popPublico.js`) y el puntaje **siempre** se calcula en el servidor: si no,
+  bastaría ver el HTML para saber qué contestar. El candidato tampoco recibe
+  su resultado — es información de selección para la promotora.
+- **El resultado vive en la ficha técnica**: `GET /candidatos/:id` incluye
+  `popEnvios` y `components/candidatos/PopCandidato.jsx` los muestra con
+  puntaje, semáforo (`RecomendacionPop`: PROCEDER / PRECAUCION /
+  NO_PROCEDER) y desglose por bloque — los mismos bloques del "Gráfico del
+  Potencial de Ventas" oficial (ADN en Ventas, Experiencia, Compatibilidad
+  con la Carrera). Al contestar, `notificar()` avisa a quien lo mandó
+  (`POP_RESPONDIDO`).
+- **El PDF de referencia de la compañía nunca entra al repo**: es el
+  resultado real de una persona. Sirvió solo para extraer el formato de las
+  preguntas.
 
 ## Notificaciones (campana in-app + push, 2026-08-13)
 

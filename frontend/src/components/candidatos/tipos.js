@@ -190,6 +190,21 @@ export const TIPOS_PREGUNTA_POP = [
 // para agrupar las barras del resultado, la promotora puede escribir otros.
 export const BLOQUES_SUGERIDOS = ['ADN en Ventas', 'Experiencia', 'Compatibilidad con la Carrera', 'General'];
 
+// Datos que la ficha necesita antes de mandarle el POP a alguien. Espejo de
+// `camposFaltantes()` en backend/src/routes/pop.js — el servidor es el que
+// manda; esto solo evita pedir un link que sería rechazado.
+export function camposFaltantesPop(candidato) {
+  if (!candidato) return [];
+  const faltan = [];
+  if (!candidato.nombre?.trim() || !candidato.apellidoP?.trim()) faltan.push('nombre completo');
+  if (!candidato.telefono?.trim()) faltan.push('teléfono');
+  if (!candidato.email?.trim()) faltan.push('correo');
+  if (!candidato.fechaNacimiento) faltan.push('fecha de nacimiento');
+  if (!candidato.sexo) faltan.push('sexo');
+  if (!candidato.rfc?.trim()) faltan.push('RFC');
+  return faltan;
+}
+
 // Modalidad de cita de reclutamiento sugerida según la etapa del candidato
 // (preselección del formulario de cita; siempre editable).
 export const MODALIDAD_POR_ETAPA = {
