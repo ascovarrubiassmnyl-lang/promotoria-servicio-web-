@@ -281,6 +281,79 @@ Mapa único `frontend/src/components/polizas/tipos.js` (`MONEDAS`,
 - **Semáforo de pagos** = lectura derivada (`semaforoPago()`), no un campo:
   cancelada/rechazada → rojo; domiciliada → verde; `fechaProximoPago`
   vencida → ámbar; con pagos registrados o PAGADA → verde; si no, neutro.
+- **`Venta.sumaAseguradaMoneda`** (2026-08-14, `MonedaPoliza`, default MXN):
+  la suma asegurada tiene su **propia** moneda, independiente de la de la
+  prima (`Venta.moneda`) — una póliza dotal puede primar en MXN y tener la
+  suma asegurada pactada en UDIS. `PolizaFormModal` la preselecciona igual a
+  `moneda` al elegir producto del catálogo (el caso normal) pero el asesor la
+  puede cambiar con su propio selector en cualquier momento; **no hay
+  conversión automática** entre ambas, es solo la denominación en que se
+  capturó el número (mismo criterio que `primaMoneda`/`tipoCambio`, que sí
+  convierten porque alimentan métricas — la suma asegurada no alimenta
+  ninguna). El input usa `components/ui.jsx: NumeroFormateado` (separador de
+  miles en vivo, "350,000") en vez de `<input type="number">`, que no puede
+  mostrar comas; mismo componente reusable para cualquier otro monto grande
+  del sistema.
+
+### Documento de la póliza y extracción con IA (2026-08-14)
+
+Al hacer clic en "+ Nueva póliza" aparece primero una pantalla de elección
+(**"Subir documento de la póliza"** vs. **"Capturar los datos manualmente"**)
+en vez de ir directo al formulario — decisión explícita del usuario. Elegir
+capturar a mano abre el formulario de siempre, sin cambios.
+
+- **Subir y analizar**: `SubirPolizaModal.jsx` sube el PDF a
+  `POST /ventas/analizar-documento` (multipart, reusa el mismo `/uploads` y
+  convención de nombre físico que `routes/documentos.js`). El backend NO crea
+  ni `Venta` ni `DocumentoCliente` ahí — solo guarda el archivo y devuelve los
+  campos leídos; `PolizaFormModal` se prellena con esos datos (mismo
+  formulario de captura manual, con un banner "Prellenado desde…" y opción de
+  quitar el documento) y **el asesor siempre revisa y confirma antes de
+  guardar** — nada se persiste como póliza sin ese paso, por decisión
+  explícita del usuario. El `DocumentoCliente` recién se crea al hacer
+  submit, dentro de la misma transacción que la `Venta` (`documentoTmp` en el
+  body de `POST /ventas`), vinculado por `Venta.documentoPolizaId` (1:1,
+  `onDelete: SetNull`). Si el asesor cancela sin guardar, el archivo queda
+  huérfano en `/uploads` — mismo trade-off que cualquier upload abandonado en
+  el resto del sistema; no hay barrido de limpieza todavía.
+- **Extracción = Google Gemini** (`backend/src/services/extraccionPoliza.js`,
+  modelo `gemini-2.5-flash`, decisión explícita del usuario por costo: tiene
+  nivel gratuito real para este volumen y lee PDF nativo sin rasterizar a
+  imagen — Anthropic habría sido la opción técnica preferida pero se descartó
+  por costo). Requiere `GEMINI_API_KEY` en `.env` (gratis en
+  aistudio.google.com/apikey); sin ella, `GET /ventas/analisis-disponible`
+  responde `{disponible:false}` y el botón de subida queda deshabilitado con
+  aviso — **subir/ver/descargar el PDF sigue funcionando siempre**, el
+  análisis es un extra sobre eso, nunca un bloqueo. Usa `responseSchema`
+  (salida JSON estructurada, sin parsear markdown) pidiendo producto, ramo,
+  moneda, prima, suma asegurada, plazo, forma de pago, deducible/coaseguro,
+  fechas de emisión/vigencia, coberturas, beneficiarios, más `confianza`
+  (ALTA/MEDIA/BAJA) y `advertencias` cuando el documento es difícil de leer.
+  Campos que la IA no encuentra se omiten (nunca se inventan). `numeroPoliza`
+  y `asegurado` no tienen campo propio en `Venta`: se anexan al campo Notas
+  para no perder el dato.
+- **Diagnóstico, no dato de negocio**: `Venta.extraccionEn` /
+  `extraccionModelo` / `extraccionConfirmada` solo registran si la póliza
+  nació de un análisis y con qué modelo — nadie más los lee; sirven para
+  saber si vale la pena reanalizar. `sumaAseguradaMoneda`, `moneda`, etc.
+  quedan en los campos reales de siempre, no duplicados.
+- **Agregar el documento después**: una póliza creada a mano (sin pasar por
+  el análisis) puede recibir su PDF más tarde desde `PolicyDetail` → tarjeta
+  "Documento de la póliza" → `POST /ventas/:id/documento` (sube y vincula
+  directo, sin análisis con IA — ese paso solo existe en la creación).
+- **Ver y descargar**: `components/documentos/VisorDocumento.jsx` (+ hook
+  `useVisorDocumento`) es el visor **extraído** de `ClienteDetalle.jsx` (antes
+  vivía inline ahí) para reusarlo también en `PolicyDetail.jsx` — mismo
+  patrón del proyecto de "clic = previsualizar, descargar es secundario" vía
+  `GET /documentos/:id/ver` con blob + object URL (la API va con token en
+  header, no se puede apuntar un `<iframe>` directo a la ruta). No duplicar
+  este visor de nuevo si se necesita en otra vista: importar desde ahí.
+- **Ruteo de Express**: `GET /ventas/analisis-disponible` y
+  `POST /ventas/analizar-documento` están declarados **antes** de
+  `GET /ventas/:id` en `routes/ventas.js` — si fueran después, Express
+  matchea `/:id` primero y trata "analisis-disponible" como un id de póliza
+  (bug real encontrado al probar el endpoint). Cualquier ruta nueva de
+  segmento fijo bajo `/ventas` debe ir antes de `/:id`, no después.
 
 ### Reglas de negocio de comisiones (no romper)
 

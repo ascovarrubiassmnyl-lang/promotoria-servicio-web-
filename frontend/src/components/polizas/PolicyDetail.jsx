@@ -5,9 +5,10 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { Card, VentaBadge, EmptyState, Modal, Field } from '../ui.jsx';
 import {
   mxn, fechaCorta, fechaHora, RAMOS_LABEL, FORMAS_PAGO,
-  esVentaGanada, esVentaPipeline, PAGOS_POR_ANIO, edad,
+  esVentaGanada, esVentaPipeline, PAGOS_POR_ANIO, edad, tamanoLegible,
 } from '../../lib/format.js';
 import { infoMoneda, montoMoneda, labelMetodoPago, semaforoPago, infoSemaforo } from './tipos.js';
+import VisorDocumento, { useVisorDocumento } from '../documentos/VisorDocumento.jsx';
 
 const ASEGURADORA = 'Seguros Monterrey New York Life';
 const PERIODO_LABEL = { MENSUAL: 'por mes', TRIMESTRAL: 'por trimestre', SEMESTRAL: 'por semestre' };
@@ -40,6 +41,7 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
     queryKey: ['poliza', polizaId],
     queryFn: async () => (await api.get(`/ventas/${polizaId}`)).data,
   });
+  const { visor, verArchivo, cerrarVisor, descargarArchivo } = useVisorDocumento();
 
   // Confirmación de pago: pantalla real con monto y periodo, no un confirm()
   // del navegador — el asesor tiene que ver qué está registrando.
@@ -152,7 +154,11 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
             {edadCliente != null && <span className="text-slate-400 dark:text-slate-500 font-normal"> · {edadCliente} años</span>}
           </Kv>
           <Kv k="Asesor">{p.asesor?.nombre} {p.asesor?.apellidoP}</Kv>
-          <Kv k="Suma asegurada" big>{p.sumaAsegurada != null ? mxn(p.sumaAsegurada) : '—'}</Kv>
+          <Kv k="Suma asegurada" big>
+            {p.sumaAsegurada != null
+              ? (p.sumaAseguradaMoneda && p.sumaAseguradaMoneda !== 'MXN' ? montoMoneda(p.sumaAsegurada, p.sumaAseguradaMoneda) : mxn(p.sumaAsegurada))
+              : '—'}
+          </Kv>
           <Kv k="Prima anual" big>
             {mxn(p.primaAnual)}
             <span className="text-xs text-slate-400 dark:text-slate-500 font-normal"> / {(FORMAS_PAGO[p.formaPago] || p.formaPago).toLowerCase()}</span>
@@ -189,6 +195,11 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
 
       <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-4 items-start">
         <div className="space-y-4">
+          {/* Documento de la póliza: subir/ver/descargar el PDF emitido por
+              la compañía. Clic = previsualizar, igual que en la ficha del
+              cliente (mismo VisorDocumento reusado). */}
+          <DocumentoPoliza polizaId={polizaId} venta={p} readOnly={readOnly} onVer={verArchivo} />
+
           {/* Coberturas */}
           <Card title="Coberturas">
             {coberturas.length === 0 ? (
@@ -424,6 +435,61 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
           </div>
         </form>
       </Modal>
+
+      <VisorDocumento visor={visor} onClose={cerrarVisor} onDescargar={descargarArchivo} />
     </div>
+  );
+}
+
+// Documento oficial de la póliza: ver/descargar si ya está adjunto, o subirlo
+// si la póliza se creó a mano y todavía no tiene uno. Sin análisis con IA
+// (eso solo pasa al crear, en SubirPolizaModal) — aquí es solo el archivo.
+function DocumentoPoliza({ polizaId, venta, readOnly, onVer }) {
+  const qc = useQueryClient();
+  const [subiendo, setSubiendo] = useState(false);
+  const [err, setErr] = useState('');
+  const doc = venta?.documentoPoliza;
+
+  const subir = async (e) => {
+    const archivo = e.target.files?.[0];
+    e.target.value = '';
+    if (!archivo) return;
+    setSubiendo(true); setErr('');
+    try {
+      const fd = new FormData();
+      fd.append('archivo', archivo);
+      await api.post(`/ventas/${polizaId}/documento`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      qc.invalidateQueries(['poliza', polizaId]);
+    } catch (e2) { setErr(handleError(e2)); } finally { setSubiendo(false); }
+  };
+
+  return (
+    <Card title="Documento de la póliza">
+      {doc ? (
+        <button
+          type="button"
+          onClick={() => onVer(doc)}
+          className="w-full flex items-center justify-between gap-3 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2.5 hover:border-brand-400 dark:hover:border-brand-500 transition-colors text-left"
+        >
+          <span>
+            <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">{doc.nombre}</span>
+            <span className="block text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+              {tamanoLegible(doc.tamano)} · subido el {fechaCorta(doc.creadoEn)}
+            </span>
+          </span>
+          <span className="text-xs font-medium text-brand-600 dark:text-brand-400 shrink-0">Ver</span>
+        </button>
+      ) : readOnly ? (
+        <p className="text-sm text-slate-400 dark:text-slate-500">Sin documento adjunto.</p>
+      ) : (
+        <div>
+          <label className="input flex items-center justify-center gap-2 cursor-pointer text-sm text-slate-500 dark:text-slate-400 hover:border-brand-400 dark:hover:border-brand-500">
+            {subiendo ? 'Subiendo…' : 'Subir el PDF de esta póliza'}
+            <input type="file" accept="application/pdf" className="hidden" disabled={subiendo} onChange={subir} />
+          </label>
+          {err && <p className="text-xs text-red-600 mt-1.5">{err}</p>}
+        </div>
+      )}
+    </Card>
   );
 }

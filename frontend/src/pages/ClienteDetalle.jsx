@@ -7,12 +7,13 @@ import { Card, Modal, Field, CitaBadge, VentaBadge, EmptyState, MenuAcciones, Da
 import PolizaFormModal from '../components/polizas/PolizaFormModal.jsx';
 import CitaFormModal from '../components/citas/CitaFormModal.jsx';
 import NotaFormModal from '../components/notas/NotaFormModal.jsx';
+import VisorDocumento, { useVisorDocumento } from '../components/documentos/VisorDocumento.jsx';
 import ActivityTimeline from '../components/actividad/ActivityTimeline.jsx';
 import { ETAPAS, infoEtapa, siguienteEtapa } from '../components/clientes/etapas.js';
 import { infoFuente, opcionesFuente } from '../components/clientes/fuentes.js';
 import { infoCanal, CITA_VIVA } from '../components/citas/tipos.js';
 import {
-  mxn, fechaHora, fechaCorta, edad,
+  mxn, fechaHora, fechaCorta, edad, tamanoLegible,
   RAMOS, RAMOS_LABEL,
   FORMAS_PAGO, esVentaGanada, esVentaPipeline,
 } from '../lib/format.js';
@@ -20,12 +21,6 @@ import {
 // Subestado derivado: una póliza está "activa" en función de su estado — no es
 // un campo independiente (por eso se muestra como subestado, no como columna).
 const POLIZA_ACTIVA = new Set(['PAGADA', 'FIRMADA', 'APROBADA']);
-
-function tamanoLegible(bytes) {
-  if (!bytes) return '0 KB';
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 const iniciales = (c) => `${c.nombre?.[0] || ''}${c.apellidoP?.[0] || ''}`.toUpperCase();
 
@@ -141,7 +136,7 @@ export default function ClienteDetalle() {
   const [docErr, setDocErr] = useState('');
   const [delDocId, setDelDocId] = useState(null);
   // Visor de archivos: se previsualiza en un modal; la descarga es secundaria.
-  const [visor, setVisor] = useState({ doc: null, url: '', cargando: false, error: '' });
+  const { visor, verArchivo, cerrarVisor, descargarArchivo } = useVisorDocumento();
 
   const [delNotaId, setDelNotaId] = useState(null);
 
@@ -303,41 +298,6 @@ export default function ClienteDetalle() {
       await api.post('/documentos', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       qc.invalidateQueries(['cliente', id]);
     } catch (e2) { setDocErr(handleError(e2)); } finally { setDocSubiendo(false); }
-  };
-
-  const descargarArchivo = async (doc) => {
-    try {
-      const r = await api.get(`/documentos/${doc.id}/descargar`, { responseType: 'blob' });
-      const url = URL.createObjectURL(r.data);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = doc.nombre;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (e2) { alert(handleError(e2)); }
-  };
-
-  // Previsualizar: la API va con token en el header, así que no se puede apuntar
-  // un <iframe> a la URL directo — se trae el blob y se crea un object URL local
-  // (se revoca al cerrar el visor, ver el efecto de limpieza).
-  const verArchivo = async (doc) => {
-    setVisor({ doc, url: '', cargando: true, error: '' });
-    try {
-      const r = await api.get(`/documentos/${doc.id}/ver`, { responseType: 'blob' });
-      const blob = doc.mime ? new Blob([r.data], { type: doc.mime }) : r.data;
-      setVisor({ doc, url: URL.createObjectURL(blob), cargando: false, error: '' });
-    } catch (e2) {
-      setVisor({ doc, url: '', cargando: false, error: handleError(e2) });
-    }
-  };
-
-  const cerrarVisor = () => {
-    setVisor((v) => {
-      if (v.url) URL.revokeObjectURL(v.url);
-      return { doc: null, url: '', cargando: false, error: '' };
-    });
   };
 
   const eliminarArchivo = async () => {
@@ -752,30 +712,7 @@ export default function ClienteDetalle() {
         onSaved={() => qc.invalidateQueries(['cliente', id])}
       />
 
-      {/* Visor de archivos: previsualiza en la app; descargar es secundario.
-          Imágenes y PDF se muestran en línea; el resto (Word, Excel…) no se
-          puede renderizar en el navegador y ofrece la descarga. */}
-      <Modal open={Boolean(visor.doc)} onClose={cerrarVisor} title={visor.doc?.nombre || 'Archivo'} wide>
-        <div className="space-y-3">
-          {visor.cargando && <p className="text-sm text-slate-500 dark:text-slate-400 py-10 text-center">Cargando archivo…</p>}
-          {visor.error && <p className="text-sm text-red-600 py-6 text-center">{visor.error}</p>}
-          {visor.url && visor.doc?.mime?.startsWith('image/') && (
-            <img src={visor.url} alt={visor.doc.nombre} className="max-h-[70vh] w-full object-contain rounded-lg bg-slate-50 dark:bg-slate-900" />
-          )}
-          {visor.url && visor.doc?.mime === 'application/pdf' && (
-            <iframe src={visor.url} title={visor.doc.nombre} className="w-full h-[70vh] rounded-lg border border-slate-200 dark:border-slate-700" />
-          )}
-          {visor.url && !visor.doc?.mime?.startsWith('image/') && visor.doc?.mime !== 'application/pdf' && (
-            <div className="rounded-lg border border-dashed border-slate-300 dark:border-slate-600 px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-400">
-              Este tipo de archivo no se puede previsualizar en el navegador. Descárgalo para abrirlo.
-            </div>
-          )}
-          <div className="flex justify-between gap-2 pt-1">
-            <button type="button" onClick={() => descargarArchivo(visor.doc)} className="btn-secondary" disabled={!visor.doc}>Descargar</button>
-            <button type="button" onClick={cerrarVisor} className="btn-primary">Cerrar</button>
-          </div>
-        </div>
-      </Modal>
+      <VisorDocumento visor={visor} onClose={cerrarVisor} onDescargar={descargarArchivo} />
 
       {/* Confirmación archivar cliente (borrado lógico) */}
       <Modal open={archivarOpen} onClose={() => setArchivarOpen(false)} title="Archivar cliente">

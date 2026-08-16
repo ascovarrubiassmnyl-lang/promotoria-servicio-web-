@@ -1,22 +1,27 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
-import { Modal, Field, DatePicker } from '../ui.jsx';
+import { Modal, Field, DatePicker, NumeroFormateado } from '../ui.jsx';
 import {
   RAMOS, RAMOS_LABEL, FORMAS_PAGO, FORMAS_PAGO_LIST,
   ESTADOS_VENTA, ESTADOS_VENTA_LABEL, isoLocalDateInput, mxn,
 } from '../../lib/format.js';
 import { MONEDAS, METODOS_PAGO, requiereTipoCambio, infoMoneda } from './tipos.js';
+import SubirPolizaModal from './SubirPolizaModal.jsx';
 
 const VACIO = {
   clienteId: '', ramo: 'VIDA', producto: '', productoCatalogoId: '',
   primaAnual: '', comisionPct: 10, estado: 'PENDIENTE_PAGAR', formaPago: 'ANUAL',
   moneda: 'MXN', primaMoneda: '', tipoCambio: '',
   domiciliada: false, metodoPago: '',
-  sumaAsegurada: '', plazo: '', deducible: '', coaseguro: '',
+  // La suma asegurada sigue la moneda de la póliza por defecto, pero es
+  // independiente: una póliza en MXN puede tener una suma asegurada
+  // capturada en UDIS si así viene en el contrato (frecuente en dotales).
+  sumaAsegurada: '', sumaAseguradaMoneda: 'MXN', plazo: '', deducible: '', coaseguro: '',
   fechaFirma: '', fechaEmision: '', fechaInicioVigencia: '', fechaFinVigencia: '',
   fechaProximoPago: '', diaPago: '', montoPago: '', notas: '',
   coberturas: [], beneficiarios: [],
+  documentoTmp: null, // { archivo, nombre, mime, tamano, modelo } de /ventas/analizar-documento
 };
 
 const d = (v) => (v ? isoLocalDateInput(new Date(v)) : '');
@@ -84,10 +89,17 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
   const [form, setForm] = useState(VACIO);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  // Al crear (no editar), se pregunta primero si va a subir el PDF o
+  // capturar a mano — igual que pediste: "primero la opción de subir
+  // documento de póliza". Editar una póliza existente va directo al
+  // formulario (no tiene sentido reabrir el flujo de subida ahí).
+  const [eligiendoOrigen, setEligiendoOrigen] = useState(false);
+  const [subiendo, setSubiendo] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setErr('');
+    setEligiendoOrigen(!venta);
     setForm(venta ? {
       clienteId: venta.clienteId,
       ramo: venta.ramo,
@@ -103,6 +115,7 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
       domiciliada: venta.domiciliada === true,
       metodoPago: venta.metodoPago || '',
       sumaAsegurada: venta.sumaAsegurada ?? '',
+      sumaAseguradaMoneda: venta.sumaAseguradaMoneda || 'MXN',
       plazo: venta.plazo || '',
       deducible: venta.deducible ?? '',
       coaseguro: venta.coaseguro || '',
@@ -116,6 +129,7 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
       notas: venta.notas || '',
       coberturas: Array.isArray(venta.coberturas) ? venta.coberturas : [],
       beneficiarios: Array.isArray(venta.beneficiarios) ? venta.beneficiarios : [],
+      documentoTmp: null,
     } : { ...VACIO, clienteId: clienteId || '' });
   }, [open, venta, clienteId]);
 
@@ -154,6 +168,9 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
         // Al cambiar a divisa, el monto capturado pasa al campo de moneda original.
         primaMoneda: requiereTipoCambio(moneda) ? (f.primaMoneda || f.primaAnual) : '',
         tipoCambio: requiereTipoCambio(moneda) ? f.tipoCambio : '',
+        // La suma asegurada sigue a la moneda de la póliza por defecto (el
+        // caso normal); su propio selector la puede cambiar después.
+        sumaAseguradaMoneda: moneda,
       };
     });
   };
@@ -228,6 +245,7 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
         metodoPago: form.metodoPago || null,
         fechaEmision: form.fechaEmision || null,
         sumaAsegurada: form.sumaAsegurada !== '' ? +form.sumaAsegurada : null,
+        sumaAseguradaMoneda: form.sumaAseguradaMoneda || 'MXN',
         plazo: form.plazo || null,
         deducible: form.deducible !== '' ? +form.deducible : null,
         coaseguro: form.coaseguro || null,
@@ -245,7 +263,13 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
         await api.patch(`/ventas/${venta.id}`, payload);
         qc.invalidateQueries(['poliza', venta.id]);
       } else {
-        await api.post('/ventas', { ...payload, clienteId: form.clienteId, asesorId: asesorId || undefined });
+        await api.post('/ventas', {
+          ...payload,
+          clienteId: form.clienteId,
+          asesorId: asesorId || undefined,
+          // Vincula el PDF ya subido y analizado (si lo hubo) a esta póliza.
+          documentoTmp: form.documentoTmp || undefined,
+        });
       }
       qc.invalidateQueries(['ventas']);
       qc.invalidateQueries(['equipo-resumen']);
@@ -254,9 +278,77 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
     } catch (e2) { setErr(handleError(e2)); } finally { setSaving(false); }
   };
 
+  // Pantalla de elección al crear: subir el PDF de la compañía (se analiza y
+  // prellena este mismo formulario) o capturar todo a mano, como ya existía.
+  if (eligiendoOrigen) {
+    const clienteElegido = clienteId || form.clienteId;
+    return (
+      <Modal open={open} onClose={onClose} title="Nueva póliza">
+        <div className="space-y-3">
+          {!clienteId && (
+            <Field label="Cliente*">
+              <select className="input" required value={form.clienteId} onChange={(e) => set('clienteId', e.target.value)}>
+                <option value="">Selecciona…</option>
+                {clientes?.map((c) => <option key={c.id} value={c.id}>{c.nombre} {c.apellidoP}</option>)}
+              </select>
+            </Field>
+          )}
+          <p className="text-sm text-slate-500 dark:text-slate-400">¿Cómo quieres registrar esta póliza?</p>
+          <button
+            type="button"
+            disabled={!clienteElegido}
+            onClick={() => setSubiendo(true)}
+            className="w-full text-left rounded-lg border border-slate-200 dark:border-slate-700 hover:border-brand-400 dark:hover:border-brand-500 px-4 py-3 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+          >
+            <span className="block font-medium text-slate-800 dark:text-slate-100">Subir documento de la póliza</span>
+            <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Sube el PDF emitido por la compañía: se analiza con IA y este formulario se prellena con los datos que encuentre. Tú revisas y confirmas antes de guardar.
+            </span>
+          </button>
+          <button
+            type="button"
+            disabled={!clienteElegido}
+            onClick={() => setEligiendoOrigen(false)}
+            className="w-full text-left rounded-lg border border-slate-200 dark:border-slate-700 hover:border-brand-400 dark:hover:border-brand-500 px-4 py-3 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+          >
+            <span className="block font-medium text-slate-800 dark:text-slate-100">Capturar los datos manualmente</span>
+            <span className="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">Llena el formulario tú mismo, como hoy.</span>
+          </button>
+          <div className="flex justify-end pt-1">
+            <button type="button" onClick={onClose} className="btn-secondary">Cancelar</button>
+          </div>
+        </div>
+        <SubirPolizaModal
+          open={subiendo}
+          onClose={() => setSubiendo(false)}
+          clienteId={clienteElegido}
+          onListo={(datos) => {
+            setForm((f) => ({ ...f, ...datos }));
+            setSubiendo(false);
+            setEligiendoOrigen(false);
+          }}
+        />
+      </Modal>
+    );
+  }
+
   return (
     <Modal open={open} onClose={onClose} title={editando ? `Editar póliza · ${venta.producto}` : 'Nueva póliza'} wide>
       <form onSubmit={submit} className="space-y-3">
+        {form.documentoTmp && (
+          <div className="flex items-start gap-2 rounded-lg bg-brand-50 dark:bg-brand-500/10 px-3 py-2.5 text-sm">
+            <span className="flex-1 text-brand-700 dark:text-brand-300">
+              Prellenado desde <strong>{form.documentoTmp.nombre}</strong>. Revisa los campos antes de guardar — el documento se adjuntará a la póliza.
+            </span>
+            <button
+              type="button"
+              onClick={() => set('documentoTmp', null)}
+              className="text-xs font-medium text-brand-700 dark:text-brand-300 hover:underline shrink-0"
+            >
+              Quitar documento
+            </button>
+          </div>
+        )}
         {!editando && !clienteId && (
           <Field label="Cliente*">
             <select className="input" required value={form.clienteId} onChange={(e) => set('clienteId', e.target.value)}>
@@ -329,8 +421,23 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
               {ESTADOS_VENTA.map((x) => <option key={x} value={x}>{ESTADOS_VENTA_LABEL[x]}</option>)}
             </select>
           </Field>
-          <Field label="Suma asegurada (MXN)">
-            <input type="number" step="0.01" className="input" value={form.sumaAsegurada} onChange={(e) => set('sumaAsegurada', e.target.value)} />
+          <Field label={`Suma asegurada (${infoMoneda(form.sumaAseguradaMoneda).sufijo})`}>
+            <div className="flex gap-1.5">
+              <NumeroFormateado
+                className="flex-1"
+                placeholder="Ej. 350,000"
+                value={form.sumaAsegurada}
+                onChange={(v) => set('sumaAsegurada', v)}
+              />
+              <select
+                className="input w-[6.5rem] shrink-0"
+                title="Moneda de la suma asegurada"
+                value={form.sumaAseguradaMoneda}
+                onChange={(e) => set('sumaAseguradaMoneda', e.target.value)}
+              >
+                {MONEDAS.map((m) => <option key={m.value} value={m.value}>{m.sufijo}</option>)}
+              </select>
+            </div>
           </Field>
           <Field label="Plazo">
             <input className="input" placeholder="Ej. 20 pagos, Anual renovable" value={form.plazo} onChange={(e) => set('plazo', e.target.value)} />

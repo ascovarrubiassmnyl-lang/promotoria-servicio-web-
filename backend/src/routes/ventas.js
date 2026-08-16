@@ -1,14 +1,35 @@
 import { Router } from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 import { prisma } from '../prisma.js';
 import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion } from '../middleware/permisos.js';
 import { registrarActividad } from '../utils/actividad.js';
+import { analizarPolizaPdf, extraccionDisponible } from '../services/extraccionPoliza.js';
 
 const router = Router();
 router.use(authenticate);
 // Permiso de sección enforced en servidor (RBAC + excepciones, fail closed).
 router.use(permiteSeccion('ventas'));
+
+// Mismo /uploads que documentos.js (incluso mismo nombre de archivo físico
+// aleatorio) para que el PDF de la póliza sea un DocumentoCliente normal,
+// servible por GET /documentos/:id/ver y /descargar sin lógica aparte.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const UPLOADS_DIR = path.resolve(__dirname, '../../uploads');
+fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).slice(0, 12);
+    cb(null, `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`);
+  },
+});
+const uploadPoliza = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } }); // 20 MB máx
 
 // Crea (o regenera) el próximo recordatorio de pago para una venta.
 // Si ya existe un RECORDATORIO_PAGO pendiente (no completado, no enviado) para esta venta,
@@ -180,6 +201,50 @@ router.get('/', asyncHandler(async (req, res) => {
   res.json(ventas.map((v) => ({ ...v, montoEsperado: montoEsperadoDePoliza(v) })));
 }));
 
+// Rutas de literal fijo ANTES de '/:id' — Express matchea en orden de
+// declaración, así que si '/:id' fuera primero capturaría "analisis-disponible"
+// como si fuera un id de póliza (bug real, encontrado al probar el endpoint).
+//
+// El frontend consulta esto para mostrar el botón "Analizar con IA" habilitado
+// o no, sin tener que intentar subir un archivo primero para descubrirlo.
+router.get('/analisis-disponible', asyncHandler(async (_req, res) => {
+  res.json({ disponible: extraccionDisponible() });
+}));
+
+// Sube el PDF de la póliza y lo analiza con IA. NO crea la Venta ni el
+// DocumentoCliente aún — solo guarda el archivo temporalmente en /uploads y
+// devuelve los datos extraídos para que el frontend prellene el formulario;
+// el archivo se vincula a la póliza real (y el DocumentoCliente se crea)
+// hasta que el asesor confirma con POST /ventas normal (ver `documentoTmp`
+// más abajo). Si el asesor cancela sin guardar, el archivo queda huérfano en
+// disco — mismo trade-off que cualquier upload abandonado; se puede limpiar
+// con un barrido periódico si llega a pesar, no es prioridad ahora.
+router.post('/analizar-documento', uploadPoliza.single('archivo'), asyncHandler(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No se recibió ningún archivo' });
+  if (!extraccionDisponible()) {
+    fs.unlink(req.file.path, () => {});
+    return res.status(503).json({ error: 'El análisis automático no está disponible (falta configurar GEMINI_API_KEY). Puedes seguir capturando la póliza manualmente.' });
+  }
+  const nombreOriginal = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+  try {
+    const { datos, modelo } = await analizarPolizaPdf(req.file.path, { mime: req.file.mimetype });
+    res.json({
+      datos,
+      modelo,
+      documentoTmp: {
+        archivo: req.file.filename,
+        nombre: nombreOriginal,
+        mime: req.file.mimetype || null,
+        tamano: req.file.size || 0,
+      },
+    });
+  } catch (e) {
+    fs.unlink(req.file.path, () => {});
+    console.error(`[ventas] análisis de póliza falló: ${e.message}`);
+    res.status(502).json({ error: 'No se pudo analizar el documento. Puedes capturar la póliza manualmente.' });
+  }
+}));
+
 router.get('/:id', asyncHandler(async (req, res) => {
   const { id } = req.params;
   const venta = await prisma.venta.findUnique({
@@ -191,6 +256,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
       productoCatalogo: true,
       recordatoriosPago: { orderBy: { fechaAviso: 'asc' } },
       pagos: { orderBy: { periodo: 'desc' }, include: { registrador: { select: { id: true, nombre: true, apellidoP: true } } } },
+      documentoPoliza: { select: { id: true, nombre: true, mime: true, tamano: true, creadoEn: true } },
     },
   });
   if (!venta) return res.status(404).json({ error: 'Póliza no encontrada' });
@@ -205,8 +271,9 @@ router.post('/', asyncHandler(async (req, res) => {
     clienteId, ramo, producto, primaAnual, comisionPct, estado, notas,
     productoCatalogoId, fechaFirma, fechaEmision, fechaPago, fechaEntregaPoliza,
     formaPago, fechaInicioVigencia, fechaFinVigencia, fechaProximoPago, diaPago, montoPago,
-    sumaAsegurada, plazo, deducible, coaseguro, coberturas, beneficiarios,
+    sumaAsegurada, sumaAseguradaMoneda, plazo, deducible, coaseguro, coberturas, beneficiarios,
     moneda, primaMoneda, tipoCambio, domiciliada, metodoPago,
+    documentoTmp,
   } = req.body || {};
   if (!clienteId || !ramo || !producto || primaAnual == null) return res.status(400).json({ error: 'clienteId, ramo, producto y primaAnual son requeridos' });
   const cliente = await prisma.cliente.findUnique({ where: { id: clienteId } });
@@ -224,35 +291,62 @@ router.post('/', asyncHandler(async (req, res) => {
   const pctFinal = comisionPct ?? (catalogo?.comisionPct ?? 10);
   const comisionMontoFinal = +(divisa.primaAnual * pctFinal / 100).toFixed(2);
 
-  const venta = await prisma.venta.create({
-    data: {
-      asesorId, clienteId, ramo, producto,
-      primaAnual: divisa.primaAnual,
-      moneda: divisa.moneda, primaMoneda: divisa.primaMoneda, tipoCambio: divisa.tipoCambio,
-      comisionPct: pctFinal, comisionMonto: comisionMontoFinal,
-      estado: estado || 'PENDIENTE_PAGAR',
-      notas: notas || null,
-      productoCatalogoId: productoCatalogoId || null,
-      fechaFirma: fechaFirma ? new Date(fechaFirma) : null,
-      fechaEmision: fechaEmision ? new Date(fechaEmision) : null,
-      fechaPago: fechaPago ? new Date(fechaPago) : null,
-      fechaEntregaPoliza: fechaEntregaPoliza ? new Date(fechaEntregaPoliza) : null,
-      formaPago: formaPago || 'ANUAL',
-      domiciliada: domiciliada === true,
-      metodoPago: METODOS_PAGO.includes(metodoPago) ? metodoPago : null,
-      fechaInicioVigencia: fechaInicioVigencia ? new Date(fechaInicioVigencia) : null,
-      fechaFinVigencia: fechaFinVigencia ? new Date(fechaFinVigencia) : null,
-      fechaProximoPago: fechaProximoPago ? new Date(fechaProximoPago) : null,
-      diaPago: diaPago ?? null,
-      montoPago: montoPago ?? null,
-      sumaAsegurada: sumaAsegurada ?? null,
-      plazo: plazo || null,
-      deducible: deducible ?? null,
-      coaseguro: coaseguro || null,
-      coberturas: limpiarCoberturas(coberturas),
-      beneficiarios: limpiarBeneficiarios(beneficiarios),
-    },
-    include: { cliente: { select: { id: true, nombre: true, apellidoP: true } } },
+  // documentoTmp viene de POST /ventas/analizar-documento: el archivo ya está
+  // en /uploads pero el DocumentoCliente aún no existe. Se crea aquí, dentro
+  // de la misma transacción que la Venta, para que un fallo a medio camino no
+  // deje un documento huérfano sin póliza ni una póliza sin su PDF.
+  const venta = await prisma.$transaction(async (tx) => {
+    let documentoPolizaId = null;
+    if (documentoTmp?.archivo) {
+      const ruta = path.join(UPLOADS_DIR, path.basename(documentoTmp.archivo));
+      if (fs.existsSync(ruta)) {
+        const doc = await tx.documentoCliente.create({
+          data: {
+            clienteId, asesorId: req.user.id,
+            nombre: String(documentoTmp.nombre || 'Póliza.pdf').slice(0, 200),
+            archivo: path.basename(documentoTmp.archivo),
+            mime: documentoTmp.mime || null,
+            tamano: documentoTmp.tamano || 0,
+          },
+        });
+        documentoPolizaId = doc.id;
+      }
+    }
+    return tx.venta.create({
+      data: {
+        asesorId, clienteId, ramo, producto,
+        primaAnual: divisa.primaAnual,
+        moneda: divisa.moneda, primaMoneda: divisa.primaMoneda, tipoCambio: divisa.tipoCambio,
+        comisionPct: pctFinal, comisionMonto: comisionMontoFinal,
+        estado: estado || 'PENDIENTE_PAGAR',
+        notas: notas || null,
+        productoCatalogoId: productoCatalogoId || null,
+        fechaFirma: fechaFirma ? new Date(fechaFirma) : null,
+        fechaEmision: fechaEmision ? new Date(fechaEmision) : null,
+        fechaPago: fechaPago ? new Date(fechaPago) : null,
+        fechaEntregaPoliza: fechaEntregaPoliza ? new Date(fechaEntregaPoliza) : null,
+        formaPago: formaPago || 'ANUAL',
+        domiciliada: domiciliada === true,
+        metodoPago: METODOS_PAGO.includes(metodoPago) ? metodoPago : null,
+        fechaInicioVigencia: fechaInicioVigencia ? new Date(fechaInicioVigencia) : null,
+        fechaFinVigencia: fechaFinVigencia ? new Date(fechaFinVigencia) : null,
+        fechaProximoPago: fechaProximoPago ? new Date(fechaProximoPago) : null,
+        diaPago: diaPago ?? null,
+        montoPago: montoPago ?? null,
+        sumaAsegurada: sumaAsegurada ?? null,
+        sumaAseguradaMoneda: MONEDAS.includes(sumaAseguradaMoneda) ? sumaAseguradaMoneda : 'MXN',
+        plazo: plazo || null,
+        deducible: deducible ?? null,
+        coaseguro: coaseguro || null,
+        coberturas: limpiarCoberturas(coberturas),
+        beneficiarios: limpiarBeneficiarios(beneficiarios),
+        documentoPolizaId,
+        extraccionEn: documentoTmp?.modelo ? new Date() : null,
+        extraccionModelo: documentoTmp?.modelo || null,
+        extraccionConfirmada: Boolean(documentoTmp?.modelo),
+      },
+      include: { cliente: { select: { id: true, nombre: true, apellidoP: true } } },
+    });
   });
   // Sincroniza recordatorio de pago
   await sincronizarRecordatorioPago(venta);
@@ -278,7 +372,7 @@ router.patch('/:id', asyncHandler(async (req, res) => {
     productoCatalogoId, fechaFirma, fechaEmision, fechaPago, fechaEntregaPoliza,
     fechaCancelacion, montoCancelado, motivoCancelacion,
     formaPago, fechaInicioVigencia, fechaFinVigencia, fechaProximoPago, diaPago, montoPago,
-    sumaAsegurada, plazo, deducible, coaseguro, coberturas, beneficiarios,
+    sumaAsegurada, sumaAseguradaMoneda, plazo, deducible, coaseguro, coberturas, beneficiarios,
     moneda, primaMoneda, tipoCambio, domiciliada, metodoPago,
   } = req.body || {};
   const data = {};
@@ -322,6 +416,7 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   if (diaPago !== undefined) data.diaPago = diaPago ?? null;
   if (montoPago !== undefined) data.montoPago = montoPago ?? null;
   if (sumaAsegurada !== undefined) data.sumaAsegurada = sumaAsegurada ?? null;
+  if (sumaAseguradaMoneda !== undefined) data.sumaAseguradaMoneda = MONEDAS.includes(sumaAseguradaMoneda) ? sumaAseguradaMoneda : 'MXN';
   if (plazo !== undefined) data.plazo = plazo || null;
   if (deducible !== undefined) data.deducible = deducible ?? null;
   if (coaseguro !== undefined) data.coaseguro = coaseguro || null;
@@ -343,6 +438,43 @@ router.patch('/:id', asyncHandler(async (req, res) => {
     await sincronizarRecordatorioPago(ventaConCliente);
   }
   res.json(venta);
+}));
+
+// Adjunta (o reemplaza) el PDF de una póliza ya existente — para pólizas
+// creadas a mano que luego reciben el documento de la compañía, o para
+// sustituir un documento ya adjunto. Sin análisis con IA: es solo el archivo,
+// igual que POST /documentos pero vinculado a documentoPolizaId en vez de
+// suelto en la ficha del cliente.
+router.post('/:id/documento', uploadPoliza.single('archivo'), asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!req.file) return res.status(400).json({ error: 'No se recibió ningún archivo' });
+  const existente = await prisma.venta.findUnique({ where: { id } });
+  if (!existente) {
+    fs.unlink(req.file.path, () => {});
+    return res.status(404).json({ error: 'Póliza no encontrada' });
+  }
+  const esDueno = existente.asesorId === req.user.id;
+  const isAdmin = req.user.rol === 'ADMIN' || req.user.rol === 'SUPERADMIN';
+  if (!esDueno && !isAdmin) {
+    fs.unlink(req.file.path, () => {});
+    return res.status(403).json({ error: 'Sin acceso a esta póliza' });
+  }
+  const nombreOriginal = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+  const venta = await prisma.$transaction(async (tx) => {
+    const doc = await tx.documentoCliente.create({
+      data: {
+        clienteId: existente.clienteId, asesorId: req.user.id,
+        nombre: nombreOriginal, archivo: req.file.filename,
+        mime: req.file.mimetype || null, tamano: req.file.size || 0,
+      },
+    });
+    // Reemplazar: el documento anterior (si había) queda huérfano en /uploads
+    // en vez de borrarse solo — mismo criterio conservador que el resto del
+    // sistema con archivos (nunca se borra sin que el usuario lo pida en el
+    // menú ⋯ de Documentos).
+    return tx.venta.update({ where: { id }, data: { documentoPolizaId: doc.id } });
+  });
+  res.status(201).json(venta);
 }));
 
 // Confirma el pago del período actual: registra el cobro en el historial

@@ -161,6 +161,45 @@ export function Field({ label, children }) {
   );
 }
 
+// Input numérico con separador de miles en vivo (350,000 mientras se
+// escribe), para montos grandes donde un <input type="number"> nativo no
+// puede mostrar comas. `value`/`onChange` llevan el número limpio (string u
+// number, sin comas) — mismo contrato que un input controlado normal, para
+// sustituirlo directo. Acepta decimales con punto.
+export function NumeroFormateado({ value, onChange, className = '', placeholder, ...props }) {
+  const formatear = (v) => {
+    if (v === '' || v === null || v === undefined) return '';
+    const [entero, decimal] = String(v).split('.');
+    const conComas = entero.replace(/\D/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return decimal !== undefined ? `${conComas}.${decimal}` : conComas;
+  };
+  const [texto, setTexto] = useState(formatear(value));
+  useEffect(() => { setTexto(formatear(value)); }, [value]);
+
+  const onInput = (e) => {
+    const crudo = e.target.value;
+    // Solo dígitos y un punto decimal — limpia cualquier otra cosa (letras,
+    // varias comas pegadas al copiar/pegar, etc.) antes de reformatear.
+    const limpio = crudo.replace(/[^\d.]/g, '');
+    const partes = limpio.split('.');
+    const numeroLimpio = partes.length > 1 ? `${partes[0]}.${partes.slice(1).join('')}` : limpio;
+    setTexto(formatear(numeroLimpio));
+    onChange(numeroLimpio);
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      className={`input ${className}`}
+      value={texto}
+      onChange={onInput}
+      placeholder={placeholder}
+      {...props}
+    />
+  );
+}
+
 // Selector de fecha con mini calendario (popover). `value`/`onChange` usan el
 // mismo formato string 'YYYY-MM-DD' que <input type="date">, para poder
 // sustituirlo directo en cualquier formulario.

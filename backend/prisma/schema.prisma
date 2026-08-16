@@ -189,27 +189,27 @@ model Usuario {
   creadoEn      DateTime   @default(now())
   actualizadoEn DateTime   @updatedAt
 
-  clientes        Cliente[]
-  citas           Cita[]
-  citasPromotor   Cita[]             @relation("citasPromotor")
-  ventasAsesor    Venta[]            @relation("ventasAsesor")
-  ventasValidador Venta[]            @relation("ventasValidador")
-  pagosRegistrados PagoPoliza[]      @relation("pagosRegistrados")
-  actividad       Actividad[]
-  targets         Target[]
-  notas           Nota[]
-  pushSubs        PushSubscription[]
-  notificaciones  Notificacion[]
-  googleCalendar  GoogleCalendarCuenta?
-  referidos       Referido[]
-  bonos           Bono[]
-  documentos      DocumentoCliente[]
-  permisoLogs     PermisoLog[]
-  invitacion      InvitacionUsuario?
-  registrosPuntos    RegistroPuntos[]
-  planesSemana       PlanSemanal[]
-  prospectosClinica  ProspectoClinica[]
-  sesionesClinica    SesionClinica[]
+  clientes              Cliente[]
+  citas                 Cita[]
+  citasPromotor         Cita[]                @relation("citasPromotor")
+  ventasAsesor          Venta[]               @relation("ventasAsesor")
+  ventasValidador       Venta[]               @relation("ventasValidador")
+  pagosRegistrados      PagoPoliza[]          @relation("pagosRegistrados")
+  actividad             Actividad[]
+  targets               Target[]
+  notas                 Nota[]
+  pushSubs              PushSubscription[]
+  notificaciones        Notificacion[]
+  googleCalendar        GoogleCalendarCuenta?
+  referidos             Referido[]
+  bonos                 Bono[]
+  documentos            DocumentoCliente[]
+  permisoLogs           PermisoLog[]
+  invitacion            InvitacionUsuario?
+  registrosPuntos       RegistroPuntos[]
+  planesSemana          PlanSemanal[]
+  prospectosClinica     ProspectoClinica[]
+  sesionesClinica       SesionClinica[]
   candidatosCreados     Candidato[]           @relation("candidatosCreados")
   candidatosReclutados  Candidato[]           @relation("candidatosReclutados")
   evaluacionesCandidato EvaluacionCandidato[]
@@ -266,18 +266,18 @@ model PermisoLog {
 // refresh token para poder escribir eventos en su calendario sin que vuelva a
 // autorizar. Desconectar = borrar la fila (y revocar en Google).
 model GoogleCalendarCuenta {
-  id            String   @id @default(cuid())
-  usuarioId     String   @unique
-  usuario       Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  id            String    @id @default(cuid())
+  usuarioId     String    @unique
+  usuario       Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   // Correo de la cuenta de Google conectada (informativo para la UI).
   email         String
   refreshToken  String
   accessToken   String?
   expiraEn      DateTime?
   // Calendario destino; "primary" = el principal de esa cuenta.
-  calendarId    String   @default("primary")
-  creadoEn      DateTime @default(now())
-  actualizadoEn DateTime @updatedAt
+  calendarId    String    @default("primary")
+  creadoEn      DateTime  @default(now())
+  actualizadoEn DateTime  @updatedAt
 }
 
 model PushSubscription {
@@ -326,30 +326,30 @@ model Notificacion {
 }
 
 model Cliente {
-  id              String        @id @default(cuid())
-  asesorId        String
-  asesor          Usuario       @relation(fields: [asesorId], references: [id], onDelete: Cascade)
-  nombre          String
-  apellidoP       String
-  apellidoM       String?
-  email           String?
-  telefono        String?
-  fechaNacimiento DateTime?
-  rfc             String?
-  curp            String?
-  direccion       String?
-  estado          EstadoCliente @default(PROSPECTO)
+  id                  String        @id @default(cuid())
+  asesorId            String
+  asesor              Usuario       @relation(fields: [asesorId], references: [id], onDelete: Cascade)
+  nombre              String
+  apellidoP           String
+  apellidoM           String?
+  email               String?
+  telefono            String?
+  fechaNacimiento     DateTime?
+  rfc                 String?
+  curp                String?
+  direccion           String?
+  estado              EstadoCliente @default(PROSPECTO)
   // Bandera independiente de la etapa: un cliente puede estar en cualquier
   // etapa Y necesitar seguimiento a la vez. (El valor NECESITA_SEGUIMIENTO del
   // enum es legacy: se migró a esta bandera y ya no debe usarse como etapa.)
-  necesitaSeguimiento Boolean   @default(false)
-  notas           String?
-  fuente          String?
+  necesitaSeguimiento Boolean       @default(false)
+  notas               String?
+  fuente              String?
   // Borrado lógico: DELETE /api/clientes/:id archiva (setea esta fecha) en vez
   // de borrar; pólizas, citas y referidos se conservan. null = cliente activo.
-  archivadoEn     DateTime?
-  creadoEn        DateTime      @default(now())
-  actualizadoEn   DateTime      @updatedAt
+  archivadoEn         DateTime?
+  creadoEn            DateTime      @default(now())
+  actualizadoEn       DateTime      @updatedAt
 
   // Producto de interés (cuando el cliente está en prospección)
   productoInteres      RamoSeguro?
@@ -374,8 +374,8 @@ model Cliente {
   citas                 Cita[]
   ventas                Venta[]
   notasItems            Nota[]
-  referidosOrigen       Referido[] @relation("ReferidosOrigen")
-  referidosComoReferido Referido[] @relation("ReferidosCliente")
+  referidosOrigen       Referido[]         @relation("ReferidosOrigen")
+  referidosComoReferido Referido[]         @relation("ReferidosCliente")
   documentos            DocumentoCliente[]
   prospectosClinica     ProspectoClinica[]
 
@@ -384,57 +384,57 @@ model Cliente {
 }
 
 model Cita {
-  id                  String        @id @default(cuid())
-  asesorId            String
-  asesor              Usuario       @relation(fields: [asesorId], references: [id], onDelete: Cascade)
+  id                     String                @id @default(cuid())
+  asesorId               String
+  asesor                 Usuario               @relation(fields: [asesorId], references: [id], onDelete: Cascade)
   // Opcional: un evento PERSONAL (bloqueo de agenda) no tiene cliente. Toda
   // cita de trabajo sí lo exige (validado en la ruta, no aquí).
-  clienteId           String?
-  cliente             Cliente?      @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId              String?
+  cliente                Cliente?              @relation(fields: [clienteId], references: [id], onDelete: Cascade)
   // Solo citas de reclutamiento (PRP/ENTREVISTA_*): candidato entrevistado.
   // Opcional (una PRP grupal puede no tener candidato); excluyente con clienteId
   // según la modalidad — validado en la ruta, no aquí.
-  candidatoId         String?
-  candidato           Candidato?    @relation(fields: [candidatoId], references: [id], onDelete: Cascade)
-  titulo              String
-  descripcion         String?
-  tipo                TipoCita      @default(TELEFONICA)
-  modalidad           ModalidadCita @default(CITA_UNICA)
-  clasificacion       ClasificacionCita @default(PRODUCTIVA)
+  candidatoId            String?
+  candidato              Candidato?            @relation(fields: [candidatoId], references: [id], onDelete: Cascade)
+  titulo                 String
+  descripcion            String?
+  tipo                   TipoCita              @default(TELEFONICA)
+  modalidad              ModalidadCita         @default(CITA_UNICA)
+  clasificacion          ClasificacionCita     @default(PRODUCTIVA)
   // Para ACOMPANAMIENTO: promotor (admin) que acompaña al asesor (opcional)
-  promotorId          String?
-  promotor            Usuario?      @relation("citasPromotor", fields: [promotorId], references: [id], onDelete: SetNull)
+  promotorId             String?
+  promotor               Usuario?              @relation("citasPromotor", fields: [promotorId], references: [id], onDelete: SetNull)
   // Invitación al promotor (2026-08): mientras esté PENDIENTE la cita NO
   // bloquea la agenda del promotor (no cuenta para sus empalmes) y le aparece
   // como "por confirmar"; solo al ACEPTADA se vuelve firme. Null = no hay
   // invitación (cita sin promotor o creada antes de esta función).
-  invitacionEstado    EstadoInvitacionCita?
+  invitacionEstado       EstadoInvitacionCita?
   invitacionRespondidaEn DateTime?
   // Sugerencia de otro horario (2026-08): el promotor invitado propone un
   // horario distinto en vez de aceptar/rechazar tal cual. Solo tienen sentido
   // mientras invitacionEstado = SUGERIDA; se limpian al aceptar/rechazar (por
   // el asesor) o al volver a invitar. La cita conserva su fechaHoraInicio/Fin
   // original hasta que el asesor acepta la sugerencia (ahí sí se mueve).
-  sugerenciaInicio    DateTime?
-  sugerenciaFin       DateTime?
-  sugerenciaNota      String?
+  sugerenciaInicio       DateTime?
+  sugerenciaFin          DateTime?
+  sugerenciaNota         String?
   // Id del evento espejo en el Google Calendar del promotor (2026-08). Se crea
   // al ACEPTAR la invitación y se borra al rechazar/cancelar. Null = no hay
   // evento en Google (no conectó su cuenta o no aplica).
-  googleEventId       String?
-  googleEventUsuarioId String?
-  estado              EstadoCita    @default(PROGRAMADA)
-  fechaHoraInicio     DateTime
-  fechaHoraFin        DateTime
-  ubicacion           String?
-  recordatorioMinutos Int           @default(60)
+  googleEventId          String?
+  googleEventUsuarioId   String?
+  estado                 EstadoCita            @default(PROGRAMADA)
+  fechaHoraInicio        DateTime
+  fechaHoraFin           DateTime
+  ubicacion              String?
+  recordatorioMinutos    Int                   @default(60)
   // Cita repetida (2026-08): las instancias generadas por una regla de
   // recurrencia comparten este id, solo informativo — cada cita se edita,
   // reagenda o cancela de forma independiente, sin lógica de cascada entre
   // ellas. Null = cita suelta (no repetida).
-  serieId             String?
-  creadoEn            DateTime      @default(now())
-  actualizadoEn       DateTime      @updatedAt
+  serieId                String?
+  creadoEn               DateTime              @default(now())
+  actualizadoEn          DateTime              @updatedAt
 
   @@index([asesorId, fechaHoraInicio])
   @@index([clienteId])
@@ -449,9 +449,9 @@ model Cita {
 // ADMIN/SUPERADMIN); cualquier rol puede CAPTURAR un candidato (un asesor
 // puede referir), por eso se guarda quién lo creó.
 model Candidato {
-  id          String  @id @default(cuid())
-  creadoPorId String
-  creadoPor   Usuario @relation("candidatosCreados", fields: [creadoPorId], references: [id], onDelete: Cascade)
+  id           String   @id @default(cuid())
+  creadoPorId  String
+  creadoPor    Usuario  @relation("candidatosCreados", fields: [creadoPorId], references: [id], onDelete: Cascade)
   // Reclutador asignado (usuario del sistema, opcional) + oficina texto libre,
   // como el formato SMNYL.
   reclutadorId String?
@@ -536,66 +536,86 @@ model EvaluacionCandidato {
 }
 
 model Venta {
-  id                  String            @id @default(cuid())
-  asesorId            String
-  asesor              Usuario           @relation("ventasAsesor", fields: [asesorId], references: [id])
-  clienteId           String
-  cliente             Cliente           @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  ramo                RamoSeguro
-  producto            String
+  id                   String            @id @default(cuid())
+  asesorId             String
+  asesor               Usuario           @relation("ventasAsesor", fields: [asesorId], references: [id])
+  clienteId            String
+  cliente              Cliente           @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  ramo                 RamoSeguro
+  producto             String
   // Producto del catálogo NYL (opcional pero recomendado)
-  productoCatalogoId  String?
-  productoCatalogo    ProductoCatalogo? @relation(fields: [productoCatalogoId], references: [id])
+  productoCatalogoId   String?
+  productoCatalogo     ProductoCatalogo? @relation(fields: [productoCatalogoId], references: [id])
   // SIEMPRE en MXN — es el campo que suman métricas, comisiones, metas y
   // ranking. Si la póliza está en USD/UDI, aquí va ya convertido.
-  primaAnual          Float
+  primaAnual           Float
   // Denominación original de la póliza (lo que dice el contrato).
-  moneda              MonedaPoliza      @default(MXN)
+  moneda               MonedaPoliza      @default(MXN)
   // Monto en la moneda original y tipo de cambio usado. Solo informativos:
   // ningún cálculo de negocio los lee, para no duplicar definiciones.
-  primaMoneda         Float?
-  tipoCambio          Float?
-  comisionPct         Float             @default(10)
-  comisionMonto       Float?
-  estado              EstadoVenta       @default(PENDIENTE_PAGAR)
-  validadoPor         String?
-  validador           Usuario?          @relation("ventasValidador", fields: [validadoPor], references: [id])
-  fechaValidacion     DateTime?
+  primaMoneda          Float?
+  tipoCambio           Float?
+  comisionPct          Float             @default(10)
+  comisionMonto        Float?
+  estado               EstadoVenta       @default(PENDIENTE_PAGAR)
+  validadoPor          String?
+  validador            Usuario?          @relation("ventasValidador", fields: [validadoPor], references: [id])
+  fechaValidacion      DateTime?
   // Pipeline financiero: fechas y flags
-  fechaFirma          DateTime?
+  fechaFirma           DateTime?
   // Cuándo la aseguradora emitió la póliza — distinta de la fecha de firma
   // (el cliente firma la solicitud, la compañía emite días o semanas después).
-  fechaEmision        DateTime?
-  fechaPago           DateTime?
-  fechaEntregaPoliza  DateTime?
-  fechaCancelacion    DateTime?
-  montoCancelado      Float?
-  motivoCancelacion   String?
+  fechaEmision         DateTime?
+  fechaPago            DateTime?
+  fechaEntregaPoliza   DateTime?
+  fechaCancelacion     DateTime?
+  montoCancelado       Float?
+  motivoCancelacion    String?
   // Vigencia y pagos subsecuentes (recordatorios automáticos)
-  formaPago           FormaPago         @default(ANUAL)
+  formaPago            FormaPago         @default(ANUAL)
   // Cargo automático: si es true NO se generan recordatorios de cobro (el
   // dinero se retira solo; recordarlo sería ruido para el asesor).
-  domiciliada         Boolean           @default(false)
-  metodoPago          MetodoPagoPoliza?
-  fechaInicioVigencia DateTime?
-  fechaFinVigencia    DateTime?
-  fechaProximoPago    DateTime?
-  diaPago             Int? // día del mes para cobros recurrentes (1-28)
-  montoPago           Float? // monto de cada pago recurrente (proporcional de primaAnual)
+  domiciliada          Boolean           @default(false)
+  metodoPago           MetodoPagoPoliza?
+  fechaInicioVigencia  DateTime?
+  fechaFinVigencia     DateTime?
+  fechaProximoPago     DateTime?
+  diaPago              Int? // día del mes para cobros recurrentes (1-28)
+  montoPago            Float? // monto de cada pago recurrente (proporcional de primaAnual)
   // Detalle técnico de la póliza (ficha)
-  sumaAsegurada       Float?
-  plazo               String? // ej. "20 pagos", "Anual renovable"
-  deducible           Float? // GMM / Salud
-  coaseguro           String? // GMM / Salud, ej. "10%"
+  sumaAsegurada        Float?
+  // Moneda en que se capturó sumaAsegurada (sigue la moneda de la póliza,
+  // igual que primaMoneda: es una copia informativa, no hay conversión
+  // automática — si la póliza está en UDIS/USD, el número ya está en esa
+  // denominación y no se convierte a MXN como sí pasa con la prima).
+  sumaAseguradaMoneda  MonedaPoliza      @default(MXN)
+  plazo                String? // ej. "20 pagos", "Anual renovable"
+  deducible            Float? // GMM / Salud
+  coaseguro            String? // GMM / Salud, ej. "10%"
+  // PDF de la póliza escaneada/emitida por la compañía, subido desde "Nueva
+  // póliza" → "Subir documento". Reusa DocumentoCliente (mismo /uploads,
+  // mismo visor) en vez de duplicar el manejo de archivos; 1:1 porque cada
+  // póliza tiene a lo más un documento oficial adjunto (no un historial de
+  // versiones). Documentos previos sin analizar (subidos antes de esta
+  // función) simplemente no tienen este vínculo.
+  documentoPolizaId    String?           @unique
+  documentoPoliza      DocumentoCliente? @relation(fields: [documentoPolizaId], references: [id], onDelete: SetNull)
+  // Diagnóstico de la extracción con IA sobre documentoPoliza: cuándo corrió,
+  // qué modelo, y si el asesor llegó a confirmar el formulario prellenado.
+  // No son datos de negocio — nadie más los lee; sirven para saber si vale
+  // la pena reintentar una extracción fallida o floja.
+  extraccionEn         DateTime?
+  extraccionModelo     String?
+  extraccionConfirmada Boolean           @default(false)
   // [{ nombre, detalle?, monto?, costo? }] — `monto` es texto libre de la suma
   // asegurada de esa cobertura ("$800,000", "Incluida", "10%"); `costo` es el
   // costo extra numérico en MXN de contratarla (null/0 = va incluida).
-  coberturas          Json?
+  coberturas           Json?
   // [{ nombre, porcentaje? }]
-  beneficiarios       Json?
-  notas               String?
-  creadoEn            DateTime          @default(now())
-  actualizadoEn       DateTime          @updatedAt
+  beneficiarios        Json?
+  notas                String?
+  creadoEn             DateTime          @default(now())
+  actualizadoEn        DateTime          @updatedAt
 
   recordatoriosPago Nota[]
   pagos             PagoPoliza[]
@@ -692,30 +712,30 @@ model TargetEquipo {
 // y disparan una notificación push al asesor cuando alcanzan su fecha.
 // tipo=RECORDATORIO_PAGO se asocia a una Venta (póliza) para pagos subsecuentes.
 model Nota {
-  id                  String    @id @default(cuid())
+  id                  String           @id @default(cuid())
   clienteId           String
-  cliente             Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  cliente             Cliente          @relation(fields: [clienteId], references: [id], onDelete: Cascade)
   asesorId            String
-  asesor              Usuario   @relation(fields: [asesorId], references: [id], onDelete: Cascade)
-  tipo                TipoNota  @default(NOTA)
+  asesor              Usuario          @relation(fields: [asesorId], references: [id], onDelete: Cascade)
+  tipo                TipoNota         @default(NOTA)
   // Segmenta el recordatorio: gestión propia del asesor vs. algo que hay que
   // tratar con el cliente. Ambos le llegan al asesor (no hay canal al cliente).
   destinatario        DestinatarioNota @default(ASESOR)
   texto               String
   // Solo para RECORDATORIO / RECORDATORIO_PAGO: cuándo debe avisarse
   fechaAviso          DateTime?
-  completada          Boolean   @default(false)
+  completada          Boolean          @default(false)
   // Aviso del día: ya se generó la notificación de `fechaAviso`
-  notificacionEnviada Boolean   @default(false)
+  notificacionEnviada Boolean          @default(false)
   // Aviso anticipado: ya se generó la notificación de 1 día antes. Son dos
   // banderas y no un contador porque las dos ventanas son independientes (un
   // recordatorio creado con menos de 24h de anticipación solo dispara la del día).
-  avisoPrevioEnviado  Boolean   @default(false)
+  avisoPrevioEnviado  Boolean          @default(false)
   // Solo RECORDATORIO_PAGO:_venta asociada a la póliza
   ventaId             String?
-  venta               Venta?    @relation(fields: [ventaId], references: [id], onDelete: Cascade)
-  creadoEn            DateTime  @default(now())
-  actualizadoEn       DateTime  @updatedAt
+  venta               Venta?           @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  creadoEn            DateTime         @default(now())
+  actualizadoEn       DateTime         @updatedAt
 
   @@index([asesorId, fechaAviso])
   @@index([clienteId])
@@ -758,6 +778,10 @@ model DocumentoCliente {
   mime      String?
   tamano    Int      @default(0) // bytes
   creadoEn  DateTime @default(now())
+
+  // Presente solo si este documento es el PDF oficial de una póliza (subido
+  // desde "Nueva póliza" → "Subir documento", no desde la ficha del cliente).
+  ventaPoliza Venta?
 
   @@index([clienteId])
 }

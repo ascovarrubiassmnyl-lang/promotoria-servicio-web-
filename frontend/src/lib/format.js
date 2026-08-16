@@ -7,6 +7,12 @@ export function num(value) {
   return new Intl.NumberFormat('es-MX').format(Number(value) || 0);
 }
 
+export function tamanoLegible(bytes) {
+  if (!bytes) return '0 KB';
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function fechaCorta(value) {
   return new Date(value).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
 }
