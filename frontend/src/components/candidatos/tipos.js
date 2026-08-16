@@ -129,6 +129,67 @@ export const VALORES = [
 // Un grupo está completo cuando sus 6 dimensiones tienen calificación 1–5.
 export const grupoCompleto = (ev, grupo) => grupo.every((d) => (ev?.[d.campo] ?? 0) >= 1);
 
+// ─── POP propio de la promotoría ──────────────────────────────────────────
+// Espejo de presentación de los enums RecomendacionPop / EstadoPopEnvio. El
+// puntaje y la recomendación SIEMPRE los calcula el servidor (utils/pop.js):
+// aquí solo se pintan. Mismo lenguaje de 3 niveles del reporte oficial de
+// SMNYL (Proceder / Precaución / No proceder), reusando los colores del
+// semáforo de candidatos para que un verde signifique lo mismo en toda la app.
+export const RECOMENDACIONES_POP = {
+  PROCEDER: {
+    value: 'PROCEDER', label: 'Proceder',
+    descripcion: 'El perfil cumple con lo que buscamos.',
+    dot: 'bg-emerald-500', barra: 'bg-emerald-500',
+    pill: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
+  },
+  PRECAUCION: {
+    value: 'PRECAUCION', label: 'Precaución',
+    descripcion: 'Perfil intermedio: conviene profundizar en la entrevista.',
+    dot: 'bg-amber-500', barra: 'bg-amber-500',
+    pill: 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
+  },
+  NO_PROCEDER: {
+    value: 'NO_PROCEDER', label: 'No proceder',
+    descripcion: 'El perfil queda por debajo del mínimo definido.',
+    dot: 'bg-red-500', barra: 'bg-red-500',
+    pill: 'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300',
+  },
+};
+
+export const infoRecomendacion = (value) =>
+  RECOMENDACIONES_POP[value] || {
+    value: value || null, label: 'Sin resultado', descripcion: '',
+    dot: 'bg-slate-300 dark:bg-slate-600', barra: 'bg-slate-300 dark:bg-slate-600',
+    pill: 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400',
+  };
+
+export const ESTADOS_POP = {
+  PENDIENTE: {
+    value: 'PENDIENTE', label: 'Pendiente',
+    pill: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
+  },
+  RESPONDIDO: {
+    value: 'RESPONDIDO', label: 'Contestado',
+    pill: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
+  },
+  CANCELADO: {
+    value: 'CANCELADO', label: 'Cancelado',
+    pill: 'bg-slate-100 text-slate-400 line-through dark:bg-slate-700 dark:text-slate-500',
+  },
+};
+
+export const infoEstadoPop = (value) => ESTADOS_POP[value] || ESTADOS_POP.PENDIENTE;
+
+// Tipos de pregunta que ofrece el editor de cuestionarios.
+export const TIPOS_PREGUNTA_POP = [
+  { value: 'OPCION', label: 'Opción múltiple', ayuda: 'El candidato elige una respuesta. Cada opción vale los puntos que definas.' },
+  { value: 'TEXTO', label: 'Respuesta abierta', ayuda: 'Texto libre para leerlo tú. No suma puntos al resultado.' },
+];
+
+// Bloques sugeridos, espejo de los del reporte oficial. Son texto libre: sirven
+// para agrupar las barras del resultado, la promotora puede escribir otros.
+export const BLOQUES_SUGERIDOS = ['ADN en Ventas', 'Experiencia', 'Compatibilidad con la Carrera', 'General'];
+
 // Modalidad de cita de reclutamiento sugerida según la etapa del candidato
 // (preselección del formulario de cita; siempre editable).
 export const MODALIDAD_POR_ETAPA = {

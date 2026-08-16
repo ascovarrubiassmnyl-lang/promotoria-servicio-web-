@@ -3,6 +3,7 @@ import Layout from './components/Layout.jsx';
 import { ProtectedRoute, SeccionRoute } from './components/Protected.jsx';
 import Login from './pages/Login.jsx';
 import Invitacion from './pages/Invitacion.jsx';
+import PopPublico from './pages/PopPublico.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Clientes from './pages/Clientes.jsx';
 import ClienteDetalle from './pages/ClienteDetalle.jsx';
@@ -24,6 +25,9 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/invitacion/:token" element={<Invitacion />} />
+      {/* POP del candidato: pública como la invitación — la persona no tiene
+          cuenta en el CRM y contesta con su token de un solo uso. */}
+      <Route path="/pop/:token" element={<PopPublico />} />
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route path="/" element={<SeccionRoute seccion="dashboard"><Dashboard /></SeccionRoute>} />
         <Route path="/clientes" element={<SeccionRoute seccion="clientes"><Clientes /></SeccionRoute>} />

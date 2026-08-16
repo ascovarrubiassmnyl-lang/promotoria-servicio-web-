@@ -26,6 +26,8 @@ import configuracionRoutes from './routes/configuracion.js';
 import puntosRoutes from './routes/puntos.js';
 import clinicaRoutes from './routes/clinica.js';
 import candidatoRoutes from './routes/candidatos.js';
+import popRoutes from './routes/pop.js';
+import popPublicoRoutes from './routes/popPublico.js';
 import { startReminderJob } from './jobs/reminderJob.js';
 import { startAutomatizacionesJob } from './jobs/automatizacionesJob.js';
 import { initMailer } from './services/mailer.js';
@@ -63,6 +65,10 @@ app.use('/api/configuracion', configuracionRoutes);
 app.use('/api/puntos', puntosRoutes);
 app.use('/api/clinica', clinicaRoutes);
 app.use('/api/candidatos', candidatoRoutes);
+app.use('/api/pop', popRoutes);
+// Público, sin authenticate (como /api/invitaciones): el candidato contesta su
+// POP con el token de un solo uso, sin cuenta en el CRM.
+app.use('/api/pop-publico', popPublicoRoutes);
 
 // Producción (Railway, un solo servicio): Express sirve el build de Vite.
 // Estáticos + fallback SPA para las rutas de React Router; /api/* nunca cae

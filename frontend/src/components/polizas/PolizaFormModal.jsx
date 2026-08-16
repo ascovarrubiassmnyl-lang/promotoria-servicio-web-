@@ -6,7 +6,8 @@ import {
   RAMOS, RAMOS_LABEL, FORMAS_PAGO, FORMAS_PAGO_LIST,
   ESTADOS_VENTA, ESTADOS_VENTA_LABEL, isoLocalDateInput, mxn,
 } from '../../lib/format.js';
-import { MONEDAS, METODOS_PAGO, requiereTipoCambio, infoMoneda } from './tipos.js';
+import { MONEDAS, METODOS_PAGO, requiereTipoCambio, infoMoneda, equivalenteMXN } from './tipos.js';
+import MontoMoneda from './MontoMoneda.jsx';
 import SubirPolizaModal from './SubirPolizaModal.jsx';
 
 const VACIO = {
@@ -17,24 +18,27 @@ const VACIO = {
   // La suma asegurada sigue la moneda de la póliza por defecto, pero es
   // independiente: una póliza en MXN puede tener una suma asegurada
   // capturada en UDIS si así viene en el contrato (frecuente en dotales).
-  sumaAsegurada: '', sumaAseguradaMoneda: 'MXN', plazo: '', deducible: '', coaseguro: '',
+  sumaAsegurada: '', sumaAseguradaMoneda: 'MXN', plazo: '',
+  deducible: '', deducibleMoneda: 'MXN', coaseguro: '',
   fechaFirma: '', fechaEmision: '', fechaInicioVigencia: '', fechaFinVigencia: '',
-  fechaProximoPago: '', diaPago: '', montoPago: '', notas: '',
+  fechaProximoPago: '', diaPago: '', montoPago: '', montoPagoMoneda: 'MXN', notas: '',
   coberturas: [], beneficiarios: [],
   documentoTmp: null, // { archivo, nombre, mime, tamano, modelo } de /ventas/analizar-documento
 };
 
 const d = (v) => (v ? isoLocalDateInput(new Date(v)) : '');
 
-// Fin de vigencia sugerido a partir del inicio. Los seguros de la promotoría
-// son de vigencia anual (se renuevan cada año); el plazo del producto ("20
-// pagos") es el periodo de PAGO, no el de cobertura. El asesor puede
-// sobrescribir la fecha: esto solo evita teclearla a mano en el caso normal.
-function finDeVigenciaSugerido(inicioISO) {
+// Fin de vigencia sugerido a partir del inicio, adelantando `anios` años y
+// restando un día (vence la víspera del aniversario). Por defecto 1 año: los
+// seguros son de vigencia anual y se renuevan cada año. Con un producto del
+// catálogo cuyo plazo se conoce se usa ese plazo, para que el asesor no tenga
+// que caminar el calendario hasta 2046 (ver `aniosDePlazo`). Siempre es una
+// sugerencia: el campo queda editable.
+function finDeVigenciaSugerido(inicioISO, anios = 1) {
   if (!inicioISO) return '';
   const [a, m, dia] = inicioISO.split('-').map(Number);
   if (!a || !m || !dia) return '';
-  const fin = new Date(a + 1, m - 1, dia);
+  const fin = new Date(a + (anios || 1), m - 1, dia);
   fin.setDate(fin.getDate() - 1); // vence el día previo al aniversario
   return isoLocalDateInput(fin);
 }
@@ -78,6 +82,29 @@ function plazoDesdeNombre(nombre) {
   return '';
 }
 
+// Años que dura el plan, a partir del texto de plazo que produce
+// `plazoDesdeNombre` ("20 pagos", "15 años", "Anual renovable"…). Solo sirve
+// para posicionar el calendario del fin de vigencia cerca de la fecha real y
+// ahorrarle al asesor decenas de clics; NO es un dato de negocio ni se guarda.
+// Devuelve null cuando el plazo no se traduce a un número de años fijo:
+//  - "Todos los pagos" / "Hasta edad 60": vitalicios o atados a la edad del
+//    asegurado, que el modal no conoce.
+//  - "18 menos la edad del menor" (SeguBeca): depende del caso concreto.
+//  - "Anual renovable" (Alfa Medical): sí es un año, por eso devuelve 1.
+// Con null se cae al año de vigencia estándar, que es el comportamiento previo.
+function aniosDePlazo(plazoTexto) {
+  if (!plazoTexto) return null;
+  const t = String(plazoTexto);
+  if (/anual renovable/i.test(t)) return 1;
+  // Los rangos van primero: en "Plazo medio (10-19 años)" la regla de abajo
+  // haría match con "19 años" y devolvería el tope en vez del piso.
+  const rango = t.match(/\((\d+)/);
+  if (rango) return Number(rango[1]);
+  const n = t.match(/(\d+)\s*(pagos|años)/i);
+  if (n) return Number(n[1]);
+  return null;
+}
+
 // Modal único para crear (venta=null) o editar (venta=objeto) una póliza.
 // asesorId (opcional): scope de promotor — la póliza nueva se asigna a ese
 // asesor y el selector de clientes se limita a su cartera.
@@ -118,6 +145,7 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
       sumaAseguradaMoneda: venta.sumaAseguradaMoneda || 'MXN',
       plazo: venta.plazo || '',
       deducible: venta.deducible ?? '',
+      deducibleMoneda: venta.deducibleMoneda || 'MXN',
       coaseguro: venta.coaseguro || '',
       fechaFirma: d(venta.fechaFirma),
       fechaEmision: d(venta.fechaEmision),
@@ -126,6 +154,7 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
       fechaProximoPago: d(venta.fechaProximoPago),
       diaPago: venta.diaPago ?? '',
       montoPago: venta.montoPago ?? '',
+      montoPagoMoneda: venta.montoPagoMoneda || 'MXN',
       notas: venta.notas || '',
       coberturas: Array.isArray(venta.coberturas) ? venta.coberturas : [],
       beneficiarios: Array.isArray(venta.beneficiarios) ? venta.beneficiarios : [],
@@ -156,6 +185,7 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
     const plazoSugerido = plazoDesdeNombre(p?.nombre);
     setForm((f) => {
       const moneda = disponibles && !disponibles.includes(f.moneda) ? disponibles[0] : f.moneda;
+      const plazo = plazoSugerido || f.plazo;
       return {
         ...f,
         productoCatalogoId: id,
@@ -163,7 +193,17 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
         comisionPct: p?.comisionPct ?? f.comisionPct,
         // El plazo del producto elegido manda: si el nombre lo declara, se
         // actualiza aunque ya hubiera un valor (el anterior era de otro plazo).
-        plazo: plazoSugerido || f.plazo,
+        plazo,
+        // Si el inicio de vigencia ya estaba capturado (el asesor eligió el
+        // producto después), se recalcula el fin con el plazo del producto
+        // nuevo. Solo cuando el fin sigue siendo el que sugerimos con el plazo
+        // anterior: si el asesor ya lo ajustó a mano, no se toca.
+        fechaFinVigencia:
+          f.fechaInicioVigencia
+            && (!f.fechaFinVigencia
+              || f.fechaFinVigencia === finDeVigenciaSugerido(f.fechaInicioVigencia, aniosDePlazo(f.plazo)))
+            ? finDeVigenciaSugerido(f.fechaInicioVigencia, aniosDePlazo(plazo))
+            : f.fechaFinVigencia,
         moneda,
         // Al cambiar a divisa, el monto capturado pasa al campo de moneda original.
         primaMoneda: requiereTipoCambio(moneda) ? (f.primaMoneda || f.primaAnual) : '',
@@ -174,6 +214,9 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
       };
     });
   };
+
+  // Años del plazo capturado, para el texto de ayuda del fin de vigencia.
+  const aniosDelPlazo = aniosDePlazo(form.plazo);
 
   const productoCatalogoActual = catalogo?.find((x) => x.id === form.productoCatalogoId);
   // Con producto del catálogo elegido, el nombre lo define la compañía: se
@@ -461,14 +504,21 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
               onChange={(v) => setForm((f) => ({
                 ...f,
                 fechaInicioVigencia: v,
-                // Fin de vigencia automático: solo si aún está vacío, para no
-                // pisar un ajuste manual del asesor.
-                fechaFinVigencia: f.fechaFinVigencia || finDeVigenciaSugerido(v),
+                // Fin de vigencia automático según el plazo del producto: solo
+                // si aún está vacío, para no pisar un ajuste manual del asesor.
+                fechaFinVigencia: f.fechaFinVigencia || finDeVigenciaSugerido(v, aniosDePlazo(f.plazo)),
               }))}
             />
           </Field>
           <Field label="Fin de vigencia">
             <DatePicker value={form.fechaFinVigencia} onChange={(v) => set('fechaFinVigencia', v)} />
+            {form.fechaInicioVigencia && (
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                {aniosDelPlazo
+                  ? <>Sugerido a {aniosDelPlazo} {aniosDelPlazo === 1 ? 'año' : 'años'} del inicio{form.plazo ? <> (plazo: {form.plazo})</> : null}. Ajústalo si la póliza dice otra cosa.</>
+                  : <>Vigencia anual por defecto: el plazo de este producto no es un número fijo de años.</>}
+              </p>
+            )}
           </Field>
           <Field label="Próximo pago"><DatePicker value={form.fechaProximoPago} onChange={(v) => set('fechaProximoPago', v)} /></Field>
           <Field label="Día de pago recurrente (1-28)">

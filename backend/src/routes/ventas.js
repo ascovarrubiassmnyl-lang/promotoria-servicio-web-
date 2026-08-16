@@ -10,6 +10,7 @@ import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion } from '../middleware/permisos.js';
 import { registrarActividad } from '../utils/actividad.js';
 import { analizarPolizaPdf, extraccionDisponible } from '../services/extraccionPoliza.js';
+import { tiposDeCambioVigentes } from '../services/tipoCambio.js';
 
 const router = Router();
 router.use(authenticate);
@@ -74,10 +75,18 @@ async function sincronizarRecordatorioPago(venta) {
   });
 }
 
+const MONEDAS = ['MXN', 'USD', 'UDI'];
+
+// Normaliza cualquier valor de moneda que llegue del cliente a un valor válido
+// del enum MonedaPoliza. Fail closed hacia MXN: un valor basura no puede
+// convertir una cifra en pesos en una cifra en dólares.
+const moneda = (v) => (MONEDAS.includes(v) ? v : 'MXN');
+
 // Normaliza el array de coberturas de la ficha técnica:
-// [{ nombre, detalle?, monto?, costo? }]. `monto` es la suma asegurada de esa
-// cobertura (texto libre: "$800,000", "Incluida", "10%"); `costo` es el costo
-// extra numérico en MXN de contratarla — null significa que va incluida.
+// [{ nombre, detalle?, monto?, costo?, costoMoneda? }]. `monto` es la suma
+// asegurada de esa cobertura (texto libre: "$800,000", "Incluida", "10%");
+// `costo` es el costo extra numérico de contratarla — null significa que va
+// incluida — y `costoMoneda` la denominación de ese costo.
 function limpiarCoberturas(v) {
   if (!Array.isArray(v)) return null;
   const limpio = v
@@ -89,6 +98,9 @@ function limpiarCoberturas(v) {
       costo: c.costo === null || c.costo === undefined || c.costo === '' || Number.isNaN(+c.costo)
         ? null
         : +c.costo,
+      // Denominación del costo extra. Las coberturas guardadas antes de
+      // multi-moneda no la traen y se leen como MXN (default de `moneda()`).
+      costoMoneda: moneda(c.costoMoneda),
     }))
     .filter((c) => c.nombre);
   return limpio.length ? limpio : null;
@@ -104,7 +116,6 @@ function montoEsperadoDePoliza(venta) {
   return venta.primaAnual != null ? +(venta.primaAnual / n).toFixed(2) : null;
 }
 
-const MONEDAS = ['MXN', 'USD', 'UDI'];
 const METODOS_PAGO = ['TARJETA_CREDITO', 'TARJETA_CREDITO_MSI', 'TARJETA_DEBITO', 'TRANSFERENCIA', 'EFECTIVO', 'CARGO_NOMINA'];
 
 // Prima en MXN a partir del monto en la moneda original. `primaAnual` SIEMPRE
@@ -245,6 +256,17 @@ router.post('/analizar-documento', uploadPoliza.single('archivo'), asyncHandler(
   }
 }));
 
+// Tipo de cambio oficial del día (Banxico) para USD y UDI. También va antes
+// de '/:id' por la misma razón que las dos rutas de arriba.
+//
+// Responde SIEMPRE 200, incluso sin BANXICO_TOKEN o con Banxico caído: el
+// formulario usa esto para prellenar y para mostrar el equivalente en pesos,
+// pero la captura manual del tipo de cambio sigue siendo el camino válido —
+// no se bloquea el registro de una póliza porque una API externa falle.
+router.get('/tipo-cambio', asyncHandler(async (_req, res) => {
+  res.json(await tiposDeCambioVigentes());
+}));
+
 router.get('/:id', asyncHandler(async (req, res) => {
   const { id } = req.params;
   const venta = await prisma.venta.findUnique({
@@ -271,8 +293,10 @@ router.post('/', asyncHandler(async (req, res) => {
     clienteId, ramo, producto, primaAnual, comisionPct, estado, notas,
     productoCatalogoId, fechaFirma, fechaEmision, fechaPago, fechaEntregaPoliza,
     formaPago, fechaInicioVigencia, fechaFinVigencia, fechaProximoPago, diaPago, montoPago,
-    sumaAsegurada, sumaAseguradaMoneda, plazo, deducible, coaseguro, coberturas, beneficiarios,
-    moneda, primaMoneda, tipoCambio, domiciliada, metodoPago,
+    montoPagoMoneda,
+    sumaAsegurada, sumaAseguradaMoneda, sumaAseguradaTC, plazo, deducible, deducibleMoneda,
+    coaseguro, coberturas, beneficiarios,
+    moneda: monedaBody, primaMoneda, tipoCambio, domiciliada, metodoPago,
     documentoTmp,
   } = req.body || {};
   if (!clienteId || !ramo || !producto || primaAnual == null) return res.status(400).json({ error: 'clienteId, ramo, producto y primaAnual son requeridos' });
@@ -286,7 +310,7 @@ router.post('/', asyncHandler(async (req, res) => {
   if (productoCatalogoId) {
     catalogo = await prisma.productoCatalogo.findUnique({ where: { id: productoCatalogoId } });
   }
-  const divisa = resolverPrima({ moneda, primaAnual, primaMoneda, tipoCambio });
+  const divisa = resolverPrima({ moneda: monedaBody, primaAnual, primaMoneda, tipoCambio });
   if (divisa.error) return res.status(400).json({ error: divisa.error });
   const pctFinal = comisionPct ?? (catalogo?.comisionPct ?? 10);
   const comisionMontoFinal = +(divisa.primaAnual * pctFinal / 100).toFixed(2);
@@ -333,10 +357,13 @@ router.post('/', asyncHandler(async (req, res) => {
         fechaProximoPago: fechaProximoPago ? new Date(fechaProximoPago) : null,
         diaPago: diaPago ?? null,
         montoPago: montoPago ?? null,
+        montoPagoMoneda: moneda(montoPagoMoneda),
         sumaAsegurada: sumaAsegurada ?? null,
-        sumaAseguradaMoneda: MONEDAS.includes(sumaAseguradaMoneda) ? sumaAseguradaMoneda : 'MXN',
+        sumaAseguradaMoneda: moneda(sumaAseguradaMoneda),
+        sumaAseguradaTC: sumaAseguradaTC != null && +sumaAseguradaTC > 0 ? +sumaAseguradaTC : null,
         plazo: plazo || null,
         deducible: deducible ?? null,
+        deducibleMoneda: moneda(deducibleMoneda),
         coaseguro: coaseguro || null,
         coberturas: limpiarCoberturas(coberturas),
         beneficiarios: limpiarBeneficiarios(beneficiarios),
@@ -372,8 +399,10 @@ router.patch('/:id', asyncHandler(async (req, res) => {
     productoCatalogoId, fechaFirma, fechaEmision, fechaPago, fechaEntregaPoliza,
     fechaCancelacion, montoCancelado, motivoCancelacion,
     formaPago, fechaInicioVigencia, fechaFinVigencia, fechaProximoPago, diaPago, montoPago,
-    sumaAsegurada, sumaAseguradaMoneda, plazo, deducible, coaseguro, coberturas, beneficiarios,
-    moneda, primaMoneda, tipoCambio, domiciliada, metodoPago,
+    montoPagoMoneda,
+    sumaAsegurada, sumaAseguradaMoneda, sumaAseguradaTC, plazo, deducible, deducibleMoneda,
+    coaseguro, coberturas, beneficiarios,
+    moneda: monedaBody, primaMoneda, tipoCambio, domiciliada, metodoPago,
   } = req.body || {};
   const data = {};
   if (ramo) data.ramo = ramo;
@@ -381,9 +410,9 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   if (productoCatalogoId !== undefined) data.productoCatalogoId = productoCatalogoId || null;
   // La moneda y la prima se resuelven juntas: cambiar solo el tipo de cambio
   // debe recalcular la prima en pesos, y viceversa.
-  if (primaAnual != null || moneda !== undefined || primaMoneda !== undefined || tipoCambio !== undefined) {
+  if (primaAnual != null || monedaBody !== undefined || primaMoneda !== undefined || tipoCambio !== undefined) {
     const divisa = resolverPrima({
-      moneda: moneda !== undefined ? moneda : existente.moneda,
+      moneda: monedaBody !== undefined ? monedaBody : existente.moneda,
       primaAnual: primaAnual != null ? primaAnual : existente.primaAnual,
       primaMoneda: primaMoneda !== undefined ? primaMoneda : existente.primaMoneda,
       tipoCambio: tipoCambio !== undefined ? tipoCambio : existente.tipoCambio,
@@ -415,10 +444,13 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   if (fechaProximoPago !== undefined) data.fechaProximoPago = fechaProximoPago ? new Date(fechaProximoPago) : null;
   if (diaPago !== undefined) data.diaPago = diaPago ?? null;
   if (montoPago !== undefined) data.montoPago = montoPago ?? null;
+  if (montoPagoMoneda !== undefined) data.montoPagoMoneda = moneda(montoPagoMoneda);
   if (sumaAsegurada !== undefined) data.sumaAsegurada = sumaAsegurada ?? null;
-  if (sumaAseguradaMoneda !== undefined) data.sumaAseguradaMoneda = MONEDAS.includes(sumaAseguradaMoneda) ? sumaAseguradaMoneda : 'MXN';
+  if (sumaAseguradaMoneda !== undefined) data.sumaAseguradaMoneda = moneda(sumaAseguradaMoneda);
+  if (sumaAseguradaTC !== undefined) data.sumaAseguradaTC = sumaAseguradaTC != null && +sumaAseguradaTC > 0 ? +sumaAseguradaTC : null;
   if (plazo !== undefined) data.plazo = plazo || null;
   if (deducible !== undefined) data.deducible = deducible ?? null;
+  if (deducibleMoneda !== undefined) data.deducibleMoneda = moneda(deducibleMoneda);
   if (coaseguro !== undefined) data.coaseguro = coaseguro || null;
   if (coberturas !== undefined) data.coberturas = limpiarCoberturas(coberturas);
   if (beneficiarios !== undefined) data.beneficiarios = limpiarBeneficiarios(beneficiarios);

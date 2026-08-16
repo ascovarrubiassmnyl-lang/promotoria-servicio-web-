@@ -53,6 +53,12 @@ export const TIPOS_NOTIFICACION = {
     marker: 'bg-amber-50 text-amber-600 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/30',
     icon: <Icono d={ICONO_ALERTA} />,
   },
+  POP_RESPONDIDO: {
+    label: 'POP contestado',
+    dot: 'bg-indigo-500',
+    marker: 'bg-indigo-50 text-indigo-600 ring-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-400 dark:ring-indigo-500/30',
+    icon: <Icono d={ICONO_META} />,
+  },
   META_AVANCE: {
     label: 'Avance de meta',
     dot: 'bg-emerald-500',

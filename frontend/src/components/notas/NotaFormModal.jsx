@@ -4,19 +4,25 @@ import { api, handleError } from '../../api/client.js';
 import { Modal, Field } from '../ui.jsx';
 import { isoLocalInput } from '../../lib/format.js';
 
-// Modal único para crear una Nota o un Recordatorio sobre un cliente, usado
-// desde la ficha (ClienteDetalle) y desde el menú ⋯ de la lista (ClientesView)
-// — mismo patrón que CitaFormModal/PolizaFormModal: un solo formulario
-// compartido, no uno por pantalla.
+// Modal único para crear una Nota o un Recordatorio, usado desde la ficha
+// (ClienteDetalle), el menú ⋯ de la lista (ClientesView) y la ficha de
+// candidatos (CandidatoDetalle) — mismo patrón que CitaFormModal/
+// PolizaFormModal: un solo formulario compartido, no uno por pantalla.
+//
+// El sujeto es un cliente O un candidato a asesor, nunca ambos (excluyentes,
+// igual que en Cita; el backend y un CHECK de la BD lo respaldan): se pasa
+// `clienteId` o `candidatoId`.
 //
 // `destinatario` separa la gestión propia del asesor (ASESOR: llamadas,
 // seguimientos) de lo que hay que tratar con el cliente (CLIENTE: pagos,
 // renovaciones). Ojo: el CRM no le escribe al asegurado — un recordatorio
-// CLIENTE igual le llega al asesor, solo con etiqueta distinta.
+// CLIENTE igual le llega al asesor, solo con etiqueta distinta. En candidatos
+// no aplica: el seguimiento siempre es del reclutador.
 export default function NotaFormModal({
   open,
   onClose,
   clienteId,
+  candidatoId,
   tipo = 'RECORDATORIO',
   destinatario = 'ASESOR',
   nombreCliente = null,
@@ -25,6 +31,7 @@ export default function NotaFormModal({
   const qc = useQueryClient();
   const [form, setForm] = useState({ texto: '', fechaAviso: '' });
   const [saving, setSaving] = useState(false);
+  const esCandidato = !!candidatoId;
 
   useEffect(() => {
     if (!open) return;
@@ -34,22 +41,26 @@ export default function NotaFormModal({
       // la fecha completa cada vez.
       fechaAviso: tipo === 'RECORDATORIO' ? isoLocalInput(new Date(Date.now() + 24 * 60 * 60 * 1000)) : '',
     });
-  }, [open, tipo, destinatario, clienteId]);
+  }, [open, tipo, destinatario, clienteId, candidatoId]);
 
   const guardar = async (e) => {
     e.preventDefault();
     setSaving(true);
     try {
       await api.post('/notas', {
-        clienteId,
+        ...(esCandidato ? { candidatoId } : { clienteId }),
         tipo,
         destinatario,
         texto: form.texto,
         fechaAviso: form.fechaAviso || null,
       });
       onClose();
-      qc.invalidateQueries(['cliente', clienteId]);
-      qc.invalidateQueries(['clientes']);
+      if (esCandidato) {
+        qc.invalidateQueries(['candidato', candidatoId]);
+      } else {
+        qc.invalidateQueries(['cliente', clienteId]);
+        qc.invalidateQueries(['clientes']);
+      }
       onSaved?.();
     } catch (e2) {
       alert(handleError(e2));
@@ -60,14 +71,15 @@ export default function NotaFormModal({
 
   const titulo = tipo === 'NOTA'
     ? 'Agregar nota'
-    : destinatario === 'CLIENTE' ? 'Recordatorio sobre el cliente' : 'Recordatorio del asesor';
+    : esCandidato ? 'Recordatorio de seguimiento'
+      : destinatario === 'CLIENTE' ? 'Recordatorio sobre el cliente' : 'Recordatorio del asesor';
 
   return (
     <Modal open={open} onClose={onClose} title={titulo}>
       <form onSubmit={guardar} className="space-y-3">
         {nombreCliente && (
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Cliente: <strong className="text-slate-700 dark:text-slate-200">{nombreCliente}</strong>
+            {esCandidato ? 'Candidato' : 'Cliente'}: <strong className="text-slate-700 dark:text-slate-200">{nombreCliente}</strong>
           </p>
         )}
         <Field label={tipo === 'NOTA' ? 'Nota' : 'Recordatorio'}>
@@ -92,7 +104,8 @@ export default function NotaFormModal({
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               Te avisamos <strong>un día antes</strong> y el <strong>mismo día</strong>, en tu
               bandeja de notificaciones y por push.
-              {destinatario === 'CLIENTE' && ' El aviso llega a ti, no al cliente.'}
+              {!esCandidato && destinatario === 'CLIENTE' && ' El aviso llega a ti, no al cliente.'}
+              {esCandidato && ' El aviso llega a ti, no al candidato.'}
             </p>
           </Field>
         )}

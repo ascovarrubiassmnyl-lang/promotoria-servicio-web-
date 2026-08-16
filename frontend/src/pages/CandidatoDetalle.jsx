@@ -5,12 +5,14 @@ import { api, handleError } from '../api/client.js';
 import { Card, Modal, EmptyState, MenuAcciones, CitaBadge } from '../components/ui.jsx';
 import CandidatoFormModal from '../components/candidatos/CandidatoFormModal.jsx';
 import CitaFormModal from '../components/citas/CitaFormModal.jsx';
+import NotaFormModal from '../components/notas/NotaFormModal.jsx';
+import PopCandidato from '../components/candidatos/PopCandidato.jsx';
 import {
   ETAPAS_CANDIDATO, infoEtapaCandidato, siguientesEtapas, infoSemaforo,
   VITALES, VALORES, ESCALA, grupoCompleto, MODALIDAD_POR_ETAPA,
 } from '../components/candidatos/tipos.js';
 import { infoTipoCita } from '../components/citas/tipos.js';
-import { fechaCorta, hora, edad } from '../lib/format.js';
+import { fechaCorta, hora, edad, fechaHora } from '../lib/format.js';
 
 // Selector de calificación 1–5 de una dimensión (0 = sin contestar).
 function Calificacion({ valor, onChange, disabled }) {
@@ -75,6 +77,62 @@ function PasoEvaluacion({ titulo, nota, grupo, valores, setValores, onGuardar, g
   );
 }
 
+// Notas y recordatorios de seguimiento del reclutador. Reusa el modelo Nota
+// compartido con clientes (routes/notas.js); un recordatorio con fecha entra a
+// la bandeja de notificaciones y al push como cualquier otro.
+function ListaNotas({ notas, tipo, onCompletar, onEliminar }) {
+  const items = (notas || []).filter((n) => (tipo === 'NOTA' ? n.tipo === 'NOTA' : n.tipo !== 'NOTA'));
+  if (items.length === 0) {
+    return (
+      <EmptyState
+        message={tipo === 'NOTA'
+          ? 'Sin notas. Registra aquí lo que observes de esta persona.'
+          : 'Sin recordatorios. Programa uno para no perder el seguimiento.'}
+      />
+    );
+  }
+  return (
+    <div className="space-y-2">
+      {items.map((n) => {
+        const vencido = !n.completada && n.fechaAviso && new Date(n.fechaAviso) < new Date();
+        return (
+          <div
+            key={n.id}
+            className="flex items-start justify-between gap-2 rounded-lg border border-slate-100 dark:border-slate-700 px-3 py-2.5"
+          >
+            <div className="min-w-0">
+              <p className={`text-sm ${n.completada ? 'text-slate-400 line-through dark:text-slate-500' : 'text-slate-700 dark:text-slate-200'} whitespace-pre-wrap`}>
+                {n.texto}
+              </p>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                {n.fechaAviso && (
+                  <span className={vencido ? 'text-red-500 font-medium' : ''}>
+                    Aviso: {fechaHora(n.fechaAviso)}
+                    {vencido && ' · vencido'}
+                    {' · '}
+                  </span>
+                )}
+                {fechaCorta(n.creadoEn)}
+                {n.asesor && ` · ${n.asesor.nombre} ${n.asesor.apellidoP}`}
+              </p>
+            </div>
+            <MenuAcciones
+              small
+              items={[
+                n.tipo !== 'NOTA' && {
+                  label: n.completada ? 'Marcar pendiente' : 'Marcar hecha',
+                  onClick: () => onCompletar(n),
+                },
+                { label: 'Eliminar', danger: true, onClick: () => onEliminar(n) },
+              ].filter(Boolean)}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function CandidatoDetalle() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -92,6 +150,8 @@ export default function CandidatoDetalle() {
   const [openCita, setOpenCita] = useState(false);
   const [toArchive, setToArchive] = useState(false);
   const [avanzando, setAvanzando] = useState(false);
+  const [openNota, setOpenNota] = useState(null); // 'NOTA' | 'RECORDATORIO'
+  const [notaABorrar, setNotaABorrar] = useState(null);
 
   useEffect(() => {
     if (!candidato) return;
@@ -129,6 +189,21 @@ export default function CandidatoDetalle() {
       refetch();
       qc.invalidateQueries(['candidatos']);
     } catch (e) { alert(handleError(e)); } finally { setAvanzando(false); }
+  };
+
+  const completarNota = async (nota) => {
+    try {
+      await api.patch(`/notas/${nota.id}`, { completada: !nota.completada });
+      refetch();
+    } catch (e) { alert(handleError(e)); }
+  };
+
+  const eliminarNota = async () => {
+    try {
+      await api.delete(`/notas/${notaABorrar.id}`);
+      setNotaABorrar(null);
+      refetch();
+    } catch (e) { alert(handleError(e)); }
   };
 
   const archivar = async () => {
@@ -172,6 +247,8 @@ export default function CandidatoDetalle() {
           <MenuAcciones
             items={[
               { label: 'Editar datos', onClick: () => setOpenEditar(true) },
+              { label: 'Agregar nota', onClick: () => setOpenNota('NOTA') },
+              { label: 'Crear recordatorio', onClick: () => setOpenNota('RECORDATORIO') },
               'sep',
               { label: 'Archivar candidato', danger: true, onClick: () => setToArchive(true) },
             ]}
@@ -295,6 +372,37 @@ export default function CandidatoDetalle() {
               </div>
             )}
           </Card>
+
+          {/* POP: cuestionario propio de la promotoría (ver components/candidatos/PopCandidato.jsx) */}
+          <PopCandidato candidato={candidato} onCambio={() => refetch()} />
+
+          {/* Notas y recordatorios del reclutador, lado a lado (mismo patrón
+              que las dos tarjetas de recordatorios de la ficha de cliente). */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card
+              title="Notas"
+              actions={<button onClick={() => setOpenNota('NOTA')} className="btn-secondary text-xs">+ Nota</button>}
+            >
+              <ListaNotas
+                notas={candidato.notasSeguimiento}
+                tipo="NOTA"
+                onCompletar={completarNota}
+                onEliminar={setNotaABorrar}
+              />
+            </Card>
+            <Card
+              title="Recordatorios"
+              subtitle="Te avisamos un día antes y el mismo día."
+              actions={<button onClick={() => setOpenNota('RECORDATORIO')} className="btn-secondary text-xs">+ Recordatorio</button>}
+            >
+              <ListaNotas
+                notas={candidato.notasSeguimiento}
+                tipo="RECORDATORIO"
+                onCompletar={completarNota}
+                onEliminar={setNotaABorrar}
+              />
+            </Card>
+          </div>
         </div>
       </div>
 
@@ -306,6 +414,26 @@ export default function CandidatoDetalle() {
         candidatoId={candidato.id}
         preModalidad={MODALIDAD_POR_ETAPA[candidato.etapa] || 'ENTREVISTA_INICIAL'}
       />
+
+      {/* Formulario único de notas/recordatorios, compartido con clientes. */}
+      <NotaFormModal
+        open={!!openNota}
+        onClose={() => setOpenNota(null)}
+        candidatoId={candidato.id}
+        tipo={openNota || 'RECORDATORIO'}
+        nombreCliente={`${candidato.nombre} ${candidato.apellidoP}`}
+        onSaved={() => refetch()}
+      />
+
+      <Modal open={!!notaABorrar} onClose={() => setNotaABorrar(null)} title="Eliminar">
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          ¿Eliminar {notaABorrar?.tipo === 'NOTA' ? 'esta nota' : 'este recordatorio'}? No se puede deshacer.
+        </p>
+        <div className="flex justify-end gap-2 pt-4">
+          <button onClick={() => setNotaABorrar(null)} className="btn-secondary">Cancelar</button>
+          <button onClick={eliminarNota} className="btn-danger">Eliminar</button>
+        </div>
+      </Modal>
 
       <Modal open={toArchive} onClose={() => setToArchive(false)} title="Archivar candidato">
         <p className="text-sm text-slate-600 dark:text-slate-300">

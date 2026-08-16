@@ -242,14 +242,27 @@ Mapa único `frontend/src/components/polizas/tipos.js` (`MONEDAS`,
   cobro** y `sincronizarRecordatorioPago()` **borra** los abiertos (el cargo
   es automático; recordarlo es ruido). Aplica igual en `reminderJob.js`.
 - **`Venta.fechaEmision`** es distinta de `fechaFirma` (el cliente firma la
-  solicitud; la compañía emite después). **Fin de vigencia automático**: al
-  capturar el inicio se sugiere un año menos un día, solo si el campo está
-  vacío (no pisa un ajuste manual). El plazo del producto ("20 pagos") es
-  periodo de PAGO, no de cobertura — no usarlo para la vigencia.
-  **Reconfirmado 2026-08-14**: los planes duran de 10 a 20+ años, pero la
-  póliza es de **vigencia anual** y se paga anual/semestral/trimestral/
-  mensual durante todo ese plazo. `finDeVigenciaSugerido()` NO debe derivarse
-  del plazo del producto.
+  solicitud; la compañía emite después).
+- **Fin de vigencia automático desde el plazo del producto** (2026-08-15,
+  cambio de criterio pedido por el usuario — antes se sugería siempre un año):
+  `finDeVigenciaSugerido(inicioISO, anios)` en `PolizaFormModal.jsx` adelanta
+  `anios` desde el inicio y resta un día (vence la víspera del aniversario).
+  Los años salen de `aniosDePlazo()`, que traduce el texto que ya producía
+  `plazoDesdeNombre()` ("20 años" → 20, "10 pagos" → 10, "Anual renovable" →
+  1, "Plazo medio (10-19 años)" → 10, el piso del rango). Devuelve `null` —y
+  se cae al año de vigencia de siempre— en los plazos que no son un número
+  fijo de años: "Todos los pagos" y "Hasta edad 60" (vitalicios / atados a la
+  edad, que el modal no conoce) y SeguBeca ("18 menos la edad del menor").
+  Se dispara en **dos** momentos, siempre sin pisar un ajuste manual: al
+  capturar el inicio (solo si el fin está vacío) y al elegir producto cuando
+  el inicio ya estaba puesto (solo si el fin sigue siendo exactamente el que
+  sugerimos con el plazo anterior). Bajo el campo hay un texto que dice a
+  cuántos años se sugirió y con qué plazo. **Es solo una sugerencia editable
+  para no teclear la fecha a mano: no es un dato de negocio ni se guarda el
+  número de años.** Nota de dominio que sigue vigente: el plazo ("20 pagos")
+  es periodo de PAGO y la póliza se renueva de forma anual — la fecha
+  sugerida es la del fin del plan, y el asesor la corrige si su póliza dice
+  otra cosa.
 - **El campo "Plazo" se autorrellena desde el catálogo** (2026-08-14): el
   plazo ya viene codificado en el `nombre` del producto ("Orvi 10 pagos",
   "Star Dotal 20 años", "Imagina Ser PPR — Pagos Limitados 15") porque cada
@@ -1099,6 +1112,11 @@ Componentes reutilizables en `components/ui.jsx`:
   lunes-domingo, igual que el resto del calendario de la app. Usado en
   `PolizaFormModal` para las 4 fechas de la póliza; para agregarlo a Citas u
   otro formulario, reusar este componente en vez de crear otro.
+  **Mes y año son `<select>` en el encabezado** (2026-08-15): solo con las
+  flechas, llegar a un fin de vigencia a 20 años eran decenas de clics. El
+  rango de años va de `hoy − 10` a `hoy + 40` (las pólizas de vida llegan a
+  20+ años) y **siempre incluye el año visible** aunque caiga fuera, para que
+  una fecha ya guardada nunca desaparezca del selector.
 
 Formato: helpers y catálogos de labels en `lib/format.js` (`mxn`, `fechaCorta`,
 `edad`, `RAMOS_LABEL`, `FORMAS_PAGO`, `ESTADOS_VENTA_LABEL`, `PAGOS_POR_ANIO`…).

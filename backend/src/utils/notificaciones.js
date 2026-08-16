@@ -13,6 +13,7 @@ export const TIPOS_NOTIFICACION = [
   'RECORDATORIO_PAGO',
   'PROSPECTO_ESTANCADO',         // prospecto sin avance ni contacto en 15 días
   'META_AVANCE',                 // avance de la meta mensual de pólizas
+  'POP_RESPONDIDO',              // un candidato contestó el POP que se le envió
 ];
 
 // Punto de entrada ÚNICO para avisar a un usuario. Persiste la notificación
@@ -69,10 +70,14 @@ export async function notificarRecordatorioNota(nota, { previo = false } = {}) {
     : `Recordatorio${sufijo} · Origen Promotoría`;
   const base = nota.texto?.slice(0, 180) || 'Tienes un recordatorio pendiente';
   const cuerpo = previo ? `Mañana: ${base}` : base;
+  // La nota cuelga de un cliente o de un candidato a asesor (excluyentes), así
+  // que el aviso debe llevar a la ficha que corresponda.
+  const ruta = nota.candidatoId ? `/candidatos/${nota.candidatoId}` : `/clientes/${nota.clienteId}`;
   const datos = {
-    url: `${process.env.PUBLIC_URL || ''}/clientes/${nota.clienteId}`,
+    url: `${process.env.PUBLIC_URL || ''}${ruta}`,
     notaId: nota.id,
-    clienteId: nota.clienteId,
+    clienteId: nota.clienteId || null,
+    candidatoId: nota.candidatoId || null,
     ventaId: nota.ventaId || null,
     previo,
   };

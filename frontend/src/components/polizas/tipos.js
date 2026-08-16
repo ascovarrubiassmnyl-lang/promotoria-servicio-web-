@@ -26,6 +26,27 @@ export function montoMoneda(valor, moneda) {
   return `${info.simbolo}${n} ${info.sufijo}`.trim();
 }
 
+// --- Equivalente en pesos ---------------------------------------------------
+// Convierte un monto capturado en `moneda` a MXN usando la tabla de tipos de
+// cambio de Banxico que devuelve GET /ventas/tipo-cambio (shape:
+// { MXN:{valor}, USD:{valor,fecha}|null, UDI:{...}|null }).
+//
+// Devuelve null cuando NO se puede afirmar el equivalente — sin monto, sin
+// tabla, o sin tipo de cambio para esa moneda. Es deliberado: es preferible no
+// mostrar nada a mostrar una cifra en pesos que no corresponde a la realidad.
+// El llamador decide qué poner en su lugar (normalmente, nada).
+export function equivalenteMXN(valor, moneda, tipos) {
+  const n = +valor;
+  if (!Number.isFinite(n) || n === 0) return null;
+  if (moneda === 'MXN' || !moneda) return null; // ya está en pesos: no hay equivalente que mostrar
+  const tc = tipos?.[moneda]?.valor;
+  if (!tc || tc <= 0) return null;
+  return n * tc;
+}
+
+// Tipo de cambio vigente de una moneda según la tabla, o null.
+export const tcDe = (moneda, tipos) => (moneda && moneda !== 'MXN' ? (tipos?.[moneda]?.valor ?? null) : null);
+
 // --- Método de pago ---------------------------------------------------------
 export const METODOS_PAGO = [
   { value: 'TARJETA_CREDITO', label: 'Tarjeta de crédito' },

@@ -230,6 +230,19 @@ export function DatePicker({ value, onChange, placeholder = 'Selecciona una fech
 
   const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const cambiarMes = (delta) => setMesVisible((m) => new Date(m.getFullYear(), m.getMonth() + delta, 1));
+  const irA = (anio, mes) => setMesVisible(new Date(anio, mes, 1));
+
+  // Rango del selector de año. Las pólizas de vida llegan a 20+ años de
+  // vigencia, así que el rango va muy por delante del año actual; hacia atrás
+  // basta con cubrir pólizas antiguas y fechas de nacimiento no se capturan
+  // aquí. Siempre incluye el año visible aunque quede fuera del rango (una
+  // fecha ya guardada nunca debe desaparecer del selector).
+  const anioActual = new Date().getFullYear();
+  const anios = (() => {
+    const desde = Math.min(anioActual - 10, mesVisible.getFullYear());
+    const hasta = Math.max(anioActual + 40, mesVisible.getFullYear());
+    return Array.from({ length: hasta - desde + 1 }, (_, i) => desde + i);
+  })();
   const elegir = (dia) => { onChange(fmt(new Date(mesVisible.getFullYear(), mesVisible.getMonth(), dia))); setOpen(false); };
 
   const label = seleccionada
@@ -250,12 +263,33 @@ export function DatePicker({ value, onChange, placeholder = 'Selecciona una fech
         </svg>
       </button>
       {open && (
-        <div className="absolute z-30 mt-1 w-64 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-lg p-3">
+        <div className="absolute z-30 mt-1 w-72 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-lg p-3">
           <div className="flex items-center justify-between mb-2">
             <button type="button" onClick={() => cambiarMes(-1)} aria-label="Mes anterior" className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 6l-6 6 6 6" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>
-            <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{nombreMes(mesVisible.getMonth() + 1)} {mesVisible.getFullYear()}</span>
+            {/* Mes y año como selects: llegar a una vigencia a 20 años con las
+                flechas eran decenas de clics. */}
+            <div className="flex items-center gap-1">
+              <select
+                aria-label="Mes"
+                className="text-sm font-semibold text-slate-700 dark:text-slate-200 bg-transparent rounded-lg px-1 py-0.5 hover:bg-slate-100 dark:hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer"
+                value={mesVisible.getMonth()}
+                onChange={(e) => irA(mesVisible.getFullYear(), Number(e.target.value))}
+              >
+                {Array.from({ length: 12 }, (_, i) => (
+                  <option key={i} value={i}>{nombreMes(i + 1)}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Año"
+                className="text-sm font-semibold text-slate-700 dark:text-slate-200 bg-transparent rounded-lg px-1 py-0.5 hover:bg-slate-100 dark:hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer tabular-nums"
+                value={mesVisible.getFullYear()}
+                onChange={(e) => irA(Number(e.target.value), mesVisible.getMonth())}
+              >
+                {anios.map((a) => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
             <button type="button" onClick={() => cambiarMes(1)} aria-label="Mes siguiente" className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>

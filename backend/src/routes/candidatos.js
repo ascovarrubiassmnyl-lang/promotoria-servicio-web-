@@ -105,6 +105,24 @@ router.get('/:id', asyncHandler(async (req, res) => {
         take: 20,
         include: { asesor: { select: { id: true, nombre: true, apellidoP: true } } },
       },
+      // Notas y recordatorios de seguimiento del reclutador (modelo Nota
+      // compartido con clientes; ver routes/notas.js).
+      notasSeguimiento: {
+        orderBy: { creadoEn: 'desc' },
+        include: { asesor: { select: { id: true, nombre: true, apellidoP: true } } },
+      },
+      // POP enviados: el resumen basta para la ficha; el detalle con
+      // respuestas se pide a GET /pop/envios/:id.
+      popEnvios: {
+        orderBy: { creadoEn: 'desc' },
+        select: {
+          id: true, token: true, estado: true, expiraEn: true, puntaje: true,
+          puntosObtenidos: true, puntosPosibles: true, recomendacion: true,
+          bloques: true, respondidoEn: true, abiertoEn: true, creadoEn: true,
+          plantilla: { select: { id: true, nombre: true } },
+          enviadoPor: { select: { id: true, nombre: true, apellidoP: true } },
+        },
+      },
     },
   });
   if (!candidato) return res.status(404).json({ error: 'Candidato no encontrado' });
