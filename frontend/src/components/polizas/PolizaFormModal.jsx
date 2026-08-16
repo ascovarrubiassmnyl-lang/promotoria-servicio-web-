@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
-import { Modal, Field, DatePicker, NumeroFormateado } from '../ui.jsx';
+import { Modal, Field, DatePicker } from '../ui.jsx';
 import {
   RAMOS, RAMOS_LABEL, FORMAS_PAGO, FORMAS_PAGO_LIST,
   ESTADOS_VENTA, ESTADOS_VENTA_LABEL, isoLocalDateInput, mxn,
@@ -488,6 +488,27 @@ export default function PolizaFormModal({ open, onClose, venta = null, asesorId 
               </Field>
               <Field label={`Tipo de cambio (1 ${infoMoneda(form.moneda).sufijo} = MXN)*`}>
                 <input type="number" step="0.0001" className="input" required value={form.tipoCambio} onChange={(e) => set('tipoCambio', e.target.value)} placeholder="Ej. 17.50" />
+                {tipos?.[form.moneda]?.valor ? (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    Banxico {tipos[form.moneda].fecha || 'hoy'}:{' '}
+                    <strong className="tabular-nums font-medium">
+                      {tipos[form.moneda].valor.toLocaleString('es-MX', { maximumFractionDigits: 4 })}
+                    </strong>
+                    {+form.tipoCambio > 0 && Math.abs(+form.tipoCambio - tipos[form.moneda].valor) > 0.0001 && (
+                      <button
+                        type="button"
+                        className="ml-1.5 font-medium text-brand-600 dark:text-brand-400 hover:underline"
+                        onClick={() => set('tipoCambio', String(tipos[form.moneda].valor))}
+                      >
+                        usar este
+                      </button>
+                    )}
+                  </p>
+                ) : (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                    No se pudo consultar el tipo de cambio oficial: captúralo a mano.
+                  </p>
+                )}
               </Field>
             </>
           ) : (

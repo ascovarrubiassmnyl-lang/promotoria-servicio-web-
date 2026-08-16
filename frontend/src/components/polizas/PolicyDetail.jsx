@@ -7,7 +7,7 @@ import {
   mxn, fechaCorta, fechaHora, RAMOS_LABEL, FORMAS_PAGO,
   esVentaGanada, esVentaPipeline, PAGOS_POR_ANIO, edad, tamanoLegible,
 } from '../../lib/format.js';
-import { infoMoneda, montoMoneda, labelMetodoPago, semaforoPago, infoSemaforo } from './tipos.js';
+import { infoMoneda, montoMoneda, labelMetodoPago, semaforoPago, infoSemaforo, equivalenteMXN } from './tipos.js';
 import VisorDocumento, { useVisorDocumento } from '../documentos/VisorDocumento.jsx';
 
 const ASEGURADORA = 'Seguros Monterrey New York Life';
@@ -19,6 +19,22 @@ function Kv({ k, children, big = false, green = false }) {
       <p className="kv-k">{k}</p>
       <div className={`kv-v ${big ? 'text-lg' : ''} ${green ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>{children}</div>
     </div>
+  );
+}
+
+// Equivalente en pesos, en pequeño, de una cifra guardada en divisa. Se calcula
+// con el tipo de cambio de HOY (Banxico), no con el que se usó al capturar la
+// póliza: la pregunta que responde es "¿cuánto vale esto ahorita?".
+// No renderiza nada para montos en MXN ni cuando no hay tipo de cambio — antes
+// que mostrar una cifra en pesos que no es la real, no se muestra ninguna.
+function EquivalentePesos({ monto, moneda, tipos }) {
+  const enPesos = equivalenteMXN(monto, moneda, tipos);
+  if (enPesos == null) return null;
+  const fecha = tipos?.[moneda]?.fecha;
+  return (
+    <p className="text-xs text-slate-500 dark:text-slate-400 font-normal mt-0.5">
+      ≈ {mxn(enPesos)} <span className="text-slate-400 dark:text-slate-500">hoy{fecha ? ` · Banxico ${fecha}` : ''}</span>
+    </p>
   );
 }
 
@@ -40,6 +56,14 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
   const { data: p, isLoading } = useQuery({
     queryKey: ['poliza', polizaId],
     queryFn: async () => (await api.get(`/ventas/${polizaId}`)).data,
+  });
+  // Tipos de cambio del día: para mostrar a cuánto equivalen HOY en pesos las
+  // cifras que la póliza guarda en dólares o UDIS. Es una referencia viva
+  // (cambia con el mercado), distinta del TC que se congeló al capturarla.
+  const { data: tipos } = useQuery({
+    queryKey: ['tipo-cambio'],
+    queryFn: async () => (await api.get('/ventas/tipo-cambio')).data,
+    staleTime: 60 * 60 * 1000,
   });
   const { visor, verArchivo, cerrarVisor, descargarArchivo } = useVisorDocumento();
 
@@ -158,6 +182,7 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
             {p.sumaAsegurada != null
               ? (p.sumaAseguradaMoneda && p.sumaAseguradaMoneda !== 'MXN' ? montoMoneda(p.sumaAsegurada, p.sumaAseguradaMoneda) : mxn(p.sumaAsegurada))
               : '—'}
+            <EquivalentePesos monto={p.sumaAsegurada} moneda={p.sumaAseguradaMoneda} tipos={tipos} />
           </Kv>
           <Kv k="Prima anual" big>
             {mxn(p.primaAnual)}
@@ -188,7 +213,12 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
           <Kv k={`Comisión ${p.comisionPct != null ? `(${p.comisionPct}%)` : ''} ${ganada ? '· ganada' : enPipeline ? '· potencial' : ''}`} green={ganada}>
             {mxn(p.comisionMonto)}
           </Kv>
-          {p.deducible != null && <Kv k="Deducible">{mxn(p.deducible)}</Kv>}
+          {p.deducible != null && (
+            <Kv k="Deducible">
+              {p.deducibleMoneda && p.deducibleMoneda !== 'MXN' ? montoMoneda(p.deducible, p.deducibleMoneda) : mxn(p.deducible)}
+              <EquivalentePesos monto={p.deducible} moneda={p.deducibleMoneda} tipos={tipos} />
+            </Kv>
+          )}
           {p.coaseguro && <Kv k="Coaseguro">{p.coaseguro}</Kv>}
         </div>
       </Card>
@@ -214,9 +244,13 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
                   <p className={`text-sm tabular-nums ${/incluida/i.test(c.monto || '') ? 'text-slate-400 dark:text-slate-500' : 'font-semibold text-slate-800 dark:text-slate-100'}`}>
                     {c.monto || '—'}
                   </p>
-                  {/* Costo extra por cobertura: sin costo = va incluida */}
+                  {/* Costo extra por cobertura: sin costo = va incluida.
+                      Cada fila puede tener su propia moneda (costoMoneda);
+                      las guardadas antes de multi-moneda no la traen = MXN. */}
                   <p className="text-xs mt-0.5 tabular-nums text-slate-400 dark:text-slate-500">
-                    {c.costo > 0 ? `+${mxn(c.costo)}` : 'Sin costo extra'}
+                    {c.costo > 0
+                      ? `+${(c.costoMoneda && c.costoMoneda !== 'MXN') ? montoMoneda(c.costo, c.costoMoneda) : mxn(c.costo)}`
+                      : 'Sin costo extra'}
                   </p>
                 </div>
               </div>
@@ -225,7 +259,12 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
               <div className="flex items-center justify-between pt-2.5 mt-1 border-t border-slate-200 dark:border-slate-700 text-sm">
                 <span className="font-medium text-slate-600 dark:text-slate-300">Costo extra de coberturas</span>
                 <span className="font-semibold tabular-nums text-slate-800 dark:text-slate-100">
-                  {mxn(coberturas.reduce((s, c) => s + (+c.costo || 0), 0))}
+                  {/* Se convierte cada fila a pesos ANTES de sumar: sumar
+                      dólares con pesos daría un número sin significado. */}
+                  {mxn(coberturas.reduce((s, c) => {
+                    const m = c.costoMoneda || 'MXN';
+                    return s + (m === 'MXN' ? (+c.costo || 0) : (equivalenteMXN(c.costo, m, tipos) || 0));
+                  }, 0))}
                 </span>
               </div>
             )}

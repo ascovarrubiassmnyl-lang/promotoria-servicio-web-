@@ -308,6 +308,55 @@ Mapa único `frontend/src/components/polizas/tipos.js` (`MONEDAS`,
   mostrar comas; mismo componente reusable para cualquier otro monto grande
   del sistema.
 
+### Multi-moneda en toda la póliza + Banxico (2026-08-15)
+
+**Todos** los montos de la póliza tienen moneda propia (MXN/USD/UDI), no solo
+la prima y la suma asegurada: se agregaron `Venta.montoPagoMoneda`,
+`Venta.deducibleMoneda` y `costoMoneda` por fila dentro del Json
+`Venta.coberturas` (migración `20260815140000_poliza_multimoneda`; las filas
+guardadas antes no lo traen y se leen como MXN). Motivo: Orvi, Star Dotal y
+Alfa Medical Internacional se contratan en USD/UDIS y forzar esos campos a
+pesos obligaba a convertir a mano.
+
+- **`Venta.primaAnual` SIGUE SIENDO SIEMPRE MXN** — esta sección no cambia esa
+  regla. Es el único campo que alimenta métricas, comisiones, metas y ranking,
+  y lo convierte `resolverPrima()` en el servidor. Los demás montos se guardan
+  **en su moneda original, sin convertir**: son informativos y no alimentan
+  ningún cálculo de negocio, así que convertirlos crearía una segunda
+  definición de la verdad.
+- **Tipo de cambio = Banxico** (`backend/src/services/tipoCambio.js`, expuesto
+  en `GET /ventas/tipo-cambio`, declarado **antes** de `/:id` como el resto de
+  rutas de segmento fijo). Series SIE: **SF43718** (FIX, pesos por dólar) y
+  **SP68257** (valor de la UDI). Se eligió Banxico porque el FIX es la paridad
+  con que se liquidan estas pólizas y porque **la UDI solo la publica Banxico**
+  — ninguna API de FX genérica la tiene. Cache en memoria de 3h (el FIX se
+  publica una vez al día) y timeout de 6s.
+- **Requiere `BANXICO_TOKEN` en `.env`** (gratuito:
+  banxico.org.mx/SieAPIRest/service/v1/token). **Sin token no se rompe nada**:
+  el endpoint responde `{disponible:false}` con las monedas en `null`, el
+  formulario deja de mostrar equivalentes y el asesor captura el tipo de cambio
+  a mano como antes — mismo criterio que `GEMINI_API_KEY`, la automatización es
+  un extra sobre el flujo manual, nunca un bloqueo para registrar una póliza.
+- **El equivalente en pesos NO se guarda: se calcula al vuelo** con el TC del
+  día, en `equivalenteMXN()` (`components/polizas/tipos.js`). Por eso siempre
+  refleja el valor actual y no una foto vieja. `equivalenteMXN` devuelve `null`
+  cuando no hay TC disponible y la UI entonces **no muestra ninguna cifra en
+  pesos** (con aviso ámbar) — es deliberado: mostrar un equivalente calculado
+  con una paridad inventada o vencida es peor que no mostrarlo.
+- **`Venta.sumaAseguradaTC`** es la única foto que sí se persiste: el TC con el
+  que se le enseñó la cifra al cliente al capturar. Informativo puro (nadie más
+  lo lee), igual que `tipoCambio` para la prima.
+- **Componente único `components/polizas/MontoMoneda.jsx`** (monto +
+  selector de moneda + equivalente en pesos) para suma asegurada, monto por
+  pago y deducible. No volver a armar ese trío a mano en otro campo.
+- **Sumar montos de monedas distintas exige convertir primero**: el total de
+  "costo extra de coberturas" (formulario y `PolicyDetail`) convierte cada
+  fila a MXN antes de sumar, y excluye —avisando— las filas en divisa sin TC.
+  Nunca sumar los números crudos.
+- En el formulario, el TC de la prima se **prellena** con el oficial del día
+  pero solo si está vacío: una póliza pudo pactarse a otra paridad, y al editar
+  no se pisa el valor histórico (hay botón "usar este" para adoptar el actual).
+
 ### Documento de la póliza y extracción con IA (2026-08-14)
 
 Al hacer clic en "+ Nueva póliza" aparece primero una pantalla de elección

@@ -86,7 +86,15 @@ function mapearAForm({ datos, modelo, documentoTmp }) {
   const f = {};
   if (datos.producto) f.producto = datos.producto;
   if (datos.ramo) f.ramo = datos.ramo;
-  if (datos.moneda) { f.moneda = datos.moneda; f.sumaAseguradaMoneda = datos.moneda; }
+  // La moneda leída del documento aplica a TODAS las cifras de la póliza: si
+  // la carátula está en dólares, la suma asegurada, el deducible y el recibo
+  // también lo están. El asesor puede corregir cada una por separado.
+  if (datos.moneda) {
+    f.moneda = datos.moneda;
+    f.sumaAseguradaMoneda = datos.moneda;
+    f.deducibleMoneda = datos.moneda;
+    f.montoPagoMoneda = datos.moneda;
+  }
   if (datos.primaAnual != null) {
     if (datos.moneda && datos.moneda !== 'MXN') f.primaMoneda = datos.primaAnual;
     else f.primaAnual = datos.primaAnual;
@@ -100,7 +108,10 @@ function mapearAForm({ datos, modelo, documentoTmp }) {
   if (datos.fechaInicioVigencia) f.fechaInicioVigencia = datos.fechaInicioVigencia;
   if (datos.fechaFinVigencia) f.fechaFinVigencia = datos.fechaFinVigencia;
   if (Array.isArray(datos.coberturas) && datos.coberturas.length) {
-    f.coberturas = datos.coberturas.map((c) => ({ nombre: c.nombre || '', detalle: c.detalle || '', monto: c.monto || '', costo: '' }));
+    f.coberturas = datos.coberturas.map((c) => ({
+      nombre: c.nombre || '', detalle: c.detalle || '', monto: c.monto || '',
+      costo: '', costoMoneda: datos.moneda || 'MXN',
+    }));
   }
   if (Array.isArray(datos.beneficiarios) && datos.beneficiarios.length) {
     f.beneficiarios = datos.beneficiarios.map((b) => ({ nombre: b.nombre || '', porcentaje: b.porcentaje ?? '' }));
