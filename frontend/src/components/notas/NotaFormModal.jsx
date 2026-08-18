@@ -52,7 +52,12 @@ export default function NotaFormModal({
         tipo,
         destinatario,
         texto: form.texto,
-        fechaAviso: form.fechaAviso || null,
+        // `datetime-local` da un string SIN zona ("2026-08-19T10:00"): mandarlo
+        // tal cual hacía que el servidor (UTC en producción) lo leyera como su
+        // propia hora local y el recordatorio se corriera el offset completo
+        // (10:00 se veía a las 04:00). Se convierte a ISO con zona aquí, igual
+        // que CitaFormModal con fechaHoraInicio/Fin.
+        fechaAviso: form.fechaAviso ? new Date(form.fechaAviso).toISOString() : null,
       });
       onClose();
       if (esCandidato) {

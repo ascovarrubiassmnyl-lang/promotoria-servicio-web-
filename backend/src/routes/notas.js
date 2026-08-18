@@ -3,6 +3,7 @@ import { prisma } from '../prisma.js';
 import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 import { accesoEfectivo } from '../middleware/permisos.js';
+import { parseFechaEntrada } from '../utils/fechas.js';
 
 const router = Router();
 router.use(authenticate);
@@ -96,7 +97,7 @@ router.post('/', asyncHandler(async (req, res) => {
       tipo: tipo || 'NOTA',
       destinatario: DESTINATARIOS.includes(destinatario) ? destinatario : 'ASESOR',
       texto,
-      fechaAviso: fechaAviso ? new Date(fechaAviso) : null,
+      fechaAviso: parseFechaEntrada(fechaAviso),
     },
     include: {
       cliente: { select: { id: true, nombre: true, apellidoP: true } },
@@ -127,7 +128,7 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   if (texto !== undefined) data.texto = texto;
   if (completada !== undefined) data.completada = completada;
   if (fechaAviso !== undefined) {
-    data.fechaAviso = fechaAviso ? new Date(fechaAviso) : null;
+    data.fechaAviso = parseFechaEntrada(fechaAviso);
     // Reabrir la ventana de avisos: mover la fecha debe volver a notificar.
     data.notificacionEnviada = false;
     data.avisoPrevioEnviado = false;

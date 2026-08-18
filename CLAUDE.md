@@ -1152,6 +1152,24 @@ push sobre esa fila ya guardada.
   `avisoPrevioEnviado: false`; `notificarRecordatorioNota(nota, {previo:
   true})` usa copy y `tag` propios para que la push anticipada no reemplace
   a la del día. Mover `fechaAviso` en un PATCH resetea ambas banderas.
+- **Las fechas capturadas viajan con zona horaria** (2026-08-18, bug real): un
+  `<input type="datetime-local">` produce un string SIN zona
+  (`"2026-08-19T10:00"`) y Node lo interpreta con la zona del **servidor** —
+  en Railway (UTC) las 10:00 del asesor quedaban como 10:00Z y se veían a las
+  04:00. `NotaFormModal` ahora manda `new Date(valor).toISOString()`, igual
+  que `CitaFormModal` con `fechaHoraInicio`/`Fin`: **cualquier formulario
+  nuevo con `datetime-local` debe convertir en el navegador**. Red de
+  seguridad en servidor: `parseFechaEntrada()`
+  (`backend/src/utils/fechas.js`, usada en el POST y el PATCH de `/notas`)
+  respeta un ISO con zona y lee un string sin zona como hora de
+  `America/Mexico_City`, nunca como hora del servidor. La corrección de los
+  datos ya guardados es el script único
+  `backend/scripts/corregir-recordatorios-utc.mjs` (simulación por defecto;
+  solo toca `tipo: RECORDATORIO`, nunca `RECORDATORIO_PAGO` ni las banderas
+  de aviso, que se conservan para no volver a notificar). **Solo aplica a una
+  base escrita por un servidor en UTC**: en desarrollo esas filas están bien,
+  y por eso el script se niega a escribir si ninguna fila muestra la huella
+  del bug.
 
 ### Automatizaciones cableadas (`jobs/automatizacionesJob.js`, 2026-08-13)
 
