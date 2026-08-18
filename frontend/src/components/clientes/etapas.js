@@ -69,15 +69,43 @@ export const ETAPAS = [
     text: 'text-emerald-600 dark:text-emerald-400',
     badge: 'green',
   },
-].map((e, orden) => ({ ...e, orden, label: ESTADOS_CLIENTE_LABEL[e.value] || e.value }));
+].map((e, orden) => ({ ...e, orden, terminal: false, label: ESTADOS_CLIENTE_LABEL[e.value] || e.value }));
+
+// Etapa TERMINAL: el prospecto no va a comprar (no contesta, no le interesa,
+// no califica). Deliberadamente FUERA de ETAPAS: no tiene posición en el
+// embudo (`orden: -1`), así el stepper, los segmentos de progreso, el funnel
+// del dashboard y `siguienteEtapa` la ignoran sin tocar su lógica. Roja, que
+// es el color de "cancelado/terminal" en el sistema de diseño.
+// No confundir con archivar (borrado lógico, Cliente.archivadoEn): un cliente
+// descartado sigue en la lista y se puede reactivar cambiándole la etapa.
+export const ETAPA_DESCARTADO = {
+  value: 'DESCARTADO',
+  orden: -1,
+  terminal: true,
+  label: ESTADOS_CLIENTE_LABEL.DESCARTADO,
+  dot: 'bg-red-500', border: 'border-red-500', halo: 'ring-red-500/25',
+  pill: 'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300',
+  chipOn: 'ring-red-500 dark:ring-red-400',
+  badgeOn: 'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300',
+  text: 'text-red-600 dark:text-red-400',
+  badge: 'red',
+};
+
+// Todo lo que el usuario puede ELEGIR (selectores, popover de la columna
+// Etapa, chips de filtro). Distinto de ETAPAS, que es el embudo ordenado y
+// solo debe usarse para pintar progreso.
+export const ETAPAS_SELECCIONABLES = [...ETAPAS, ETAPA_DESCARTADO];
 
 // Fallback neutro para valores desconocidos o legacy (p. ej. el viejo
 // NECESITA_SEGUIMIENTO almacenado antes de la migración a bandera).
 export const infoEtapa = (value) =>
-  ETAPAS.find((e) => e.value === value) || { ...ETAPAS[0], value, orden: -1, label: ESTADOS_CLIENTE_LABEL[value] || value, badge: 'slate' };
+  ETAPAS_SELECCIONABLES.find((e) => e.value === value)
+  || { ...ETAPAS[0], value, orden: -1, terminal: false, label: ESTADOS_CLIENTE_LABEL[value] || value, badge: 'slate' };
 
 export const ordenEtapa = (value) => infoEtapa(value).orden;
 
+// Un cliente descartado no "avanza" a ninguna parte: sale null igual que la
+// última etapa del embudo (su orden es -1).
 export const siguienteEtapa = (value) => {
   const i = ordenEtapa(value);
   return i >= 0 && i < ETAPAS.length - 1 ? ETAPAS[i + 1] : null;

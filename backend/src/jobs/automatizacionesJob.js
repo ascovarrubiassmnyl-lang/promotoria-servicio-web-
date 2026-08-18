@@ -48,6 +48,9 @@ async function prospectosEstancados() {
     where: {
       archivadoEn: null,
       actualizadoEn: { lt: corte },
+      // Descartado es terminal: el asesor ya decidió que no va a comprar,
+      // recordárselo cada 15 días es justo el ruido que la regla evita.
+      estado: { not: 'DESCARTADO' },
       // Ya cerrada la venta no es un prospecto que perseguir.
       ventas: { none: { estado: { in: ['PENDIENTE_PAGAR', 'FIRMADA', 'APROBADA', 'PAGADA'] } } },
       // Con una cita agendada o un recordatorio abierto, ya hay siguiente paso.

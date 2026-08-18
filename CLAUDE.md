@@ -559,6 +559,20 @@ que se guardaron ya formateados — no volver a escribirla.
   No duplicar colores/labels de etapa en otros componentes (`ClienteBadge`
   ya consume este mapa). La etapa se muestra como pill + indicador de
   posición (segmentos en la lista, stepper en el expediente).
+- **`DESCARTADO` es una etapa TERMINAL, fuera del embudo** (2026-08-18): el
+  prospecto no va a comprar (no contesta, no le interesa, no califica). Vive
+  en `ETAPA_DESCARTADO` (roja), **deliberadamente fuera del array `ETAPAS`**
+  y con `orden: -1` — así el stepper, los segmentos de progreso, el funnel
+  del dashboard y `siguienteEtapa()` la ignoran sin lógica extra. Lo que el
+  usuario puede **elegir** (selectores, popover de la columna Etapa, chips de
+  filtro) es `ETAPAS_SELECCIONABLES = [...ETAPAS, ETAPA_DESCARTADO]`; `ETAPAS`
+  a secas se reserva para pintar progreso. Donde no hay posición en el embudo
+  se dice ("Fuera del embudo" en la lista, tarjeta en la ficha) en vez de
+  pintar la barra vacía. El whitelist de `/metricas/funnel` no lo incluye y la
+  regla "prospecto estancado" de `automatizacionesJob.js` lo excluye (ya se
+  decidió que no va a comprar: recordarlo cada 15 días es el ruido que la
+  regla evita). **No es lo mismo que archivar** (`Cliente.archivadoEn`, borrado
+  lógico): un descartado sigue en la lista y se reactiva cambiándole la etapa.
 - **"Necesita seguimiento" es una BANDERA, no una etapa**: campo
   `Cliente.necesitaSeguimiento` (booleano), independiente de `estado` — un
   cliente puede estar en cualquier etapa y además necesitar seguimiento.

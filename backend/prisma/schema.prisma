@@ -25,6 +25,10 @@ enum EstadoCliente {
   REFERIDOS
   POST_VENTA_SEGUIMIENTO
   NECESITA_SEGUIMIENTO
+  // Estado TERMINAL, fuera del embudo: el prospecto no va a comprar (no
+  // contesta, no le interesa, no califica). No es una etapa de progreso, por
+  // eso no entra en /metricas/funnel ni en el stepper de la ficha.
+  DESCARTADO
 }
 
 enum EstadoCita {

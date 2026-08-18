@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { Card, Modal, Field, EmptyState, MenuAcciones } from '../ui.jsx';
 import CandidatoFormModal from '../candidatos/CandidatoFormModal.jsx';
 import NotaFormModal from '../notas/NotaFormModal.jsx';
-import { ETAPAS, infoEtapa, FLAG_SEGUIMIENTO } from './etapas.js';
+import { ETAPAS, ETAPAS_SELECCIONABLES, infoEtapa, FLAG_SEGUIMIENTO } from './etapas.js';
 import { infoFuente, opcionesFuente } from './fuentes.js';
 import { RAMOS_LABEL, fechaCorta, hora } from '../../lib/format.js';
 
@@ -78,7 +78,7 @@ function EtapaCell({ cliente, onCambiarEtapa }) {
           </button>
           {open && (
             <div className="absolute left-0 top-full mt-1 z-30 min-w-[200px] rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-lg p-1.5">
-              {ETAPAS.map((et) => {
+              {ETAPAS_SELECCIONABLES.map((et) => {
                 const activa = et.value === cliente.estado;
                 return (
                   <button
@@ -104,11 +104,17 @@ function EtapaCell({ cliente, onCambiarEtapa }) {
           </span>
         )}
       </div>
-      <div className="flex gap-[3px]">
-        {ETAPAS.map((et, i) => (
-          <span key={et.value} className={`h-1 w-4 rounded-full ${i <= e.orden ? e.dot : 'bg-slate-200 dark:bg-slate-700'}`} />
-        ))}
-      </div>
+      {/* Indicador de posición en el embudo. Una etapa terminal (Descartado)
+          no tiene posición: en vez de pintar la barra vacía se dice por qué. */}
+      {e.terminal ? (
+        <p className={`text-[11px] font-medium ${e.text}`}>Fuera del embudo</p>
+      ) : (
+        <div className="flex gap-[3px]">
+          {ETAPAS.map((et, i) => (
+            <span key={et.value} className={`h-1 w-4 rounded-full ${i <= e.orden ? e.dot : 'bg-slate-200 dark:bg-slate-700'}`} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -365,7 +371,7 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
       {/* Pipeline: los chips de etapa son el filtro (clic = filtra, con conteo).
           "Necesita seguimiento" es bandera aparte, no etapa. */}
       <div className="flex flex-wrap gap-2">
-        {ETAPAS.map((e) => {
+        {ETAPAS_SELECCIONABLES.map((e) => {
           const on = etapaActiva === e.value;
           return (
             <button
@@ -503,8 +509,8 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
             <Field label="Email"><input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
             <Field label="Etapa del pipeline">
               <select className="input" value={form.estado} onChange={(e) => setForm({ ...form, estado: e.target.value })}>
-                {ETAPAS.map((e) => <option key={e.value} value={e.value}>{e.label}</option>)}
-                {infoEtapa(form.estado).orden === -1 && <option value={form.estado}>{infoEtapa(form.estado).label}</option>}
+                {ETAPAS_SELECCIONABLES.map((e) => <option key={e.value} value={e.value}>{e.label}</option>)}
+                {!ETAPAS_SELECCIONABLES.some((e) => e.value === form.estado) && <option value={form.estado}>{infoEtapa(form.estado).label}</option>}
               </select>
             </Field>
             <Field label="Fuente">

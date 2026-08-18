@@ -9,7 +9,7 @@ import CitaFormModal from '../components/citas/CitaFormModal.jsx';
 import NotaFormModal from '../components/notas/NotaFormModal.jsx';
 import VisorDocumento, { useVisorDocumento } from '../components/documentos/VisorDocumento.jsx';
 import ActivityTimeline from '../components/actividad/ActivityTimeline.jsx';
-import { ETAPAS, infoEtapa, siguienteEtapa } from '../components/clientes/etapas.js';
+import { ETAPAS, ETAPAS_SELECCIONABLES, infoEtapa, siguienteEtapa } from '../components/clientes/etapas.js';
 import { infoFuente, opcionesFuente } from '../components/clientes/fuentes.js';
 import { infoCanal, CITA_VIVA } from '../components/citas/tipos.js';
 import {
@@ -31,6 +31,21 @@ function PipelineStepper({ estado }) {
   const actual = infoEtapa(estado);
   const idx = actual.orden;
   const ultimo = ETAPAS.length - 1;
+  // Descartado es terminal: no ocupa un paso del embudo, así que en vez de un
+  // stepper todo gris se dice explícitamente que el cliente salió.
+  if (actual.terminal) {
+    return (
+      <div className="card px-6 py-4 flex items-center gap-3">
+        <span className={`h-3.5 w-3.5 rounded-full ${actual.dot} ring-4 ${actual.halo}`} />
+        <div>
+          <p className={`text-sm font-semibold ${actual.text}`}>{actual.label}</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Fuera del embudo. Para reactivarlo, elige otra etapa en el selector de arriba.
+          </p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="card px-6 py-5 overflow-x-auto">
       <div className="flex min-w-[620px]">
@@ -350,8 +365,8 @@ export default function ClienteDetalle() {
                 value={c.estado}
                 onChange={(e) => cambiarEstado(e.target.value)}
               >
-                {ETAPAS.map((e) => <option key={e.value} value={e.value}>{e.label}</option>)}
-                {infoEtapa(c.estado).orden === -1 && <option value={c.estado}>{infoEtapa(c.estado).label}</option>}
+                {ETAPAS_SELECCIONABLES.map((e) => <option key={e.value} value={e.value}>{e.label}</option>)}
+                {!ETAPAS_SELECCIONABLES.some((e) => e.value === c.estado) && <option value={c.estado}>{infoEtapa(c.estado).label}</option>}
               </select>
             </div>
             {proxima && (
@@ -639,7 +654,7 @@ export default function ClienteDetalle() {
               <Field label="Apellido materno"><input className="input" value={form.apellidoM} onChange={(e) => setForm({ ...form, apellidoM: e.target.value })} /></Field>
               <Field label="Teléfono"><input className="input" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} /></Field>
               <Field label="Email"><input className="input" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
-              <Field label="Etapa del pipeline"><select className="input" value={form.estado} onChange={(e) => setForm({ ...form, estado: e.target.value })}>{ETAPAS.map((e) => <option key={e.value} value={e.value}>{e.label}</option>)}{infoEtapa(form.estado).orden === -1 && <option value={form.estado}>{infoEtapa(form.estado).label}</option>}</select></Field>
+              <Field label="Etapa del pipeline"><select className="input" value={form.estado} onChange={(e) => setForm({ ...form, estado: e.target.value })}>{ETAPAS_SELECCIONABLES.map((e) => <option key={e.value} value={e.value}>{e.label}</option>)}{!ETAPAS_SELECCIONABLES.some((e) => e.value === form.estado) && <option value={form.estado}>{infoEtapa(form.estado).label}</option>}</select></Field>
               <Field label="RFC"><input className="input" value={form.rfc} onChange={(e) => setForm({ ...form, rfc: e.target.value.toUpperCase() })} placeholder="13 caracteres" /></Field>
               <Field label="CURP"><input className="input" value={form.curp} onChange={(e) => setForm({ ...form, curp: e.target.value.toUpperCase() })} placeholder="18 caracteres" /></Field>
               <Field label="Fecha de nacimiento">

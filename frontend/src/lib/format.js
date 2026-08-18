@@ -87,6 +87,7 @@ export const ESTADOS_CLIENTE_LABEL = {
   ENTREGA_POLIZA: 'Entrega de póliza',
   REFERIDOS: 'Referidos',
   POST_VENTA_SEGUIMIENTO: 'Post venta y seguimiento',
+  DESCARTADO: 'Descartado', // terminal: fuera del embudo, no es una etapa de progreso
   NECESITA_SEGUIMIENTO: 'Necesita seguimiento', // legacy: solo para mostrar datos viejos
 };
 
