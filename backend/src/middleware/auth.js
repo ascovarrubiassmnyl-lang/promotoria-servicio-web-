@@ -29,5 +29,14 @@ export function authorize(...roles) {
   };
 }
 
-export const esAdmin = authorize('SUPERADMIN', 'ADMIN');
+// Roles con alcance de administración ("promotor" en el lenguaje del negocio).
+// ASISTENTE es la secretaría: mismo acceso que ADMIN, pero no es promotora
+// (ver GET /usuarios/promotores, que sigue filtrando solo ADMIN).
+export const ROLES_ADMIN = ['SUPERADMIN', 'ADMIN', 'ASISTENTE'];
+
+// Única definición de "es admin" para checks en línea dentro de una ruta
+// (dueño o admin). No re-escribir la comparación de roles a mano.
+export const tieneRolAdmin = (user) => ROLES_ADMIN.includes(user?.rol);
+
+export const esAdmin = authorize(...ROLES_ADMIN);
 export const esSuperadmin = authorize('SUPERADMIN');

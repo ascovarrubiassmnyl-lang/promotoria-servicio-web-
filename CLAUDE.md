@@ -17,8 +17,9 @@ llegar a producción ni quedar hardcodeadas en código que entre al bundle.
 
 **Alta de usuarios = solo por invitación (no hay registro abierto, ni con
 Google ni con contraseña).** `POST /api/usuarios` (Asesores → Equipo → "+
-Nuevo usuario", solo ADMIN/SUPERADMIN) ya **no acepta `password`**: el rol
-solo puede ser `ADMIN` o `ASESOR` (el select de la UI no ofrece Súper Admin —
+Nuevo usuario", solo con alcance de administración) ya **no acepta
+`password`**: el rol solo puede ser uno de `ROLES_ASIGNABLES`
+(`ADMIN` | `ASISTENTE` | `ASESOR`; el select de la UI no ofrece Súper Admin —
 ver más abajo) y toda alta nace `activo: false` con un hash aleatorio
 irrecuperable. Al guardar, en la misma request: (1) se crea un
 `InvitacionUsuario` (token de un solo uso, vence a las 72h), (2) se intenta
@@ -73,9 +74,32 @@ el frontend usa `/api` (mismo origen) — no definir `VITE_API_URL` ahí.
 
 ## Roles y control de acceso (convención del proyecto)
 
-Roles en `Usuario.rol`: `SUPERADMIN`, `ADMIN`, `ASESOR`. **"Promotor" = ADMIN o
-SUPERADMIN** (helper `esAdmin()` en `AuthContext`). El rol vive en `user.rol`,
-obtenido de `/api/auth/me`.
+Roles en `Usuario.rol`: `SUPERADMIN`, `ADMIN`, `ASISTENTE`, `ASESOR`.
+**"Promotor" = ADMIN o SUPERADMIN**; el alcance de administración incluye
+además a `ASISTENTE` (helper `esAdmin()` en `AuthContext`, espejo de
+`ROLES_ADMIN`/`tieneRolAdmin()` en `backend/src/middleware/auth.js`). El rol
+vive en `user.rol`, obtenido de `/api/auth/me`.
+
+**`ASISTENTE` = la secretaría de la promotoría** (2026-08-18, agregado para
+Michelle): apoya con papelería, emisión de pólizas y el alta de asesores
+nuevos, así que necesita **exactamente el mismo acceso que la promotora** —
+su política RBAC se sembró como copia de la de ADMIN y `esAdmin` la incluye.
+Lo que **no** es, es promotora: `GET /usuarios/promotores` sigue filtrando
+solo `ADMIN`, así que no se ofrece para acompañamientos, no expone
+disponibilidad (`GET /citas/disponibilidad` la rechaza con 400) ni aparece
+como promotor invitable; y como todos los rosters/rankings filtran
+`rol: 'ASESOR'` (`/usuarios/asesores`, metricas, targets, clinica,
+ventas/equipo), tampoco contamina el ranking ni las metas. Por eso se creó un
+rol en vez de darle ADMIN: con dos ADMIN, el autoselect de promotor único en
+`CitaFormModal` dejaría de aplicar y saldría listada como si acompañara
+ventas. **Los catálogos de rol tienen fuente única** —
+`ROLES_ASIGNABLES`/`ROLES_ADMIN` en `middleware/permisos.js` y
+`middleware/auth.js`, espejados en
+`frontend/src/components/configuracion/secciones.js`
+(`ROLES_LABEL`, `ROLES_DESC`, `ROLES_MATRIZ`, `ROLES_ADMIN`,
+`ROLES_ASIGNABLES`)—: al agregar un rol se tocan esos, no cada `if` suelto.
+Un check en línea de "dueño o admin" usa `tieneRolAdmin(req.user)`, nunca la
+comparación de literales a mano.
 
 ### Modelo RBAC (rediseño 2026-07): acceso por rol
 
@@ -89,8 +113,9 @@ obtenido de `/api/auth/me`.
   `backend/src/middleware/permisos.js`): SUPERADMIN siempre `true` →
   política del rol → **denegar** (fail closed). Las secciones de
   administración (`asesores`, `configuracion`) tienen además **piso de rol**:
-  no se conceden al rol ASESOR ni activando su toggle (sus rutas no tienen
-  scoping por asesor); el PATCH de políticas lo rechaza y la UI lo bloquea.
+  no se conceden a un rol sin alcance de administración (hoy solo ASESOR) ni
+  activando su toggle (sus rutas no tienen scoping por asesor); el PATCH de
+  políticas lo rechaza y la UI lo bloquea.
 - **Enforcement en servidor**: cada router lleva `permiteSeccion('<seccion>')`
   tras `authenticate` (metricas usa `permiteAlguna('dashboard','asesores')`;
   notas/referidos/documentos cuentan como `clientes`; bonos y

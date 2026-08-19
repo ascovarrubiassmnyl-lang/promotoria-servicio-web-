@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { prisma } from '../prisma.js';
-import { authenticate, esSuperadmin } from '../middleware/auth.js';
+import { authenticate, esSuperadmin, ROLES_ADMIN } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 import {
   SECCIONES, SECCIONES_SOLO_ADMIN, getPoliticas, invalidarPoliticas, permiteSeccion, logPermiso,
+  ROLES_ASIGNABLES,
 } from '../middleware/permisos.js';
 
 const router = Router();
@@ -21,6 +22,7 @@ router.get('/politicas', asyncHandler(async (_req, res) => {
     politicas: {
       ASESOR: politicas.ASESOR || {},
       ADMIN: politicas.ADMIN || {},
+      ASISTENTE: politicas.ASISTENTE || {},
       SUPERADMIN: Object.fromEntries(SECCIONES.map((s) => [s, true])),
     },
   });
@@ -31,12 +33,13 @@ router.patch('/politicas/:rol', esSuperadmin, asyncHandler(async (req, res) => {
   const { rol } = req.params;
   const { seccion, permitido } = req.body || {};
   if (rol === 'SUPERADMIN') return res.status(400).json({ error: 'El rol Súper Admin no es editable: siempre tiene acceso total' });
-  if (!['ASESOR', 'ADMIN'].includes(rol)) return res.status(400).json({ error: 'Rol inválido' });
+  if (!ROLES_ASIGNABLES.includes(rol)) return res.status(400).json({ error: 'Rol inválido' });
   if (!SECCIONES.includes(seccion)) return res.status(400).json({ error: 'Sección inválida' });
   if (typeof permitido !== 'boolean') return res.status(400).json({ error: 'permitido debe ser boolean' });
-  // Piso de rol: las secciones de administración no se conceden al rol ASESOR
-  // (sus rutas no tienen scoping por asesor); el middleware también lo niega.
-  if (permitido && rol === 'ASESOR' && SECCIONES_SOLO_ADMIN.includes(seccion)) {
+  // Piso de rol: las secciones de administración no se conceden a un rol sin
+  // alcance de administración (sus rutas no tienen scoping por asesor); el
+  // middleware también lo niega.
+  if (permitido && !ROLES_ADMIN.includes(rol) && SECCIONES_SOLO_ADMIN.includes(seccion)) {
     return res.status(400).json({ error: 'Esta sección de administración requiere rol Admin' });
   }
 

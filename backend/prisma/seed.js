@@ -10,6 +10,11 @@ async function main() {
   const politicasSeed = {
     ASESOR: { dashboard: true, clientes: true, citas: true, ventas: true, actividad: true, metas: true, puntos: true, clinica: true, candidatos: false, asesores: false, configuracion: false },
     ADMIN: { dashboard: true, clientes: true, citas: true, ventas: true, actividad: true, metas: true, puntos: true, clinica: true, candidatos: true, asesores: true, configuracion: true },
+    // Asistente / secretaría: mismo acceso que el promotor (papelería, emisión
+    // de pólizas, alta de asesores nuevos). Lo que NO es, es promotora: no
+    // aparece en GET /usuarios/promotores (acompañamientos, disponibilidad,
+    // reclutador), que sigue filtrando solo ADMIN.
+    ASISTENTE: { dashboard: true, clientes: true, citas: true, ventas: true, actividad: true, metas: true, puntos: true, clinica: true, candidatos: true, asesores: true, configuracion: true },
   };
   for (const [rol, accesos] of Object.entries(politicasSeed)) {
     await prisma.politicaRol.upsert({ where: { rol }, update: {}, create: { rol, accesos } });

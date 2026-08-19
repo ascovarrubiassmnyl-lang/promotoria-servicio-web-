@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { api } from '../api/client.js';
+import { ROLES_ADMIN } from '../components/configuracion/secciones.js';
 
 const AuthContext = createContext(null);
 
@@ -46,7 +47,7 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
-  const esAdmin = () => user?.rol === 'ADMIN' || user?.rol === 'SUPERADMIN';
+  const esAdmin = () => ROLES_ADMIN.includes(user?.rol);
   const esSuperadmin = () => user?.rol === 'SUPERADMIN';
 
   // Permisos por sección. `user.accesos` viene calculado del servidor en

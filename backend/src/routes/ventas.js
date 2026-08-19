@@ -5,7 +5,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { prisma } from '../prisma.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, tieneRolAdmin } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion } from '../middleware/permisos.js';
 import { registrarActividad } from '../utils/actividad.js';
@@ -176,7 +176,7 @@ function limpiarBeneficiarios(v) {
 // Resumen de cartera por asesor para la vista de promotor (roster de Equipo).
 // SOLO promotores (ADMIN/SUPERADMIN): un asesor no puede ver agregados de otros.
 router.get('/equipo/resumen', asyncHandler(async (req, res) => {
-  const isAdmin = req.user.rol === 'ADMIN' || req.user.rol === 'SUPERADMIN';
+  const isAdmin = tieneRolAdmin(req.user);
   if (!isAdmin) return res.status(403).json({ error: 'Solo promotores pueden consultar el equipo' });
   const [asesores, ventas] = await Promise.all([
     prisma.usuario.findMany({
@@ -305,7 +305,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
   });
   if (!venta) return res.status(404).json({ error: 'Póliza no encontrada' });
   const esDueno = venta.asesorId === req.user.id;
-  const isAdmin = req.user.rol === 'ADMIN' || req.user.rol === 'SUPERADMIN';
+  const isAdmin = tieneRolAdmin(req.user);
   if (!esDueno && !isAdmin) return res.status(403).json({ error: 'Sin acceso a esta póliza' });
   res.json({ ...venta, montoEsperado: montoEsperadoDePoliza(venta) });
 }));
@@ -417,7 +417,7 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   const existente = await prisma.venta.findUnique({ where: { id } });
   if (!existente) return res.status(404).json({ error: 'Póliza no encontrada' });
   const esDueno = existente.asesorId === req.user.id;
-  const isAdmin = req.user.rol === 'ADMIN' || req.user.rol === 'SUPERADMIN';
+  const isAdmin = tieneRolAdmin(req.user);
   if (!esDueno && !isAdmin) return res.status(403).json({ error: 'Sin acceso a esta póliza' });
 
   const {
@@ -522,7 +522,7 @@ router.post('/:id/documento', uploadPoliza.single('archivo'), asyncHandler(async
     return res.status(404).json({ error: 'Póliza no encontrada' });
   }
   const esDueno = existente.asesorId === req.user.id;
-  const isAdmin = req.user.rol === 'ADMIN' || req.user.rol === 'SUPERADMIN';
+  const isAdmin = tieneRolAdmin(req.user);
   if (!esDueno && !isAdmin) {
     fs.unlink(req.file.path, () => {});
     return res.status(403).json({ error: 'Sin acceso a esta póliza' });
@@ -555,7 +555,7 @@ router.post('/:id/cobroconfirmado', asyncHandler(async (req, res) => {
   const venta = await prisma.venta.findUnique({ where: { id } });
   if (!venta) return res.status(404).json({ error: 'Póliza no encontrada' });
   const esDueno = venta.asesorId === req.user.id;
-  const isAdmin = req.user.rol === 'ADMIN' || req.user.rol === 'SUPERADMIN';
+  const isAdmin = tieneRolAdmin(req.user);
   if (!esDueno && !isAdmin) return res.status(403).json({ error: 'Sin acceso a esta póliza' });
 
   const { montoPagado, justificacion } = req.body || {};
@@ -625,7 +625,7 @@ router.delete('/:id', asyncHandler(async (req, res) => {
   const venta = await prisma.venta.findUnique({ where: { id } });
   if (!venta) return res.status(404).json({ error: 'Póliza no encontrada' });
   const esDueno = venta.asesorId === req.user.id;
-  const isAdmin = req.user.rol === 'ADMIN' || req.user.rol === 'SUPERADMIN';
+  const isAdmin = tieneRolAdmin(req.user);
   if (!esDueno && !isAdmin) return res.status(403).json({ error: 'Sin acceso a esta póliza' });
   await prisma.venta.delete({ where: { id } });
   res.json({ ok: true });

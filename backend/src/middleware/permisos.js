@@ -1,4 +1,11 @@
 import { prisma } from '../prisma.js';
+import { ROLES_ADMIN } from './auth.js';
+
+// Roles que se pueden asignar desde la app (alta y edición de usuarios, y la
+// matriz de Configuración). SUPERADMIN queda fuera a propósito: es un solo rol
+// reservado para quien desarrolla el servicio, sembrado por variables de
+// entorno. Fuente única: no repetir la lista en cada ruta.
+export const ROLES_ASIGNABLES = ['ADMIN', 'ASISTENTE', 'ASESOR'];
 
 // Secciones controlables. Debe coincidir con el catálogo del frontend
 // (components/configuracion/secciones.js) y con las claves de PoliticaRol.accesos.
@@ -32,7 +39,7 @@ export async function getPoliticas() {
 // redundantes con la matriz de roles; Usuario.permisos quedó legacy y no se lee).
 export async function accesoEfectivo(user, seccion) {
   if (user.rol === 'SUPERADMIN') return true;
-  if (SECCIONES_SOLO_ADMIN.includes(seccion) && user.rol !== 'ADMIN') return false;
+  if (SECCIONES_SOLO_ADMIN.includes(seccion) && !ROLES_ADMIN.includes(user.rol)) return false;
   const politicas = await getPoliticas();
   return politicas[user.rol]?.[seccion] === true;
 }

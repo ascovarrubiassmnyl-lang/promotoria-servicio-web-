@@ -26,6 +26,32 @@ export const SECCIONES_SENSIBLES = ['asesores', 'configuracion'];
 
 export const ROLES_LABEL = {
   ASESOR: 'Asesor',
+  ASISTENTE: 'Asistente / Secretaría',
   ADMIN: 'Admin / Promotor',
   SUPERADMIN: 'Súper Admin',
 };
+
+// Filas de la matriz de Configuración → "Roles y accesos", de menor a mayor
+// alcance. Súper Admin va al final: es la fila bloqueada con acceso total.
+export const ROLES_MATRIZ = ['ASESOR', 'ASISTENTE', 'ADMIN', 'SUPERADMIN'];
+
+// Roles con alcance de administración ("promotor" en el lenguaje del negocio);
+// espejo de ROLES_ADMIN en backend/src/middleware/auth.js. ASISTENTE tiene el
+// mismo acceso que ADMIN, pero NO es promotora: no se ofrece para
+// acompañamientos, disponibilidad ni como reclutador (esa lista sale de
+// GET /usuarios/promotores, que filtra solo ADMIN).
+export const ROLES_ADMIN = ['SUPERADMIN', 'ADMIN', 'ASISTENTE'];
+
+// Qué implica cada rol, en el lenguaje del negocio. Se muestra bajo el selector
+// de rol del alta/edición para que quede claro antes de guardar.
+export const ROLES_DESC = {
+  ASESOR: 'Ve y trabaja únicamente su propia cartera.',
+  ASISTENTE: 'Mismo acceso que el promotor (papelería, emisión de pólizas, alta de asesores), pero no se ofrece como promotor para acompañamientos ni entra al ranking de asesores.',
+  ADMIN: 'Promotor: control total del equipo, y se ofrece para acompañamientos y disponibilidad.',
+  SUPERADMIN: 'Cuenta de quien desarrolla el servicio. No se asigna desde la app.',
+};
+
+// Roles asignables desde el alta/edición de usuarios (Asesores → Equipo).
+// Súper Admin queda fuera: es el rol reservado para quien desarrolla el
+// servicio, sembrado por variables de entorno y nunca asignado desde la app.
+export const ROLES_ASIGNABLES = ['ADMIN', 'ASISTENTE', 'ASESOR'];

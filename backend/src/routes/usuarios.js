@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../prisma.js';
 import { authenticate, esAdmin } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
-import { permiteSeccion, logPermiso } from '../middleware/permisos.js';
+import { permiteSeccion, logPermiso, ROLES_ASIGNABLES } from '../middleware/permisos.js';
 import { enviarInvitacion } from '../services/mailer.js';
 
 const router = Router();
@@ -107,7 +107,7 @@ router.post('/', esAdmin, permiteSeccion('asesores'), asyncHandler(async (req, r
   const rolFinal = rol || 'ASESOR';
   // SUPERADMIN no se crea desde la app (ni el propio superadmin): es un solo
   // rol reservado para quien desarrolla el servicio, se siembra por env/seed.
-  if (!['ADMIN', 'ASESOR'].includes(rolFinal)) return res.status(400).json({ error: 'Rol inválido' });
+  if (!ROLES_ASIGNABLES.includes(rolFinal)) return res.status(400).json({ error: 'Rol inválido' });
 
   const existe = await prisma.usuario.findUnique({ where: { email: String(email).toLowerCase() } });
   if (existe) return res.status(409).json({ error: 'Email ya registrado' });
@@ -171,7 +171,7 @@ router.patch('/:id', esAdmin, permiteSeccion('asesores'), asyncHandler(async (re
       if (previo.rol === 'SUPERADMIN' || rol === 'SUPERADMIN') {
         return res.status(400).json({ error: 'El rol Súper Admin no se puede asignar ni modificar desde la app' });
       }
-      if (!['ADMIN', 'ASESOR'].includes(rol)) return res.status(400).json({ error: 'Rol inválido' });
+      if (!ROLES_ASIGNABLES.includes(rol)) return res.status(400).json({ error: 'Rol inválido' });
       // Anti-lockout: nadie cambia su propio rol (evita auto-degradarse o escalar).
       if (id === req.user.id) return res.status(400).json({ error: 'No puedes cambiar tu propio rol' });
       data.rol = rol;

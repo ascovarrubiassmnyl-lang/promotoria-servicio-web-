@@ -1,0 +1,11 @@
+-- Rol ASISTENTE (secretaría de la promotoría): mismo acceso que ADMIN pero no
+-- es promotora (no aparece en GET /usuarios/promotores, así que no se ofrece
+-- para acompañamientos, disponibilidad ni como reclutador de candidatos).
+--
+-- Va en su propia migración: en PostgreSQL un valor de enum recién agregado no
+-- se puede USAR en la misma transacción en que se agregó, y la política RBAC de
+-- este rol (siguiente migración) inserta una fila con él.
+-- AFTER 'ADMIN' conserva el orden jerárquico del enum en schema.prisma
+-- (SUPERADMIN, ADMIN, ASISTENTE, ASESOR), del que depende el orderBy de
+-- /api/configuracion/usuarios.
+ALTER TYPE "RolUsuario" ADD VALUE IF NOT EXISTS 'ASISTENTE' AFTER 'ADMIN';

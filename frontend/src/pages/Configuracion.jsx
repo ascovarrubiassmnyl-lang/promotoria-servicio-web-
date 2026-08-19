@@ -4,7 +4,7 @@ import { api, handleError } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useNotif } from '../context/NotifContext.jsx';
 import { Card, EmptyState } from '../components/ui.jsx';
-import { SECCIONES, SECCIONES_SENSIBLES, ROLES_LABEL, infoSeccion } from '../components/configuracion/secciones.js';
+import { SECCIONES, SECCIONES_SENSIBLES, ROLES_LABEL, ROLES_MATRIZ, ROLES_ADMIN, infoSeccion } from '../components/configuracion/secciones.js';
 
 // Configuración = plano de control de acceso (RBAC por rol):
 //   1) "Roles y accesos": política por rol, el único control de acceso.
@@ -138,7 +138,7 @@ function RolesTab({ esSuperadmin }) {
                 </tr>
               </thead>
               <tbody>
-                {['ASESOR', 'ADMIN', 'SUPERADMIN'].map((rol) => {
+                {ROLES_MATRIZ.map((rol) => {
                   const bloqueado = rol === 'SUPERADMIN';
                   return (
                     <tr key={rol} className="border-b border-slate-50 dark:border-slate-700/60">
@@ -151,7 +151,7 @@ function RolesTab({ esSuperadmin }) {
                       {SECCIONES.map((s) => {
                         // Piso de rol: las secciones de administración no se
                         // conceden al rol Asesor (el servidor también lo niega).
-                        const pisoAsesor = rol === 'ASESOR' && s.soloAdmin;
+                        const pisoAsesor = !ROLES_ADMIN.includes(rol) && s.soloAdmin;
                         return (
                           <td key={s.id} className="py-3 px-2 text-center">
                             <Toggle

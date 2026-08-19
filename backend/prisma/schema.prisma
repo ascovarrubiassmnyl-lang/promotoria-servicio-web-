@@ -10,6 +10,12 @@ datasource db {
 enum RolUsuario {
   SUPERADMIN
   ADMIN
+  // Asistente / secretaría: apoya con papelería, emisión de pólizas y el alta
+  // de asesores nuevos. Tiene el MISMO acceso que un promotor (ADMIN) — todas
+  // las secciones y las rutas de administración — pero NO es promotora: no se
+  // ofrece para acompañamientos ni disponibilidad ni como reclutador
+  // (GET /usuarios/promotores sigue filtrando solo ADMIN).
+  ASISTENTE
   ASESOR
 }
 

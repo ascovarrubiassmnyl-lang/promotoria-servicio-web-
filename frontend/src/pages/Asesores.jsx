@@ -5,17 +5,14 @@ import { TendenciaMes, VentasAsesor, CitasAsesor } from '../components/VistasAse
 import { Card, Modal, Field, Badge, EmptyState, MenuAcciones } from '../components/ui.jsx';
 import ClientesView from '../components/clientes/ClientesView.jsx';
 import { mxn, num, fechaCorta } from '../lib/format.js';
-import { ROLES_LABEL } from '../components/configuracion/secciones.js';
+import { ROLES_LABEL, ROLES_ASIGNABLES, ROLES_DESC } from '../components/configuracion/secciones.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
 // Filtro/tabla del roster puede mostrar el SUPERADMIN si existe (es quien
-// desarrolla el servicio). El alta/edición NO lo ofrece: ver ROLES_ASIGNABLES.
-const ROLES = ['SUPERADMIN', 'ADMIN', 'ASESOR'];
-// Roles que un promotor puede asignar desde "Nuevo usuario"/"Editar usuario":
-// Súper Admin es un solo rol reservado para el desarrollador del sistema, se
-// siembra por variable de entorno y nunca se crea ni se asigna desde la app.
-const ROLES_ASIGNABLES = ['ADMIN', 'ASESOR'];
-const rolColor = { SUPERADMIN: 'red', ADMIN: 'blue', ASESOR: 'slate' };
+// desarrolla el servicio). El alta/edición NO lo ofrece: ver ROLES_ASIGNABLES
+// (fuente única en components/configuracion/secciones.js).
+const ROLES = ['SUPERADMIN', 'ADMIN', 'ASISTENTE', 'ASESOR'];
+const rolColor = { SUPERADMIN: 'red', ADMIN: 'blue', ASISTENTE: 'purple', ASESOR: 'slate' };
 const iniciales = (nombre = '') => nombre.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
 
 export default function Asesores() {
@@ -310,6 +307,7 @@ function EquipoTab() {
             <Field label="Email*"><input className="input" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} disabled={!!editing} /></Field>
             <Field label="Rol"><select className="input" value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })}>{ROLES_ASIGNABLES.map((r) => <option key={r} value={r}>{ROLES_LABEL[r]}</option>)}</select></Field>
           </div>
+          {ROLES_DESC[form.rol] && <p className="text-xs text-slate-500 dark:text-slate-400">{ROLES_DESC[form.rol]}</p>}
           {!editing && (
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Al guardar se genera un link de invitación (y se manda por correo si está configurado):
