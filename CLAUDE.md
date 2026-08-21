@@ -838,6 +838,48 @@ actividad a `Target` y `TargetEquipo`).
   contra la meta de promotoría → "Por asignar" (ámbar) / "Sobreasignado"
   (rojo) / "Cubierta" (esmeralda), una fila por métrica con meta fijada.
 
+**Referidos obtenidos = definición única** (`backend/src/utils/referidos.js`,
+2026-08-21): un referido es una **persona** que llegó por recomendación y se
+cuenta **una sola vez**, sin importar por dónde entró al CRM. Antes la métrica
+solo contaba filas del modelo `Referido` (que se capturan desde la ficha de un
+cliente) y salía en **0** para quien registra sus prospectos por el alta normal
+eligiendo la fuente — que es el flujo real. Ahora es la unión de dos entradas:
+
+- **(A)** `Cliente` creado en el mes, no archivado, que es referido: `fuente`
+  contiene "referido" (`contains` insensible, **no** igualdad: la columna es
+  `String?` con texto libre legacy como "Referido de Ana"), **o** tiene
+  `referidoPorId`, **o** es destino de alguna fila `Referido`. Cuenta con la
+  fecha de alta del cliente.
+- **(B)** Fila `Referido` **sin `clienteReferidoId`** (el referido todavía no
+  existe como cliente: solo hay nombre/teléfono). Cuenta con su propia fecha.
+
+La deduplicación es por identidad y **no depende del orden ni del mes**: una
+fila `Referido` ya ligada a un cliente nunca suma por su cuenta, porque ese
+cliente ya entra por (A). "Convertido" = el referido tiene póliza viva (mismo
+criterio `VENTA_VIVA` del segmento prospecto/cliente) o la fila `Referido` está
+en `CONVERTIDO`. **Consumen esta única función** `referidosObtenidos()` la
+métrica de Metas (`routes/targets.js`) y la tarjeta "Referidos y bonos" del
+dashboard, incluida su "tasa de referidos" (`routes/metricas.js`) — no volver a
+hacer un `prisma.referido.count()` suelto en ninguna vista.
+
+**Historial de metas** (`GET /targets/historial?mes&anio&meses&asesorId`,
+2026-08-21, `Historial` en `pages/Targets.jsx`): los últimos N periodos
+(6/12/24, tope 36) terminando en el mes seleccionado, cada uno con la meta que
+se registró y el avance real. **No se guarda ningún snapshot ni estado de
+cierre**: `Target`/`TargetEquipo` ya son una fila por (mes, año) —por eso la
+meta "se reinicia" sola cada mes, se haya cumplido o no— y los actuales se
+recalculan de los registros con la **misma** `actualesPorMes()` que alimenta el
+resumen del mes en curso (el mes se agrupa en JS, no con `groupBy`, justo para
+que resumen e historial no tengan dos implementaciones). Congelar una foto al
+cierre crearía una segunda verdad que se desincroniza al corregir una póliza o
+archivar un cliente — mismo criterio que el segmento prospecto/cliente y el
+contador de la clínica: derivar, no persistir. "Cumplida / Parcial / No
+cumplida / En curso" se deriva en el frontend con `cumplimiento()` +
+`ESTADOS_CUMPLIMIENTO` de `components/metas/metricas.js` (implementación única,
+no re-derivar a mano en otro componente). Alcance por rol como el resto de
+Metas: el asesor solo recibe su historial (se ignora `asesorId`); el promotor
+ve la promotoría o un asesor con el selector.
+
 **Estado por ritmo** (mapa único `components/metas/ritmo.js` — umbrales
 parametrizados en `UMBRALES_RITMO`, no duplicar):
 

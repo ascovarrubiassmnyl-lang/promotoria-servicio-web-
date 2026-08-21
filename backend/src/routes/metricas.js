@@ -3,6 +3,7 @@ import { prisma } from '../prisma.js';
 import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 import { permiteAlguna } from '../middleware/permisos.js';
+import { referidosObtenidos } from '../utils/referidos.js';
 
 const router = Router();
 router.use(authenticate);
@@ -22,6 +23,8 @@ function finMes(mes, anio) {
 //    comisionMonto de PENDIENTE_PAGAR/FIRMADA vigentes. Nunca se suman.
 //  - La única "tasa de conversión" es la del embudo (entre etapas, en /funnel);
 //    la de referidos se llama "tasa de referidos" y vive solo en su tarjeta.
+//  - "Referido obtenido" = definición única de utils/referidos.js (la misma que
+//    usa la métrica de Metas), no un count crudo del modelo Referido.
 const GANADA = ['APROBADA', 'PAGADA'];
 const PIPELINE = ['PENDIENTE_PAGAR', 'FIRMADA'];
 
@@ -43,7 +46,7 @@ router.get('/dashboard', asyncHandler(async (req, res) => {
     totalClientes, clientesMes, citasPeriodo, citasCompletadasMes,
     ventasAprobadas, ventasPendientes, primaAnualTotal, comisionPipeline,
     pendientesPagoPrima, citasHoy, seguimiento, polizasMesPorEstado,
-    referidosMes, referidosConvertidosMes, bonosCobrados, bonosPorGanar,
+    referidosDelMes, bonosCobrados, bonosPorGanar,
   ] = await Promise.all([
     prisma.cliente.count({ where: { ...whereAsesor, archivadoEn: null } }),
     prisma.cliente.count({ where: { ...whereAsesor, archivadoEn: null, creadoEn: wherePeriodo.creadoEn } }),
@@ -59,8 +62,7 @@ router.get('/dashboard', asyncHandler(async (req, res) => {
     prisma.cita.count({ where: { ...whereAsesor, clasificacion: { not: 'PERSONAL' }, estado: { in: ['PROGRAMADA', 'CONFIRMADA'] }, fechaHoraInicio: { gte: hoyIni, lte: hoyFin } } }),
     prisma.cliente.count({ where: { ...whereAsesor, archivadoEn: null, necesitaSeguimiento: true } }),
     prisma.venta.groupBy({ by: ['estado'], where: { ...whereAsesor, ...wherePeriodo }, _count: { _all: true } }),
-    prisma.referido.count({ where: { ...whereAsesor, creadoEn: wherePeriodo.creadoEn } }),
-    prisma.referido.count({ where: { ...whereAsesor, estado: 'CONVERTIDO', creadoEn: wherePeriodo.creadoEn } }),
+    referidosObtenidos(wherePeriodo.creadoEn, whereAsesor),
     prisma.bono.aggregate({ where: { ...whereAsesor, mes, anio, estado: 'COBRADO' }, _sum: { monto: true }, _count: { _all: true } }),
     prisma.bono.aggregate({ where: { ...whereAsesor, mes, anio, estado: 'PENDIENTE' }, _sum: { monto: true }, _count: { _all: true } }),
   ]);
@@ -85,7 +87,9 @@ router.get('/dashboard', asyncHandler(async (req, res) => {
       bonosPorGanar: { monto: bonosPorGanar._sum.monto || 0, count: bonosPorGanar._count._all },
     },
     polizasMes: Object.fromEntries(polizasMesPorEstado.map((e) => [e.estado, e._count._all])),
-    referidosMes: { total: referidosMes, convertidos: referidosConvertidosMes },
+    // Mismo conteo que "Referidos obtenidos" de Metas (utils/referidos.js):
+    // una sola definición de referido en todo el sistema.
+    referidosMes: { total: referidosDelMes.length, convertidos: referidosDelMes.filter((r) => r.convertido).length },
     bonosMes: {
       cobrados: { monto: bonosCobrados._sum.monto || 0, count: bonosCobrados._count._all },
       porGanar: { monto: bonosPorGanar._sum.monto || 0, count: bonosPorGanar._count._all },

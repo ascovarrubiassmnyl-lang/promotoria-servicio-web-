@@ -3,6 +3,7 @@ import { prisma } from '../prisma.js';
 import { authenticate, esAdmin } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion } from '../middleware/permisos.js';
+import { referidosObtenidos } from '../utils/referidos.js';
 
 const router = Router();
 router.use(authenticate);
@@ -37,30 +38,54 @@ async function promedioComisionPorAsesor() {
   return Object.fromEntries(filas.map((f) => [f.asesorId, f._avg.comisionMonto || null]));
 }
 
-// Actuales del periodo agrupados por asesor:
+// Actuales del periodo, agrupados por MES y por asesor:
 //  ventas/prima  → ventas APROBADA/PAGADA creadas en el mes (= Pólizas),
 //  citas         → citas COMPLETADA cuyo inicio cae en el mes,
 //  prospectos    → clientes creados en el mes (excluye archivados),
-//  referidos     → referidos registrados en el mes,
+//  referidos     → referidos obtenidos en el mes (definición única en
+//                  utils/referidos.js: alta con fuente "Referido"/"Referido por"
+//                  + filas Referido que aún no son cliente, sin doble conteo),
 //  llamadas      → actividades tipo LLAMADA del mes.
-async function actualesPorAsesor(ini, fin) {
+//
+// Se agrupa por mes en JS (y no con groupBy por asesor) porque el historial
+// necesita varios meses de un jalón y la definición de cada métrica debe ser
+// UNA sola: el resumen de un mes es esta misma función acotada a ese mes.
+const claveMes = (d) => `${d.getFullYear()}-${d.getMonth() + 1}`;
+const filaVacia = () => ({ ventas: 0, prima: 0, citas: 0, prospectos: 0, referidos: 0, llamadas: 0 });
+
+async function actualesPorMes(ini, fin, whereBase = {}) {
   const rango = { gte: ini, lte: fin };
-  const [ventas, citas, prospectos, referidos, llamadas] = await Promise.all([
-    prisma.venta.groupBy({ by: ['asesorId'], where: { ...GANADA, creadoEn: rango }, _count: { _all: true }, _sum: { primaAnual: true } }),
-    prisma.cita.groupBy({ by: ['asesorId'], where: { estado: 'COMPLETADA', clasificacion: { not: 'PERSONAL' }, fechaHoraInicio: rango }, _count: { _all: true } }),
-    prisma.cliente.groupBy({ by: ['asesorId'], where: { creadoEn: rango, archivadoEn: null }, _count: { _all: true } }),
-    prisma.referido.groupBy({ by: ['asesorId'], where: { creadoEn: rango }, _count: { _all: true } }),
-    prisma.actividad.groupBy({ by: ['asesorId'], where: { tipo: 'LLAMADA', creadoEn: rango }, _count: { _all: true } }),
+  const [ventas, citas, prospectos, llamadas, referidos] = await Promise.all([
+    prisma.venta.findMany({ where: { ...whereBase, ...GANADA, creadoEn: rango }, select: { asesorId: true, creadoEn: true, primaAnual: true } }),
+    prisma.cita.findMany({ where: { ...whereBase, estado: 'COMPLETADA', clasificacion: { not: 'PERSONAL' }, fechaHoraInicio: rango }, select: { asesorId: true, fechaHoraInicio: true } }),
+    prisma.cliente.findMany({ where: { ...whereBase, creadoEn: rango, archivadoEn: null }, select: { asesorId: true, creadoEn: true } }),
+    prisma.actividad.findMany({ where: { ...whereBase, tipo: 'LLAMADA', creadoEn: rango }, select: { asesorId: true, creadoEn: true } }),
+    referidosObtenidos(rango, whereBase),
   ]);
-  const mapa = {};
-  const fila = (id) => (mapa[id] ??= { ventas: 0, prima: 0, citas: 0, prospectos: 0, referidos: 0, llamadas: 0 });
-  ventas.forEach((v) => { const f = fila(v.asesorId); f.ventas = v._count._all; f.prima = v._sum.primaAnual || 0; });
-  citas.forEach((c) => { fila(c.asesorId).citas = c._count._all; });
-  prospectos.forEach((p) => { fila(p.asesorId).prospectos = p._count._all; });
-  referidos.forEach((r) => { fila(r.asesorId).referidos = r._count._all; });
-  llamadas.forEach((l) => { fila(l.asesorId).llamadas = l._count._all; });
-  return mapa;
+  const meses = {};
+  const fila = (fecha, asesorId) => {
+    const mapa = (meses[claveMes(fecha)] ??= {});
+    return (mapa[asesorId] ??= filaVacia());
+  };
+  ventas.forEach((v) => { const f = fila(v.creadoEn, v.asesorId); f.ventas += 1; f.prima += v.primaAnual || 0; });
+  citas.forEach((c) => { fila(c.fechaHoraInicio, c.asesorId).citas += 1; });
+  prospectos.forEach((p) => { fila(p.creadoEn, p.asesorId).prospectos += 1; });
+  llamadas.forEach((l) => { fila(l.creadoEn, l.asesorId).llamadas += 1; });
+  referidos.forEach((r) => { fila(r.fecha, r.asesorId).referidos += 1; });
+  return meses;
 }
+
+// Un solo mes: { [asesorId]: fila }. Misma definición que el historial.
+async function actualesPorAsesor(ini, fin, whereBase = {}) {
+  const meses = await actualesPorMes(ini, fin, whereBase);
+  return meses[claveMes(ini)] || {};
+}
+
+// Suma de las filas de todos los asesores (nivel promotoría).
+const sumarFilas = (filas) => filas.reduce(
+  (acc, f) => { Object.keys(acc).forEach((k) => { acc[k] += f[k]; }); return acc; },
+  filaVacia(),
+);
 
 // Metas individuales (crudas). Un asesor solo recibe la suya (se fuerza asesorId).
 router.get('/', asyncHandler(async (req, res) => {
@@ -106,9 +131,62 @@ router.get('/resumen', asyncHandler(async (req, res) => {
         id: a.id,
         nombre: `${a.nombre} ${a.apellidoP}`.trim(),
         meta,
-        actual: actuales[a.id] || { ventas: 0, prima: 0, citas: 0, prospectos: 0, referidos: 0, llamadas: 0 },
+        actual: actuales[a.id] || filaVacia(),
         promedioComisionPoliza: promedio,
         polizasParaMeta,
+      };
+    }),
+  });
+}));
+
+// Historial de metas: los últimos `meses` periodos (terminando en el mes
+// seleccionado), cada uno con la meta que se registró y el avance real.
+//
+// El historial NO se guarda como snapshot: `Target`/`TargetEquipo` ya son una
+// fila por (mes, año) —por eso la meta "se reinicia" sola cada mes— y los
+// actuales se recalculan de los registros con la MISMA definición que el
+// resumen del mes en curso. Congelar una foto al cierre crearía una segunda
+// verdad que se desincroniza en cuanto se corrige una póliza o se archiva un
+// cliente (mismo criterio que el segmento prospecto/cliente o el contador de
+// la clínica: derivar, no persistir).
+//
+// Alcance por rol, fallando cerrado: el ASESOR solo recibe su propio historial
+// (se ignora `asesorId`); el promotor recibe el de la promotoría o el de un
+// asesor si lo pide.
+router.get('/historial', asyncHandler(async (req, res) => {
+  const { mes, anio } = periodo(req);
+  const meses = Math.min(Math.max(parseInt(req.query.meses) || 12, 1), 36);
+  const soloYo = req.user.rol === 'ASESOR';
+  const asesorId = soloYo ? req.user.id : (req.query.asesorId || null);
+
+  const fin = new Date(anio, mes, 0, 23, 59, 59, 999);
+  const ini = new Date(anio, mes - meses, 1);
+  // Periodos del rango, del más reciente al más antiguo.
+  const periodos = Array.from({ length: meses }, (_, i) => {
+    const d = new Date(anio, mes - 1 - i, 1);
+    return { mes: d.getMonth() + 1, anio: d.getFullYear(), clave: claveMes(d) };
+  });
+  const anios = [...new Set(periodos.map((p) => p.anio))];
+
+  const whereBase = asesorId ? { asesorId } : {};
+  const [actualesMes, metas] = await Promise.all([
+    actualesPorMes(ini, fin, whereBase),
+    asesorId
+      ? prisma.target.findMany({ where: { asesorId, anio: { in: anios } } })
+      : prisma.targetEquipo.findMany({ where: { anio: { in: anios } } }),
+  ]);
+  const metaPor = Object.fromEntries(metas.map((m) => [`${m.anio}-${m.mes}`, m]));
+
+  res.json({
+    nivel: asesorId ? 'ASESOR' : 'EQUIPO',
+    asesorId,
+    periodos: periodos.map((p) => {
+      const delMes = actualesMes[p.clave] || {};
+      return {
+        mes: p.mes,
+        anio: p.anio,
+        meta: metaPor[p.clave] || null,
+        actual: asesorId ? (delMes[asesorId] || filaVacia()) : sumarFilas(Object.values(delMes)),
       };
     }),
   });
@@ -137,10 +215,7 @@ router.get('/equipo', esAdmin, asyncHandler(async (req, res) => {
     actualesPorAsesor(ini, fin),
     prisma.target.aggregate({ where: { mes, anio }, _sum: Object.fromEntries(CAMPOS_META.map((c) => [c, true])) }),
   ]);
-  const actual = Object.values(actuales).reduce(
-    (acc, f) => { Object.keys(acc).forEach((k) => { acc[k] += f[k]; }); return acc; },
-    { ventas: 0, prima: 0, citas: 0, prospectos: 0, referidos: 0, llamadas: 0 },
-  );
+  const actual = sumarFilas(Object.values(actuales));
   res.json({
     mes, anio,
     meta,

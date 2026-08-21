@@ -6,7 +6,7 @@ import { Card, EmptyState, NumeroFormateado } from '../components/ui.jsx';
 import { mxn, num, nombreMes } from '../lib/format.js';
 import GoalBlock, { MiniBar } from '../components/metas/GoalBlock.jsx';
 import { infoRitmo, pctAvance, diasPeriodo, ESTADOS_RITMO } from '../components/metas/ritmo.js';
-import { METRICAS, sinMetas } from '../components/metas/metricas.js';
+import { METRICAS, sinMetas, cumplimiento, ESTADOS_CUMPLIMIENTO } from '../components/metas/metricas.js';
 
 function ChipTranscurrido({ mes, anio }) {
   const { dia, dias, fraccion } = diasPeriodo(mes, anio);
@@ -115,6 +115,104 @@ function BloquesMeta({ meta, actual, fraccion }) {
         <GoalBlock key={m.key} label={m.label} actual={actual?.[m.key] ?? 0} meta={meta?.[m.campo]} fraccion={fraccion} money={m.money} />
       ))}
     </div>
+  );
+}
+
+
+// Historial de metas: un renglón por mes con la meta que se registró y si se
+// alcanzó. La meta ya "se reinicia" sola cada mes (Target/TargetEquipo son una
+// fila por mes+año); esto es la memoria de esos periodos — cumplidos y no
+// cumplidos — sin tener que ir cambiando el selector mes por mes.
+function Historial({ admin, asesores, mes, anio }) {
+  const [meses, setMeses] = useState(12);
+  const [scope, setScope] = useState(''); // '' = promotoría (solo admin)
+  const asesorId = admin ? scope : '';
+  const hoy = new Date();
+
+  const { data } = useQuery({
+    queryKey: ['metas-historial', mes, anio, meses, asesorId],
+    queryFn: async () => (await api.get('/targets/historial', { params: { mes, anio, meses, ...(asesorId ? { asesorId } : {}) } })).data,
+  });
+
+  const filas = (data?.periodos || []).map((p) => {
+    const enCurso = p.mes === hoy.getMonth() + 1 && p.anio === hoy.getFullYear();
+    return { ...p, enCurso, cump: cumplimiento(p.meta, p.actual, { enCurso }) };
+  });
+  const cerrados = filas.filter((f) => !f.enCurso && f.cump.clave !== 'SIN_META');
+  const logrados = cerrados.filter((f) => f.cump.clave === 'CUMPLIDA').length;
+
+  return (
+    <Card
+      title="Historial de metas"
+      subtitle={admin && !asesorId ? 'Metas de promotoría de periodos anteriores' : 'Metas registradas y su resultado, periodo por periodo'}
+      actions={(
+        <div className="flex flex-wrap items-center gap-2">
+          {admin && (
+            <select className="input w-auto" value={scope} onChange={(e) => setScope(e.target.value)}>
+              <option value="">Promotoría</option>
+              {asesores.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+            </select>
+          )}
+          <select className="input w-auto" value={meses} onChange={(e) => setMeses(+e.target.value)}>
+            {[6, 12, 24].map((n) => <option key={n} value={n}>Últimos {n} meses</option>)}
+          </select>
+        </div>
+      )}
+    >
+      {filas.length === 0 ? <EmptyState message="Sin periodos que mostrar" /> : (
+        <>
+          <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">
+            {cerrados.length === 0
+              ? 'Aún no hay periodos cerrados con meta registrada.'
+              : <><b className="text-slate-700 dark:text-slate-200">{logrados} de {cerrados.length}</b> periodos cerrados con meta se cumplieron por completo.</>}
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                  <th className="py-2 pr-4">Periodo</th>
+                  {METRICAS.map((m) => <th key={m.key} className="py-2 pr-4">{m.corto}</th>)}
+                  <th className="py-2">Resultado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filas.map((f) => {
+                  const st = ESTADOS_CUMPLIMIENTO[f.cump.clave];
+                  return (
+                    <tr key={`${f.anio}-${f.mes}`} className="border-b border-slate-50 dark:border-slate-700/50 hover:bg-slate-50/60 dark:hover:bg-slate-700/30">
+                      <td className="py-2.5 pr-4 whitespace-nowrap font-medium text-slate-700 dark:text-slate-200">
+                        {nombreMes(f.mes)} {f.anio}
+                        {f.enCurso && <span className="ml-2 text-xs font-normal text-slate-400 dark:text-slate-500">en curso</span>}
+                      </td>
+                      {METRICAS.map((m) => {
+                        const objetivo = f.meta?.[m.campo];
+                        const fmt = m.money ? mxn : num;
+                        if (!objetivo) return <td key={m.key} className="py-2.5 pr-4 text-slate-300 dark:text-slate-600">—</td>;
+                        const ok = (f.actual[m.key] ?? 0) >= objetivo;
+                        const clase = ok
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : f.enCurso ? 'text-slate-600 dark:text-slate-300' : 'text-red-600 dark:text-red-400';
+                        return (
+                          <td key={m.key} className={`py-2.5 pr-4 tabular-nums whitespace-nowrap font-semibold ${clase}`}>
+                            {fmt(f.actual[m.key] ?? 0)} <span className="font-normal text-slate-400 dark:text-slate-500">/ {fmt(objetivo)}</span>
+                          </td>
+                        );
+                      })}
+                      <td className="py-2.5">
+                        <span className={`badge ${st.pill}`}>{st.label}</span>
+                        {f.cump.total > 0 && (
+                          <span className="ml-2 text-xs text-slate-400 dark:text-slate-500 tabular-nums">{f.cump.cumplidas}/{f.cump.total}</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </Card>
   );
 }
 
@@ -353,6 +451,9 @@ export default function Targets() {
           ) : null}
         </Card>
       )}
+
+      {/* Historial: periodos anteriores con su meta y su resultado */}
+      <Historial admin={admin} asesores={asesores} mes={mes} anio={anio} />
     </div>
   );
 }
