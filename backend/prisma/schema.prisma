@@ -24,6 +24,10 @@ enum RolUsuario {
 // Migración mapea: POTENCIAL->PROSPECTO, NEGOCIACION->PROPUESTA, ACTIVO->ENTREGA_POLIZA, CERRADO->CIERRE_FIRMA, INACTIVO->NECESITA_SEGUIMIENTO
 enum EstadoCliente {
   PROSPECTO
+  // Ya se le habló pero todavía no da cita: paso real del embudo entre
+  // PROSPECTO y CITA (no confundir con Cliente.fechaUltimaLlamada, que es
+  // cuándo fue la llamada, no en qué punto del proceso está).
+  CONTACTADO
   CITA
   PROPUESTA
   CIERRE_FIRMA
@@ -35,6 +39,14 @@ enum EstadoCliente {
   // contesta, no le interesa, no califica). No es una etapa de progreso, por
   // eso no entra en /metricas/funnel ni en el stepper de la ficha.
   DESCARTADO
+  // Pausados, también FUERA del embudo (no son un paso de progreso):
+  //  STANDBY     = interesado pero no ahora ("búscame en 3 meses"). Sale de la
+  //                clínica telefónica y de la regla de prospecto estancado:
+  //                la pausa es deliberada, perseguirlo es el ruido que se evita.
+  //  RETARGETING = se enfrió y hay que volver a trabajarlo. Sí vuelve a la
+  //                clínica telefónica: es justo material de re-contacto.
+  STANDBY
+  RETARGETING
 }
 
 enum EstadoCita {

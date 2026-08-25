@@ -31,9 +31,10 @@ function PipelineStepper({ estado }) {
   const actual = infoEtapa(estado);
   const idx = actual.orden;
   const ultimo = ETAPAS.length - 1;
-  // Descartado es terminal: no ocupa un paso del embudo, así que en vez de un
-  // stepper todo gris se dice explícitamente que el cliente salió.
-  if (actual.terminal) {
+  // Standby, Retargeting y Descartado no ocupan un paso del embudo, así que
+  // en vez de un stepper todo gris se dice explícitamente que el cliente está
+  // fuera y cómo devolverlo.
+  if (actual.fueraEmbudo) {
     return (
       <div className="card px-6 py-4 flex items-center gap-3">
         <span className={`h-3.5 w-3.5 rounded-full ${actual.dot} ring-4 ${actual.halo}`} />

@@ -104,9 +104,10 @@ function EtapaCell({ cliente, onCambiarEtapa }) {
           </span>
         )}
       </div>
-      {/* Indicador de posición en el embudo. Una etapa terminal (Descartado)
-          no tiene posición: en vez de pintar la barra vacía se dice por qué. */}
-      {e.terminal ? (
+      {/* Indicador de posición en el embudo. Las etapas fuera del embudo
+          (Standby, Retargeting, Descartado) no tienen posición: en vez de
+          pintar la barra vacía se dice por qué. */}
+      {e.fueraEmbudo ? (
         <p className={`text-[11px] font-medium ${e.text}`}>Fuera del embudo</p>
       ) : (
         <div className="flex gap-[3px]">

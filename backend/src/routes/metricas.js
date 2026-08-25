@@ -144,9 +144,9 @@ router.get('/funnel', asyncHandler(async (req, res) => {
   const whereC = esAsesor ? { asesorId: req.user.id } : (req.query.asesorId ? { asesorId: req.query.asesorId } : {});
   const porEstado = await prisma.cliente.groupBy({ by: ['estado'], where: { ...whereC, archivadoEn: null }, _count: { _all: true } });
   // Solo etapas reales del embudo: "necesita seguimiento" es una bandera
-  // aparte y DESCARTADO es terminal (el prospecto salió del embudo), así que
-  // ninguno de los dos aparece aquí.
-  const orden = ['PROSPECTO', 'CITA', 'PROPUESTA', 'CIERRE_FIRMA', 'ENTREGA_POLIZA', 'REFERIDOS', 'POST_VENTA_SEGUIMIENTO'];
+  // aparte y DESCARTADO / STANDBY / RETARGETING están fuera del embudo (el
+  // prospecto salió o está pausado), así que ninguno de ellos aparece aquí.
+  const orden = ['PROSPECTO', 'CONTACTADO', 'CITA', 'PROPUESTA', 'CIERRE_FIRMA', 'ENTREGA_POLIZA', 'REFERIDOS', 'POST_VENTA_SEGUIMIENTO'];
   const mapa = Object.fromEntries(porEstado.map((e) => [e.estado, e._count._all]));
   res.json(orden.map((k) => ({ etapa: k, count: mapa[k] || 0 })));
 }));

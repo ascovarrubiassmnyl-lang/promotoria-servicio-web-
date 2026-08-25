@@ -16,6 +16,17 @@ export const ETAPAS = [
     badge: 'slate',
   },
   {
+    // "Ya le hablé, todavía no me da cita": el paso que faltaba entre el
+    // prospecto crudo y la cita agendada.
+    value: 'CONTACTADO',
+    dot: 'bg-indigo-500', border: 'border-indigo-500', halo: 'ring-indigo-500/25',
+    pill: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300',
+    chipOn: 'ring-indigo-500 dark:ring-indigo-400',
+    badgeOn: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300',
+    text: 'text-indigo-600 dark:text-indigo-400',
+    badge: 'purple',
+  },
+  {
     value: 'CITA',
     dot: 'bg-sky-500', border: 'border-sky-500', halo: 'ring-sky-500/25',
     pill: 'bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300',
@@ -69,43 +80,80 @@ export const ETAPAS = [
     text: 'text-emerald-600 dark:text-emerald-400',
     badge: 'green',
   },
-].map((e, orden) => ({ ...e, orden, terminal: false, label: ESTADOS_CLIENTE_LABEL[e.value] || e.value }));
+].map((e, orden) => ({ ...e, orden, fueraEmbudo: false, label: ESTADOS_CLIENTE_LABEL[e.value] || e.value }));
 
-// Etapa TERMINAL: el prospecto no va a comprar (no contesta, no le interesa,
-// no califica). Deliberadamente FUERA de ETAPAS: no tiene posición en el
-// embudo (`orden: -1`), así el stepper, los segmentos de progreso, el funnel
-// del dashboard y `siguienteEtapa` la ignoran sin tocar su lógica. Roja, que
-// es el color de "cancelado/terminal" en el sistema de diseño.
-// No confundir con archivar (borrado lógico, Cliente.archivadoEn): un cliente
-// descartado sigue en la lista y se puede reactivar cambiándole la etapa.
-export const ETAPA_DESCARTADO = {
-  value: 'DESCARTADO',
+// Etapas FUERA del embudo: no son un paso de progreso, así que no tienen
+// posición (`orden: -1`) y el stepper, los segmentos de la lista, el funnel
+// del dashboard y `siguienteEtapa` las ignoran sin tocar su lógica.
+//
+//   DESCARTADO  terminal — no va a comprar (no contesta, no le interesa, no
+//               califica). Rojo, el color de "cancelado/terminal" del sistema.
+//   STANDBY     pausado a propósito ("búscame en 3 meses"). Ámbar, el color
+//               de "en espera" del sistema. Sale de la clínica telefónica y
+//               de la alerta de prospecto estancado: la pausa es deliberada.
+//   RETARGETING se enfrió y hay que volver a trabajarlo. Morado. Sí vuelve a
+//               la clínica telefónica — es justo material de re-contacto.
+//
+// Ninguna es lo mismo que archivar (borrado lógico, Cliente.archivadoEn): el
+// cliente sigue en la lista y se reactiva cambiándole la etapa.
+const fueraDelEmbudo = (e) => ({
+  ...e,
   orden: -1,
+  fueraEmbudo: true,
+  label: ESTADOS_CLIENTE_LABEL[e.value] || e.value,
+});
+
+export const ETAPA_DESCARTADO = fueraDelEmbudo({
+  value: 'DESCARTADO',
   terminal: true,
-  label: ESTADOS_CLIENTE_LABEL.DESCARTADO,
   dot: 'bg-red-500', border: 'border-red-500', halo: 'ring-red-500/25',
   pill: 'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300',
   chipOn: 'ring-red-500 dark:ring-red-400',
   badgeOn: 'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300',
   text: 'text-red-600 dark:text-red-400',
   badge: 'red',
-};
+});
+
+export const ETAPA_STANDBY = fueraDelEmbudo({
+  value: 'STANDBY',
+  terminal: false,
+  dot: 'bg-amber-500', border: 'border-amber-500', halo: 'ring-amber-500/25',
+  pill: 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
+  chipOn: 'ring-amber-500 dark:ring-amber-400',
+  badgeOn: 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
+  text: 'text-amber-600 dark:text-amber-400',
+  badge: 'amber',
+});
+
+export const ETAPA_RETARGETING = fueraDelEmbudo({
+  value: 'RETARGETING',
+  terminal: false,
+  dot: 'bg-fuchsia-500', border: 'border-fuchsia-500', halo: 'ring-fuchsia-500/25',
+  pill: 'bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-500/15 dark:text-fuchsia-300',
+  chipOn: 'ring-fuchsia-500 dark:ring-fuchsia-400',
+  badgeOn: 'bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-500/15 dark:text-fuchsia-300',
+  text: 'text-fuchsia-600 dark:text-fuchsia-400',
+  badge: 'purple',
+});
+
+// Las tres, en el orden en que se ofrecen después del embudo.
+export const ETAPAS_FUERA_EMBUDO = [ETAPA_STANDBY, ETAPA_RETARGETING, ETAPA_DESCARTADO];
 
 // Todo lo que el usuario puede ELEGIR (selectores, popover de la columna
 // Etapa, chips de filtro). Distinto de ETAPAS, que es el embudo ordenado y
 // solo debe usarse para pintar progreso.
-export const ETAPAS_SELECCIONABLES = [...ETAPAS, ETAPA_DESCARTADO];
+export const ETAPAS_SELECCIONABLES = [...ETAPAS, ...ETAPAS_FUERA_EMBUDO];
 
 // Fallback neutro para valores desconocidos o legacy (p. ej. el viejo
 // NECESITA_SEGUIMIENTO almacenado antes de la migración a bandera).
 export const infoEtapa = (value) =>
   ETAPAS_SELECCIONABLES.find((e) => e.value === value)
-  || { ...ETAPAS[0], value, orden: -1, terminal: false, label: ESTADOS_CLIENTE_LABEL[value] || value, badge: 'slate' };
+  || { ...ETAPAS[0], value, orden: -1, fueraEmbudo: false, terminal: false, label: ESTADOS_CLIENTE_LABEL[value] || value, badge: 'slate' };
 
 export const ordenEtapa = (value) => infoEtapa(value).orden;
 
-// Un cliente descartado no "avanza" a ninguna parte: sale null igual que la
-// última etapa del embudo (su orden es -1).
+// Una etapa fuera del embudo (Standby, Retargeting, Descartado) no "avanza" a
+// ninguna parte: sale null igual que la última etapa del embudo (orden -1).
 export const siguienteEtapa = (value) => {
   const i = ordenEtapa(value);
   return i >= 0 && i < ETAPAS.length - 1 ? ETAPAS[i + 1] : null;

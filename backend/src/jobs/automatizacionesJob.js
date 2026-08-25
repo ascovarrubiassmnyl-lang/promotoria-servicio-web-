@@ -48,9 +48,11 @@ async function prospectosEstancados() {
     where: {
       archivadoEn: null,
       actualizadoEn: { lt: corte },
-      // Descartado es terminal: el asesor ya decidió que no va a comprar,
-      // recordárselo cada 15 días es justo el ruido que la regla evita.
-      estado: { not: 'DESCARTADO' },
+      // Descartado (ya decidió que no va a comprar) y Standby (pausado a
+      // propósito, "búscame en 3 meses") quedan fuera: recordarlos cada 15
+      // días es justo el ruido que la regla evita. Retargeting SÍ entra —
+      // es material de re-contacto, no una pausa.
+      estado: { notIn: ['DESCARTADO', 'STANDBY'] },
       // Ya cerrada la venta no es un prospecto que perseguir.
       ventas: { none: { estado: { in: ['PENDIENTE_PAGAR', 'FIRMADA', 'APROBADA', 'PAGADA'] } } },
       // Con una cita agendada o un recordatorio abierto, ya hay siguiente paso.

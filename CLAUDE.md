@@ -584,20 +584,35 @@ que se guardaron ya formateados — no volver a escribirla.
   No duplicar colores/labels de etapa en otros componentes (`ClienteBadge`
   ya consume este mapa). La etapa se muestra como pill + indicador de
   posición (segmentos en la lista, stepper en el expediente).
-- **`DESCARTADO` es una etapa TERMINAL, fuera del embudo** (2026-08-18): el
-  prospecto no va a comprar (no contesta, no le interesa, no califica). Vive
-  en `ETAPA_DESCARTADO` (roja), **deliberadamente fuera del array `ETAPAS`**
-  y con `orden: -1` — así el stepper, los segmentos de progreso, el funnel
-  del dashboard y `siguienteEtapa()` la ignoran sin lógica extra. Lo que el
-  usuario puede **elegir** (selectores, popover de la columna Etapa, chips de
-  filtro) es `ETAPAS_SELECCIONABLES = [...ETAPAS, ETAPA_DESCARTADO]`; `ETAPAS`
-  a secas se reserva para pintar progreso. Donde no hay posición en el embudo
-  se dice ("Fuera del embudo" en la lista, tarjeta en la ficha) en vez de
-  pintar la barra vacía. El whitelist de `/metricas/funnel` no lo incluye y la
-  regla "prospecto estancado" de `automatizacionesJob.js` lo excluye (ya se
-  decidió que no va a comprar: recordarlo cada 15 días es el ruido que la
-  regla evita). **No es lo mismo que archivar** (`Cliente.archivadoEn`, borrado
-  lógico): un descartado sigue en la lista y se reactiva cambiándole la etapa.
+- **`CONTACTADO` es un paso del embudo** (2026-08-25), entre `PROSPECTO` y
+  `CITA` (indigo): "ya le hablé, todavía no me da cita". Entra en el array
+  `ETAPAS` y en el whitelist de `/metricas/funnel`, así que el embudo del
+  dashboard tiene 8 niveles. No confundir con `Cliente.fechaUltimaLlamada`
+  (cuándo fue la llamada, no en qué punto del proceso está).
+- **Tres etapas FUERA del embudo** (`ETAPAS_FUERA_EMBUDO` en `etapas.js`),
+  deliberadamente fuera del array `ETAPAS` y con `orden: -1` — así el stepper,
+  los segmentos de progreso, el funnel del dashboard y `siguienteEtapa()` las
+  ignoran sin lógica extra. Se marcan con `fueraEmbudo: true` (antes se
+  llamaba `terminal`, que dejó de describir a las tres; `terminal` quedó solo
+  como dato propio de DESCARTADO):
+  - `DESCARTADO` (roja, 2026-08-18) — no va a comprar (no contesta, no le
+    interesa, no califica). Terminal.
+  - `STANDBY` (ámbar, 2026-08-25) — interesado pero no ahora ("búscame en 3
+    meses"). La pausa es deliberada, así que **sale de la clínica telefónica**
+    y de la regla "prospecto estancado".
+  - `RETARGETING` (fucsia, 2026-08-25) — se enfrió y hay que volver a
+    trabajarlo. **Sí vuelve a la clínica telefónica** y sí dispara la alerta
+    de estancado: es material de re-contacto, no una pausa.
+
+  Lo que el usuario puede **elegir** (selectores, popover de la columna Etapa,
+  chips de filtro) es `ETAPAS_SELECCIONABLES = [...ETAPAS,
+  ...ETAPAS_FUERA_EMBUDO]`; `ETAPAS` a secas se reserva para pintar progreso.
+  Donde no hay posición en el embudo se dice ("Fuera del embudo" en la lista,
+  tarjeta en la ficha) en vez de pintar la barra vacía. El whitelist de
+  `/metricas/funnel` no incluye ninguna de las tres y la regla "prospecto
+  estancado" de `automatizacionesJob.js` excluye DESCARTADO y STANDBY.
+  **Ninguna es lo mismo que archivar** (`Cliente.archivadoEn`, borrado
+  lógico): el cliente sigue en la lista y se reactiva cambiándole la etapa.
 - **"Necesita seguimiento" es una BANDERA, no una etapa**: campo
   `Cliente.necesitaSeguimiento` (booleano), independiente de `estado` — un
   cliente puede estar en cualquier etapa y además necesitar seguimiento.
@@ -966,11 +981,14 @@ obtenidas, notas).
   evaluador de la semana por **dos disparadores**, ambos en
   `backend/src/utils/clinica.js`:
   1. **Recién registrado** — `POST /clientes` mete la fila si el cliente nace
-     en etapa `PROSPECTO` (mejor esfuerzo: si la clínica falla el alta no se
-     cae; la respuesta incluye `enClinica`).
-  2. **Atorado en PROSPECTO** — `DIAS_SIN_AVANCE = 4`: sigue en etapa
-     `PROSPECTO`, sin cita viva, sin póliza viva, sin `fechaUltimaCita`, y o
-     nunca se le llamó o la última llamada fue hace más de 4 días.
+     en una etapa de `ETAPAS_CLINICA` (mejor esfuerzo: si la clínica falla el
+     alta no se cae; la respuesta incluye `enClinica`).
+  2. **Atorado sin conseguir cita** — `DIAS_SIN_AVANCE = 4`: sigue en
+     `PROSPECTO` o `CONTACTADO` (con `fechaUltimaCita: null`) o en
+     `RETARGETING` (aquí **no** se exige `fechaUltimaCita: null` — ya avanzó
+     antes y se enfrió, volver a llamarlo es el punto), sin cita viva, sin
+     póliza viva, y o nunca se le llamó o la última llamada fue hace más de 4
+     días. `STANDBY` y `DESCARTADO` nunca entran.
      `sincronizarClinicaDeAsesor()` lo corre el **job horario**
      (`jobs/automatizacionesJob.js`, regla 3, para todos los usuarios
      activos). No manda notificación: el resultado es una fila en `/clinica`.
@@ -992,7 +1010,9 @@ obtenidas, notas).
 - **El avance en la clínica se refleja en la ficha** (2026-08-14): `PATCH
   /clinica/prospectos/:id` propaga al `Cliente` enlazado (solo si hay
   `clienteId` y el `resultado` realmente cambió): `CONTACTADO` →
-  `fechaUltimaLlamada`; `CITA_OBTENIDA` → `estado: 'CITA'` +
+  `fechaUltimaLlamada` + sube la etapa a `CONTACTADO` con un `updateMany`
+  acotado a `ETAPAS_CLINICA`, que es la guarda para no pisar con un retroceso
+  a quien ya avanzó; `CITA_OBTENIDA` → `estado: 'CITA'` +
   `fechaUltimaCita` + baja la bandera de seguimiento; `DESCARTADO` → solo
   baja la bandera (**no archiva ni cambia etapa**: descartar en la clínica es
   "no le sigo llamando esta semana", archivar es decisión aparte desde la

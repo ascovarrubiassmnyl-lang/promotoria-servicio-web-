@@ -4,6 +4,7 @@ import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion } from '../middleware/permisos.js';
 import { registrarActividad } from '../utils/actividad.js';
+import { ETAPAS_CLINICA } from '../utils/clinica.js';
 
 // Clínica telefónica: digitaliza el "Evaluador de Prospectos" semanal de la
 // promotoría (formato diseñado para conseguir 10 citas a la semana) y el
@@ -126,6 +127,13 @@ router.patch('/prospectos/:id', asyncHandler(async (req, res) => {
     const cambios = {};
     if (data.resultado === 'CONTACTADO') {
       cambios.fechaUltimaLlamada = new Date();
+      // Ya le hablaron: el cliente sube a la etapa CONTACTADO. El updateMany
+      // acotado a ETAPAS_CLINICA es la guarda: si mientras tanto avanzó a
+      // CITA, PROPUESTA… no se le pisa el avance con un retroceso.
+      await prisma.cliente.updateMany({
+        where: { id: prospecto.clienteId, estado: { in: ETAPAS_CLINICA } },
+        data: { estado: 'CONTACTADO' },
+      }).catch(() => {});
     } else if (data.resultado === 'CITA_OBTENIDA') {
       cambios.fechaUltimaCita = new Date();
       cambios.estado = 'CITA';

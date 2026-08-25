@@ -4,7 +4,7 @@ import { authenticate, esAdmin } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion } from '../middleware/permisos.js';
 import { registrarActividad } from '../utils/actividad.js';
-import { agregarClienteAClinica } from '../utils/clinica.js';
+import { agregarClienteAClinica, ETAPAS_CLINICA } from '../utils/clinica.js';
 
 const router = Router();
 router.use(authenticate);
@@ -133,12 +133,13 @@ router.post('/', asyncHandler(async (req, res) => {
   // Un prospecto recién registrado es exactamente lo que la clínica telefónica
   // existe para trabajar: entra SOLO al evaluador de la semana en curso, sin
   // preguntarle nada al asesor y sin que tenga que importarlo a mano. Si más
-  // tarde sigue atorado en PROSPECTO, el job horario lo vuelve a meter
+  // tarde sigue sin conseguir cita, el job horario lo vuelve a meter
   // (`sincronizarClinicaDeAsesor` en utils/clinica.js) — este alta solo cubre
   // el primer disparador: "acaba de registrarse y nadie lo ha llamado".
-  // Un alta que nace en otra etapa (ya viene con cita, propuesta…) no aplica.
+  // Un alta que nace en otra etapa (ya viene con cita, propuesta…) no aplica;
+  // la lista de etapas que sí aplican vive en utils/clinica.js.
   let enClinica = false;
-  if (cliente.estado === 'PROSPECTO') {
+  if (ETAPAS_CLINICA.includes(cliente.estado)) {
     try {
       enClinica = Boolean(await agregarClienteAClinica(cliente, { asesorId }));
     } catch (e) {

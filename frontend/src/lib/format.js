@@ -71,6 +71,7 @@ export const FORMAS_PAGO = {
 // mapa de presentación (color/orden) vive en components/clientes/etapas.js.
 export const ESTADOS_CLIENTE = [
   'PROSPECTO',
+  'CONTACTADO',
   'CITA',
   'PROPUESTA',
   'CIERRE_FIRMA',
@@ -81,6 +82,7 @@ export const ESTADOS_CLIENTE = [
 
 export const ESTADOS_CLIENTE_LABEL = {
   PROSPECTO: 'Prospecto',
+  CONTACTADO: 'Contactado',
   CITA: 'Cita',
   PROPUESTA: 'Propuesta',
   CIERRE_FIRMA: 'Cierre y firma',
@@ -88,6 +90,8 @@ export const ESTADOS_CLIENTE_LABEL = {
   REFERIDOS: 'Referidos',
   POST_VENTA_SEGUIMIENTO: 'Post venta y seguimiento',
   DESCARTADO: 'Descartado', // terminal: fuera del embudo, no es una etapa de progreso
+  STANDBY: 'Standby', // pausado a propósito ("búscame en 3 meses"), fuera del embudo
+  RETARGETING: 'Retargeting', // se enfrió, hay que volver a trabajarlo; fuera del embudo
   NECESITA_SEGUIMIENTO: 'Necesita seguimiento', // legacy: solo para mostrar datos viejos
 };
 

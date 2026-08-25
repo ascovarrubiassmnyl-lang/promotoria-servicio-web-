@@ -61,9 +61,9 @@ export async function agregarClienteAClinica(cliente, { asesorId, semanaInicio }
 // cae en alguno de estos dos casos.
 //
 //   1. Recién registrado y nunca contactado.
-//   2. Lleva DIAS_SIN_AVANCE días atorado en PROSPECTO — el caso que la
-//      clínica existe para forzar: perseguir al que no avanza a cita ni se
-//      descarta.
+//   2. Lleva DIAS_SIN_AVANCE días atorado sin conseguir cita (PROSPECTO,
+//      CONTACTADO o RETARGETING) — el caso que la clínica existe para forzar:
+//      perseguir al que no avanza a cita ni se descarta.
 //
 // El "contador" es DERIVADO, no una columna nueva: sale de `creadoEn`,
 // `fechaUltimaLlamada`, `fechaUltimaCita` y `estado`, que ya se mantienen.
@@ -71,10 +71,22 @@ export async function agregarClienteAClinica(cliente, { asesorId, semanaInicio }
 // llama al cliente desde fuera del CRM.
 export const DIAS_SIN_AVANCE = 4;
 
-// Un prospecto "no ha avanzado" si sigue en la etapa PROSPECTO: cualquier otra
-// etapa (CITA, PROPUESTA, CIERRE_FIRMA…) ya significa que se movió. Etapas que
-// no son PROSPECTO nunca entran a la clínica.
-const ETAPA_SIN_AVANCE = 'PROSPECTO';
+// Un prospecto "no ha avanzado" mientras siga en PROSPECTO (nadie le ha
+// hablado) o en CONTACTADO (ya le hablaron, pero la cita —que es el objetivo
+// de la clínica— sigue sin salir). Las etapas de avance real (CITA,
+// PROPUESTA, CIERRE_FIRMA…) nunca entran.
+const ETAPAS_SIN_AVANCE = ['PROSPECTO', 'CONTACTADO'];
+
+// RETARGETING también es material de clínica, pero con una regla propia: se
+// enfrió DESPUÉS de haber avanzado, así que a diferencia de los anteriores no
+// se le exige no haber tenido nunca una cita — volver a llamarlo es el punto.
+// STANDBY y DESCARTADO quedan fuera a propósito: son pausas o decisiones ya
+// tomadas ("búscame en 3 meses"), y perseguirlas es el ruido que se evita.
+const ETAPA_RECONTACTO = 'RETARGETING';
+
+// Etapas que pueden mandar a un cliente al evaluador (usada también por el
+// alta en routes/clientes.js, para no repetir la lista).
+export const ETAPAS_CLINICA = [...ETAPAS_SIN_AVANCE, ETAPA_RECONTACTO];
 
 // Clientes del asesor que deben estar en el evaluador de la semana.
 // `semanaInicio` acota la anti-duplicación: si ya está en la fila de ESTA
@@ -94,19 +106,30 @@ export async function clientesParaClinica(asesorId, { semanaInicio, ahora = new 
     where: {
       asesorId,
       archivadoEn: null,
-      estado: ETAPA_SIN_AVANCE,
       id: excluir.length ? { notIn: excluir } : undefined,
-      // Nunca se le ha conseguido cita (si ya tuvo una, avanzó).
-      fechaUltimaCita: null,
       // Ya cerrada la venta no hay que llamarlo para conseguir cita.
       ventas: { none: { estado: { in: ['PENDIENTE_PAGAR', 'FIRMADA', 'APROBADA', 'PAGADA'] } } },
       // Con cita agendada ya hay siguiente paso; no es material de clínica.
       citas: { none: { estado: { in: ['PROGRAMADA', 'CONFIRMADA'] } } },
-      // Los dos disparadores: nunca contactado, o contactado hace más de
-      // DIAS_SIN_AVANCE días sin que eso lo moviera de etapa.
-      OR: [
-        { fechaUltimaLlamada: null, creadoEn: { lte: corte } },
-        { fechaUltimaLlamada: { lte: corte } },
+      AND: [
+        {
+          OR: [
+            // Todavía va por su primera cita: si ya tuvo una, avanzó.
+            { estado: { in: ETAPAS_SIN_AVANCE }, fechaUltimaCita: null },
+            // Retargeting: se enfrió después de avanzar, así que aquí no se
+            // exige `fechaUltimaCita: null` — es justo a quien hay que volver
+            // a llamar.
+            { estado: ETAPA_RECONTACTO },
+          ],
+        },
+        {
+          // Los dos disparadores: nunca contactado, o contactado hace más de
+          // DIAS_SIN_AVANCE días sin que eso lo moviera de etapa.
+          OR: [
+            { fechaUltimaLlamada: null, creadoEn: { lte: corte } },
+            { fechaUltimaLlamada: { lte: corte } },
+          ],
+        },
       ],
     },
     select: {
