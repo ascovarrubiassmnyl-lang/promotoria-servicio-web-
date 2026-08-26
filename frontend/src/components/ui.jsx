@@ -128,28 +128,50 @@ export function MenuAcciones({ items, small = false, label = 'Más acciones' }) 
 // Se usa cuando el formulario ES la tarea (una ficha que se llena de arriba a
 // abajo); un Modal sigue siendo lo correcto para preguntas cortas y
 // confirmaciones — no convertir todos los formularios a esto.
-export function PantallaCompleta({ open, onClose, title, subtitle, children, footer }) {
+export function PantallaCompleta({ open, onClose, title, subtitle, children, footer, headerActions, breadcrumb }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-slate-50 dark:bg-slate-900">
-      <header className="shrink-0 flex items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 sm:px-6 py-3">
-        <div className="min-w-0">
-          <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">{title}</h2>
-          {subtitle && <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{subtitle}</p>}
+    <div className="fixed inset-0 z-50 flex flex-col bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100">
+      <header className="shrink-0 flex items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/90 backdrop-blur px-4 sm:px-8 py-3.5 sticky top-0 z-20 shadow-sm">
+        <div className="min-w-0 flex-1">
+          {breadcrumb && (
+            <div className="mb-0.5">
+              {typeof breadcrumb === 'string' ? (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="inline-flex items-center text-xs font-medium text-brand-600 dark:text-brand-400 hover:underline cursor-pointer"
+                >
+                  {breadcrumb}
+                </button>
+              ) : breadcrumb}
+            </div>
+          )}
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50 truncate">{title}</h2>
+          {subtitle && (
+            <div className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+              {subtitle}
+            </div>
+          )}
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="shrink-0 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg leading-none px-2"
-          aria-label="cerrar"
-        >✕</button>
+        <div className="flex items-center gap-3 shrink-0">
+          {headerActions}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+            aria-label="cerrar"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </button>
+        </div>
       </header>
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 py-6">{children}</div>
+        <div className="mx-auto w-full max-w-7xl px-4 sm:px-8 py-6 sm:py-8">{children}</div>
       </div>
       {footer && (
-        <footer className="shrink-0 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 sm:px-6 py-3">
-          <div className="mx-auto w-full max-w-5xl">{footer}</div>
+        <footer className="shrink-0 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/90 backdrop-blur px-4 sm:px-8 py-3.5 z-20">
+          <div className="mx-auto w-full max-w-7xl">{footer}</div>
         </footer>
       )}
     </div>
@@ -159,15 +181,17 @@ export function PantallaCompleta({ open, onClose, title, subtitle, children, foo
 // Bloque numerado de la ficha técnica: título de sección + contenido. Los
 // campos los acomoda quien lo usa (no todos los bloques quieren la misma
 // rejilla).
-export function SeccionFicha({ numero, title, subtitle, children }) {
+export function SeccionFicha({ numero, title, subtitle, children, className = '' }) {
   return (
-    <section className="card p-5">
+    <section className={`card p-5 sm:p-6 overflow-visible ${className}`}>
       <div className="flex items-start gap-3 mb-4">
-        <span className="shrink-0 w-7 h-7 rounded-lg bg-brand-50 dark:bg-brand-500/15 text-brand-700 dark:text-brand-300 text-sm font-semibold flex items-center justify-center tabular-nums">
-          {numero}
-        </span>
+        {numero != null && (
+          <span className="shrink-0 w-7 h-7 rounded-lg bg-brand-50 dark:bg-brand-500/15 text-brand-700 dark:text-brand-300 text-sm font-semibold flex items-center justify-center tabular-nums">
+            {numero}
+          </span>
+        )}
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
+          <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">{title}</h3>
           {subtitle && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>}
         </div>
       </div>
@@ -183,7 +207,7 @@ export function ValorFijo({ children, title, vacio = '—' }) {
   const hay = children !== null && children !== undefined && children !== '';
   return (
     <div
-      className={`input flex items-center bg-slate-50 dark:bg-slate-700/40 ${hay ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-500'}`}
+      className={`input flex items-center bg-slate-50 dark:bg-slate-800/60 ${hay ? 'text-slate-700 dark:text-slate-200 font-medium' : 'text-slate-400 dark:text-slate-500'}`}
       title={title}
     >{hay ? children : vacio}</div>
   );
@@ -221,10 +245,10 @@ export function Drawer({ open, onClose, title, children, wide = false }) {
   );
 }
 
-export function Field({ label, children }) {
+export function Field({ label, children, className = '' }) {
   return (
-    <div>
-      <label className="label">{label}</label>
+    <div className={className}>
+      {label && <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">{label}</label>}
       {children}
     </div>
   );
@@ -272,7 +296,7 @@ export function NumeroFormateado({ value, onChange, className = '', placeholder,
 // Selector de fecha con mini calendario (popover). `value`/`onChange` usan el
 // mismo formato string 'YYYY-MM-DD' que <input type="date">, para poder
 // sustituirlo directo en cualquier formulario.
-export function DatePicker({ value, onChange, placeholder = 'Selecciona una fecha', className = '' }) {
+export function DatePicker({ value, onChange, placeholder = 'dd/mm/aaaa', className = '' }) {
   const [open, setOpen] = useState(false);
   const [mesVisible, setMesVisible] = useState(() => {
     const base = value ? new Date(`${value}T00:00:00`) : new Date();
@@ -301,11 +325,7 @@ export function DatePicker({ value, onChange, placeholder = 'Selecciona una fech
   const cambiarMes = (delta) => setMesVisible((m) => new Date(m.getFullYear(), m.getMonth() + delta, 1));
   const irA = (anio, mes) => setMesVisible(new Date(anio, mes, 1));
 
-  // Rango del selector de año. Las pólizas de vida llegan a 20+ años de
-  // vigencia, así que el rango va muy por delante del año actual; hacia atrás
-  // basta con cubrir pólizas antiguas y fechas de nacimiento no se capturan
-  // aquí. Siempre incluye el año visible aunque quede fuera del rango (una
-  // fecha ya guardada nunca debe desaparecer del selector).
+  // Rango del selector de año.
   const anioActual = new Date().getFullYear();
   const anios = (() => {
     const desde = Math.min(anioActual - 10, mesVisible.getFullYear());
@@ -315,48 +335,46 @@ export function DatePicker({ value, onChange, placeholder = 'Selecciona una fech
   const elegir = (dia) => { onChange(fmt(new Date(mesVisible.getFullYear(), mesVisible.getMonth(), dia))); setOpen(false); };
 
   const label = seleccionada
-    ? seleccionada.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
+    ? seleccionada.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' })
     : placeholder;
 
   return (
-    <div className={`relative ${className}`} ref={ref}>
+    <div className={`relative ${open ? 'z-50' : 'z-0'} ${className}`} ref={ref}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className={`input text-left flex items-center justify-between ${!seleccionada ? 'text-slate-400 dark:text-slate-500' : ''}`}
+        className={`input text-left flex items-center justify-between cursor-pointer ${!seleccionada ? 'text-slate-400 dark:text-slate-500' : 'font-medium'}`}
       >
         <span className="truncate">{label}</span>
-        <svg className="w-4 h-4 text-slate-400 shrink-0 ml-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg className="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0 ml-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <rect x="3" y="5" width="18" height="16" rx="2" />
           <path d="M3 10h18M8 3v4M16 3v4" strokeLinecap="round" />
         </svg>
       </button>
       {open && (
-        <div className="absolute z-30 mt-1 w-72 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-lg p-3">
+        <div className="absolute z-50 mt-1 w-72 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-2xl p-3 left-0">
           <div className="flex items-center justify-between mb-2">
             <button type="button" onClick={() => cambiarMes(-1)} aria-label="Mes anterior" className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 6l-6 6 6 6" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>
-            {/* Mes y año como selects: llegar a una vigencia a 20 años con las
-                flechas eran decenas de clics. */}
             <div className="flex items-center gap-1">
               <select
                 aria-label="Mes"
-                className="text-sm font-semibold text-slate-700 dark:text-slate-200 bg-transparent rounded-lg px-1 py-0.5 hover:bg-slate-100 dark:hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer"
+                className="text-sm font-semibold text-slate-700 dark:text-slate-200 bg-transparent dark:bg-slate-800 rounded-lg px-1.5 py-0.5 hover:bg-slate-100 dark:hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer"
                 value={mesVisible.getMonth()}
                 onChange={(e) => irA(mesVisible.getFullYear(), Number(e.target.value))}
               >
                 {Array.from({ length: 12 }, (_, i) => (
-                  <option key={i} value={i}>{nombreMes(i + 1)}</option>
+                  <option key={i} value={i} className="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100">{nombreMes(i + 1)}</option>
                 ))}
               </select>
               <select
                 aria-label="Año"
-                className="text-sm font-semibold text-slate-700 dark:text-slate-200 bg-transparent rounded-lg px-1 py-0.5 hover:bg-slate-100 dark:hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer tabular-nums"
+                className="text-sm font-semibold text-slate-700 dark:text-slate-200 bg-transparent dark:bg-slate-800 rounded-lg px-1.5 py-0.5 hover:bg-slate-100 dark:hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer tabular-nums"
                 value={mesVisible.getFullYear()}
                 onChange={(e) => irA(Number(e.target.value), mesVisible.getMonth())}
               >
-                {anios.map((a) => <option key={a} value={a}>{a}</option>)}
+                {anios.map((a) => <option key={a} value={a} className="bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100">{a}</option>)}
               </select>
             </div>
             <button type="button" onClick={() => cambiarMes(1)} aria-label="Mes siguiente" className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">
@@ -378,9 +396,9 @@ export function DatePicker({ value, onChange, placeholder = 'Selecciona una fech
                   type="button"
                   onClick={() => elegir(dia)}
                   className={`h-7 w-7 rounded-lg text-xs font-medium transition ${esSeleccionado
-                    ? 'bg-brand-600 text-white'
+                    ? 'bg-brand-600 text-white font-semibold shadow-sm'
                     : esHoy
-                      ? 'text-brand-600 dark:text-brand-400 font-semibold'
+                      ? 'text-brand-600 dark:text-brand-400 font-semibold ring-1 ring-brand-500'
                       : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
                 >{dia}</button>
               );
