@@ -2,27 +2,19 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
-// Datos de la sección de notificaciones. Vive aparte de NotifContext, que se
+// Datos de la bandeja de notificaciones. Vive aparte de NotifContext, que se
 // encarga del ciclo de vida del service worker / suscripción push del
 // navegador — aquí solo son datos de servidor cacheados por react-query.
+// Único consumidor: el bloque "Requiere tu atención" del Dashboard
+// (`pages/Dashboard.jsx`) — se eliminó la sección /notificaciones y su enlace
+// de nav (campana), ver esa sección en CLAUDE.md. `GET /notificaciones/:id`
+// y `/no-leidas` de la API siguen existiendo tal cual (self-service, sin
+// cambios de servidor), solo cambió qué parte del frontend los consume.
 //
-// No hay WebSockets en el proyecto, así que el contador del nav se refresca
-// por polling ligero (GET /notificaciones/no-leidas solo hace un count()).
+// No hay WebSockets en el proyecto, así que se refresca por polling ligero.
 const INTERVALO_MS = 30000;
 
-export function useNoLeidas() {
-  const { user } = useAuth();
-  return useQuery({
-    queryKey: ['notificaciones', 'no-leidas'],
-    queryFn: async () => (await api.get('/notificaciones/no-leidas')).data.noLeidas,
-    enabled: !!user,
-    refetchInterval: INTERVALO_MS,
-    refetchOnWindowFocus: true,
-    initialData: 0,
-  });
-}
-
-// Lista paginada + conteos de la sección. `filtros` = { estado, tipo, pagina }.
+// Lista paginada + conteos de la bandeja. `filtros` = { estado, tipo, pagina }.
 export function useListaNotificaciones(filtros = {}) {
   const { user } = useAuth();
   const { estado = 'todas', tipo = null, pagina = 1 } = filtros;
@@ -35,6 +27,7 @@ export function useListaNotificaciones(filtros = {}) {
       return (await api.get('/notificaciones', { params })).data;
     },
     enabled: !!user,
+    refetchInterval: INTERVALO_MS,
     placeholderData: (prev) => prev, // evita parpadeo al cambiar de página
   });
 }

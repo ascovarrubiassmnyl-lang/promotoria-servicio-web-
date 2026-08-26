@@ -3,9 +3,7 @@ import { Suspense, lazy, useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { soportaWebGL, Silencioso } from './decor/util3d.jsx';
-import CampanaNotificaciones from './notificaciones/CampanaNotificaciones.jsx';
 import BannerActivarPush from './notificaciones/BannerActivarPush.jsx';
-import { useNoLeidas } from '../hooks/useNotificaciones.js';
 
 // Fondo 3D decorativo del panel (solo modo oscuro): mismo patrón que el login
 // — lazy + Suspense (three no entra al bundle inicial), solo con WebGL y con
@@ -30,7 +28,6 @@ const IconMas = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="curr
 const IconClose = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>);
 const IconSun = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>);
 const IconMoon = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>);
-const IconCampanaNav = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>);
 
 const ICONS = {
   dashboard: IconDashboard, clientes: IconClientes, citas: IconCal, ventas: IconPoliza,
@@ -45,7 +42,7 @@ const STORAGE_KEY = 'crm:sidebar:colapsado';
 const PRIMARY_SECCIONES = ['dashboard', 'clientes', 'citas', 'ventas'];
 // Etiqueta corta para la barra inferior (el sidebar usa la larga).
 const NAV_CORTO = {
-  dashboard: 'Panel', clientes: 'Clientes', citas: 'Citas', ventas: 'Pólizas',
+  dashboard: 'Panel', clientes: 'CRM', citas: 'Citas', ventas: 'Pólizas',
   actividad: 'Actividad', metas: 'Metas', asesores: 'Asesores', configuracion: 'Ajustes',
   puntos: '25 puntos', clinica: 'Clínica', candidatos: 'Candidatos',
 };
@@ -54,7 +51,6 @@ export default function Layout() {
   const { user, logout, esAdmin, puede } = useAuth();
   const { tema, alternar } = useTheme();
   const navigate = useNavigate();
-  const { data: noLeidas = 0 } = useNoLeidas();
 
   const logoSrc = tema === 'dark' ? '/origen-blanco.png' : '/origen-negro.png';
 
@@ -71,7 +67,7 @@ export default function Layout() {
 
   const allLinks = [
     { to: '/', label: 'Dashboard', end: true, seccion: 'dashboard' },
-    { to: '/clientes', label: 'Clientes', seccion: 'clientes' },
+    { to: '/clientes', label: 'CRM', seccion: 'clientes' },
     { to: '/citas', label: 'Citas / Calendario', seccion: 'citas' },
     // Promotor (ADMIN/SUPERADMIN) entra a pólizas por el roster de Equipo;
     // el asesor va directo a su propia cartera. El ítem de Equipo solo se
@@ -194,18 +190,10 @@ export default function Layout() {
           )}
         </nav>
 
-        {/* Footer: notificaciones + usuario + tema + logout */}
+        {/* Footer: usuario + tema + logout. Las notificaciones ya no tienen
+            enlace propio: viven siempre visibles en el Dashboard, dentro de
+            "Requiere tu atención" (2026-08-25, a pedido del usuario). */}
         <div className="p-2 border-t border-slate-100 dark:border-slate-700 space-y-1">
-          {/* Enlace a la sección /notificaciones (no un panel flotante): cabe
-              igual colapsado, como cualquier otro ítem de navegación. */}
-          {colapsado ? (
-            <div className="flex justify-center">
-              <CampanaNotificaciones className="h-10 w-10" />
-            </div>
-          ) : (
-            <CampanaNotificaciones etiqueta="Notificaciones" />
-          )}
-
           <button
             onClick={alternar}
             className={`flex items-center gap-3 rounded-lg ${colapsado ? 'h-10 w-10 justify-center mx-auto' : 'px-3 py-2'} text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition`}
@@ -251,7 +239,6 @@ export default function Layout() {
         <header className="md:hidden sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white/90 px-4 backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/70">
           <img src={logoSrc} alt="Origen" className="h-7 w-auto object-contain" />
           <div className="flex items-center gap-0.5">
-            <CampanaNotificaciones />
             <button
               onClick={alternar}
               className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700/60 transition"
@@ -350,26 +337,6 @@ export default function Layout() {
               })}
 
               <div className="my-2 border-t border-slate-100 dark:border-slate-700" />
-
-              <NavLink
-                to="/notificaciones"
-                onClick={() => setMenuAbierto(false)}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 rounded-lg px-3 min-h-[48px] text-sm font-medium transition ${
-                    isActive
-                      ? 'bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300'
-                      : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60'
-                  }`
-                }
-              >
-                <IconCampanaNav className="w-5 h-5 shrink-0" />
-                <span>Notificaciones</span>
-                {noLeidas > 0 && (
-                  <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-bold leading-none text-white tabular-nums">
-                    {noLeidas > 99 ? '99+' : noLeidas}
-                  </span>
-                )}
-              </NavLink>
 
               <button
                 onClick={() => { alternar(); }}

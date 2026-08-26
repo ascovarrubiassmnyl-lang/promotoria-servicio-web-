@@ -83,8 +83,8 @@ export const ETAPAS = [
 ].map((e, orden) => ({ ...e, orden, fueraEmbudo: false, label: ESTADOS_CLIENTE_LABEL[e.value] || e.value }));
 
 // Etapas FUERA del embudo: no son un paso de progreso, así que no tienen
-// posición (`orden: -1`) y el stepper, los segmentos de la lista, el funnel
-// del dashboard y `siguienteEtapa` las ignoran sin tocar su lógica.
+// posición (`orden: -1`) y el stepper, los segmentos de la lista y
+// `siguienteEtapa` las ignoran sin tocar su lógica.
 //
 //   DESCARTADO  terminal — no va a comprar (no contesta, no le interesa, no
 //               califica). Rojo, el color de "cancelado/terminal" del sistema.

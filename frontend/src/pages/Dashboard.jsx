@@ -1,251 +1,449 @@
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
-import { EmptyState } from '../components/ui.jsx';
-import { mxn, num, nombreMes, ESTADOS_VENTA_LABEL } from '../lib/format.js';
-import { infoEtapa } from '../components/clientes/etapas.js';
-import { diasPeriodo, claveRitmo, ESTADOS_RITMO, pctAvance, proyeccion } from '../components/metas/ritmo.js';
+import { mxn, num, nombreMes } from '../lib/format.js';
+import { diasPeriodo, claveRitmo, ESTADOS_RITMO, pctAvance } from '../components/metas/ritmo.js';
+import { infoTipoNotificacion } from '../components/notificaciones/tipos.jsx';
+import { useListaNotificaciones, useMarcarLeida, useMarcarTodasLeidas } from '../hooks/useNotificaciones.js';
+import { RankingAsesores } from '../components/dashboard/Leaderboard.jsx';
 
-// Dashboard (rediseño 2026-07): jerarquiza y empuja a la acción.
+// recharts pesa ~400 kB: las gráficas se cargan aparte para no cobrárselo al
+// bundle inicial de toda la app (misma convención que el 3D decorativo). Las
+// dos salen del mismo módulo, así que es una sola descarga.
+const TendenciaVentas = lazy(() => import('../components/dashboard/Graficas.jsx').then((m) => ({ default: m.TendenciaVentas })));
+const PrimaPorRamo = lazy(() => import('../components/dashboard/Graficas.jsx').then((m) => ({ default: m.PrimaPorRamo })));
+
+function GraficaCargando() {
+  return (
+    <section className="card flex items-center justify-center p-5 sm:p-7" style={{ minHeight: 300 }}>
+      <span className="text-sm text-slate-400 dark:text-slate-500">Cargando gráfica…</span>
+    </section>
+  );
+}
+
+// Dashboard (rediseño 2026-08-25, a pedido del usuario): minimalista a
+// propósito — antes tenía 6 secciones y se sentía "ruidoso" para un asesor.
+// Se redujo a lo que de verdad se consulta día a día: 4 KPIs (prima del
+// periodo, pólizas activas, clientes, vigencias por vencer), "Requiere tu
+// atención" y el proceso de ventas. Se eliminaron "Estado de pólizas" y "Referidos y
+// bonos" (esos números siguen disponibles en Pólizas y Metas, no se
+// duplican aquí). El anillo de avance con narrativa de ritmo también se
+// retiró del centro visual; el mismo semáforo de ritmo sobrevive, más
+// discreto, como nota de color bajo la cifra de prima.
+// Gráficas (2026-08-25, inspiradas en la sección "dashboard-2" de la plantilla
+// shadcn-dashboard-landing-template que el usuario tomó como referencia de UI):
+// se agregó UNA fila con "Tendencia de ventas" (12 meses, prima vs meta) y
+// "Prima por ramo" (dona), más el delta "vs. mes anterior" en dos KPIs. Es lo
+// que el rediseño minimalista no tenía —lectura en el tiempo y de dónde viene
+// el dinero— sin volver a llenar la pantalla de tarjetas. Se adoptó el tipo de
+// gráfica y el layout de la plantilla, NO su stack (shadcn/ui + Radix): la
+// única dependencia nueva es recharts, el motor de las gráficas.
 // Definiciones únicas (mismas fuentes que Pólizas/Metas, ver metricas.js):
 //  - Venta ganada = APROBADA/PAGADA creada en el periodo.
-//  - "Comisión ganada" (verde) y "Comisión en pipeline" (neutra) nunca se suman.
-//  - La única "tasa de conversión" es la del embudo (entre etapas); la de
-//    referidos se llama "tasa de referidos" y vive solo en su tarjeta.
-// Alcance por rol garantizado en servidor: el asesor recibe solo sus números y
-// su meta individual; ranking y meta de promotoría solo llegan a promotores.
-
-const RITMO_STROKE = {
-  CUMPLIDA: 'text-emerald-500',
-  EN_RITMO: 'text-emerald-500',
-  LIGERO_ATRASO: 'text-amber-500',
-  ATRASADO: 'text-red-500',
-  SIN_META: 'text-brand-500',
-};
+//  - Póliza "activa" = estado ∈ {PAGADA, FIRMADA, APROBADA} (igual que la
+//    ficha de cliente), snapshot de hoy, no acotado al mes en curso.
+// Alcance por rol garantizado en servidor: el asesor recibe solo sus números
+// y su meta individual; ranking y meta de promotoría solo llegan a promotores.
+//
+// "Requiere tu atención" ES la bandeja de notificaciones (2026-08-25, a
+// pedido del usuario): se eliminó la sección /notificaciones y su enlace del
+// menú de hamburguesa (campana) — el modelo, la API y el push del backend no
+// cambiaron, solo dejaron de tener una página propia en el frontend. Este
+// bloque combina las notificaciones sin leer (Nota.destinatario recordatorios,
+// invitaciones de acompañamiento, avisos de meta…) con los pendientes que ya
+// calculaba el servidor (pagos, citas de hoy, seguimiento, bonos), en una sola
+// lista ordenada por urgencia. Al ya no haber una bandeja histórica navegable,
+// "marcar como leída" aquí equivale a "ya lo atendí, quítalo de la lista".
 
 export default function Dashboard() {
-  const { user, esAdmin } = useAuth();
+  const { user, esAdmin, puede } = useAuth();
   const admin = esAdmin();
   const now = new Date();
   const [mes, setMes] = useState(now.getMonth() + 1);
   const [anio, setAnio] = useState(now.getFullYear());
-  const { dia, dias, fraccion } = diasPeriodo(mes, anio);
+  const { fraccion } = diasPeriodo(mes, anio);
 
   const { data, isLoading } = useQuery({
     queryKey: ['dashboard', mes, anio],
     queryFn: async () => (await api.get('/metricas/dashboard', { params: { mes, anio } })).data,
   });
-  const { data: funnel } = useQuery({
-    queryKey: ['funnel'],
-    queryFn: async () => (await api.get('/metricas/funnel')).data,
+  // Proceso de ventas del mes: los 5 pasos del trabajo comercial, del
+  // prospecto nuevo a la póliza cobrada. Mide la tasa de cierre por el
+  // recorrido completo, no solo por las pólizas que ya entraron.
+  const { data: proceso } = useQuery({
+    queryKey: ['proceso-ventas', mes, anio],
+    queryFn: async () => (await api.get('/metricas/proceso-ventas', { params: { mes, anio } })).data,
   });
-  // Embudo de actividad del mes: mide la tasa de cierre por el recorrido
-  // completo, no solo por las pólizas que ya entraron.
-  const { data: funnelActividad } = useQuery({
-    queryKey: ['funnel-actividad', mes, anio],
-    queryFn: async () => (await api.get('/metricas/funnel-actividad', { params: { mes, anio } })).data,
+  // Tendencia de 12 meses y comparativo contra el mes anterior: se toman de
+  // /targets/historial en vez de recalcularlos aquí, para que la prima del
+  // dashboard y la de Metas nunca puedan diferir (misma actualesPorMes()).
+  // Vive bajo la sección `metas`, así que solo se pide si el rol la tiene.
+  const verTendencia = puede('metas');
+  const { data: historial } = useQuery({
+    queryKey: ['metas-historial', mes, anio],
+    queryFn: async () => (await api.get('/targets/historial', { params: { mes, anio, meses: 12 } })).data,
+    enabled: verTendencia,
   });
+
+  const cambiarPeriodo = (m, a) => { setMes(m); setAnio(a); };
 
   if (isLoading || !data) return <div className="p-10 text-center text-slate-400 dark:text-slate-500">Cargando…</div>;
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      {/* Encabezado */}
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100 sm:text-3xl">Hola, {user?.nombre}</h2>
-          <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
-            {admin ? 'Promotoría' : 'Tu mes'}
-            <span className="mx-2 text-slate-300 dark:text-slate-600">·</span>
-            {nombreMes(mes)} {anio}
-            {fraccion > 0 && fraccion < 1 && (
-              <><span className="mx-2 text-slate-300 dark:text-slate-600">·</span>día {dia} de {dias}</>
-            )}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <select className="input w-auto" value={mes} onChange={(e) => setMes(+e.target.value)}>
-            {Array.from({ length: 12 }, (_, i) => <option key={i} value={i + 1}>{nombreMes(i + 1)}</option>)}
-          </select>
-          <input type="number" className="input w-24" value={anio} onChange={(e) => setAnio(+e.target.value)} />
-        </div>
-      </div>
+      <Encabezado user={user} admin={admin} mes={mes} anio={anio} onCambiarPeriodo={cambiarPeriodo} />
 
-      <Hero data={data} admin={admin} mes={mes} anio={anio} fraccion={fraccion} />
+      <KpiPrincipales data={data} admin={admin} fraccion={fraccion} historial={historial} />
+
+      <div className={`grid gap-6 ${verTendencia ? 'lg:grid-cols-2' : ''}`}>
+        <Suspense fallback={<GraficaCargando />}>
+          {verTendencia && <TendenciaVentas historial={historial} admin={admin} />}
+        </Suspense>
+        <Suspense fallback={<GraficaCargando />}>
+          <PrimaPorRamo data={data} mes={mes} anio={anio} />
+        </Suspense>
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Atencion atencion={data.atencion} admin={admin} />
-        <Embudo funnel={funnel} funnelActividad={funnelActividad} />
+        <ProcesoVentas proceso={proceso} />
       </div>
 
-      <EstadoPolizas polizasMes={data.polizasMes} periodo={`${nombreMes(mes)} ${anio}`} />
-
-      <div className={`grid gap-6 ${admin ? 'lg:grid-cols-2' : ''}`}>
-        {admin && <Ranking ranking={data.ranking} fraccion={fraccion} />}
-        <ReferidosBonos data={data} periodo={`${nombreMes(mes)} ${anio}`} />
-      </div>
+      {/* Ranking: solo con alcance de administración. El servidor tampoco
+          incluye `data.ranking` cuando quien consulta es ASESOR. */}
+      {admin && (
+        <RankingAsesores
+          ranking={data.ranking}
+          fraccion={fraccion}
+          mes={mes}
+          anio={anio}
+          currentUserId={user?.id}
+          vacio={<>Aún no hay asesores activos. <Link to="/asesores" className="font-semibold text-brand-600 hover:underline dark:text-brand-400">Invita al primero</Link>.</>}
+        />
+      )}
     </div>
   );
 }
 
-/* ---------- Hero: anillo de meta de prima + cómo va el mes ---------- */
+/* ---------- Encabezado: saludo + fecha + selector de periodo ---------- */
 
-function Hero({ data, admin, mes, anio, fraccion }) {
+function saludo(hora) {
+  if (hora < 12) return 'Buenos días';
+  if (hora < 19) return 'Buenas tardes';
+  return 'Buenas noches';
+}
+
+function Encabezado({ user, admin, mes, anio, onCambiarPeriodo }) {
+  const ahora = new Date();
+  const fecha = ahora.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const fechaCap = fecha.charAt(0).toUpperCase() + fecha.slice(1);
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100 sm:text-[28px]">
+          {saludo(ahora.getHours())}, {user?.nombre}
+        </h2>
+        <p className="mt-1.5 flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+          <span>{fechaCap}</span>
+          <span className="badge bg-slate-100 text-slate-500 dark:bg-slate-700/60 dark:text-slate-400">
+            {admin ? 'Promotoría' : 'Asesor'}
+          </span>
+        </p>
+      </div>
+      <PeriodoSelector mes={mes} anio={anio} onChange={onCambiarPeriodo} />
+    </div>
+  );
+}
+
+// Selector de periodo (mes + año): flechas para moverse de mes en mes y un
+// popover con cuadrícula de meses + salto de año para llegar lejos sin dar
+// decenas de clics — mismo criterio que el selector de año de DatePicker.
+function PeriodoSelector({ mes, anio, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [anioVisible, setAnioVisible] = useState(anio);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setAnioVisible(anio);
+    const cerrar = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener('click', cerrar);
+    return () => document.removeEventListener('click', cerrar);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const hoy = new Date();
+  const esActual = mes === hoy.getMonth() + 1 && anio === hoy.getFullYear();
+
+  const mover = (delta) => {
+    let m = mes + delta;
+    let a = anio;
+    if (m < 1) { m = 12; a -= 1; }
+    if (m > 12) { m = 1; a += 1; }
+    onChange(m, a);
+  };
+
+  return (
+    <div className="relative flex items-center gap-2" ref={ref}>
+      {!esActual && (
+        <button
+          type="button"
+          onClick={() => onChange(hoy.getMonth() + 1, hoy.getFullYear())}
+          className="text-xs font-semibold text-brand-600 transition hover:underline dark:text-brand-400"
+        >
+          Hoy
+        </button>
+      )}
+      <div className="flex items-center rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <button
+          type="button"
+          onClick={() => mover(-1)}
+          aria-label="Periodo anterior"
+          className="rounded-l-xl p-2 text-slate-400 transition hover:bg-slate-50 hover:text-slate-700 active:scale-90 dark:hover:bg-slate-700/60 dark:hover:text-slate-200"
+        >
+          <IconChevron dir="left" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="min-w-[132px] px-1 py-2 text-center text-sm font-semibold tabular-nums text-slate-700 transition hover:text-brand-600 dark:text-slate-200 dark:hover:text-brand-400"
+        >
+          {nombreMes(mes)} {anio}
+        </button>
+        <button
+          type="button"
+          onClick={() => mover(1)}
+          aria-label="Periodo siguiente"
+          className="rounded-r-xl p-2 text-slate-400 transition hover:bg-slate-50 hover:text-slate-700 active:scale-90 dark:hover:bg-slate-700/60 dark:hover:text-slate-200"
+        >
+          <IconChevron dir="right" />
+        </button>
+      </div>
+
+      {open && (
+        <div className="absolute right-0 top-full z-30 mt-2 w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+          <div className="flex items-center justify-between pb-2">
+            <button
+              type="button"
+              onClick={() => setAnioVisible((a) => a - 1)}
+              aria-label="Año anterior"
+              className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+            >
+              <IconChevron dir="left" small />
+            </button>
+            <span className="text-sm font-semibold tabular-nums text-slate-700 dark:text-slate-200">{anioVisible}</span>
+            <button
+              type="button"
+              onClick={() => setAnioVisible((a) => a + 1)}
+              aria-label="Año siguiente"
+              className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+            >
+              <IconChevron dir="right" small />
+            </button>
+          </div>
+          <div className="grid grid-cols-3 gap-1.5">
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => {
+              const activo = m === mes && anioVisible === anio;
+              const esMesActual = m === hoy.getMonth() + 1 && anioVisible === hoy.getFullYear();
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => { onChange(m, anioVisible); setOpen(false); }}
+                  className={`rounded-lg py-1.5 text-xs font-medium transition ${
+                    activo
+                      ? 'bg-brand-600 text-white'
+                      : esMesActual
+                        ? 'font-semibold text-brand-600 dark:text-brand-400'
+                        : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {nombreMes(m).slice(0, 3)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IconChevron({ dir, small }) {
+  const d = dir === 'left' ? 'M15 6l-6 6 6 6' : 'M9 6l6 6-6 6';
+  return (
+    <svg viewBox="0 0 24 24" className={small ? 'h-3.5 w-3.5' : 'h-4 w-4'} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={d} />
+    </svg>
+  );
+}
+
+/* ---------- KPIs principales ---------- */
+
+// Variación porcentual del mes visible contra el anterior. `null` cuando no
+// hay con qué comparar (sin historial, o el mes anterior en cero: un aumento
+// "desde cero" no es un porcentaje, es simplemente el primer mes con dato).
+function delta(historial, campo) {
+  const p = historial?.periodos;
+  if (!p || p.length < 2) return null;
+  const actual = p[0]?.actual?.[campo] || 0;
+  const previo = p[1]?.actual?.[campo] || 0;
+  if (!previo) return null;
+  return Math.round(((actual - previo) / previo) * 100);
+}
+
+function NotaDelta({ pct }) {
+  if (pct == null) return null;
+  const sube = pct >= 0;
+  return (
+    <span className={`inline-flex items-center gap-0.5 font-semibold tabular-nums ${
+      sube ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
+    }`}>
+      <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d={sube ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} />
+      </svg>
+      {sube ? '+' : ''}{pct}%
+    </span>
+  );
+}
+
+function KpiPrincipales({ data, admin, fraccion, historial }) {
   const metaPrima = data.meta?.prima || 0;
   const sinMeta = !metaPrima;
   const pct = pctAvance(data.primaAnualTotal, metaPrima);
-  const clave = sinMeta ? 'SIN_META' : claveRitmo(pct, fraccion);
-  const st = ESTADOS_RITMO[clave];
-  const proj = proyeccion(data.primaAnualTotal, fraccion);
-  const projPct = proj != null && !sinMeta ? pctAvance(proj, metaPrima) : null;
-  const metaVentas = data.meta?.ventas || 0;
-  const periodo = `${nombreMes(mes)} ${anio}`;
+  const st = ESTADOS_RITMO[sinMeta ? 'SIN_META' : claveRitmo(pct, fraccion)];
+  const vencen = data.polizasPorVencer || { count: 0, dias: 15 };
+  // Solo prima y altas de clientes tienen una serie histórica equivalente en
+  // /targets/historial. "Pólizas activas" y "Vencen en N días" son fotos de
+  // hoy, no del periodo: compararlas contra "el mes pasado" no significaría
+  // lo mismo, así que se quedan sin delta a propósito.
+  const deltaPrima = delta(historial, 'prima');
+  const deltaAltas = delta(historial, 'prospectos');
 
   return (
-    <section className="card grid items-center gap-6 p-5 sm:gap-8 sm:p-8 lg:grid-cols-[auto_1px_1fr] lg:gap-10">
-      <Anillo pct={sinMeta ? 0 : pct} clave={clave} fraccion={fraccion}>
-        {sinMeta ? (
-          <>
-            <span className="text-3xl font-bold tabular-nums text-slate-800 dark:text-slate-100">{mxn(data.primaAnualTotal)}</span>
-            <span className="mt-2 text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Prima del mes</span>
-            <span className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">sin meta asignada</span>
-          </>
-        ) : (
-          <>
-            <span className="text-5xl font-bold tabular-nums tracking-tight text-slate-800 dark:text-slate-100">{pct}%</span>
-            <span className="mt-2 text-[11px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">Meta de prima</span>
-            <span className="mt-1.5 text-sm tabular-nums text-slate-500 dark:text-slate-400">{mxn(data.primaAnualTotal)} de {mxn(metaPrima)}</span>
-          </>
-        )}
-      </Anillo>
-
-      <div className="hidden self-stretch bg-slate-100 dark:bg-slate-700/60 lg:block" />
-
-      <div className="flex flex-col gap-5">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Cómo va el mes</h3>
-          <span className={`badge badge-dot ${st.pill}`}>{st.label}</span>
-        </div>
-        <p className="max-w-[52ch] text-[15px] leading-relaxed text-slate-500 dark:text-slate-400">
-          {sinMeta ? (
-            admin ? (
-              <>Sin meta de promotoría para {periodo}. <Link to="/targets" className="font-semibold text-brand-600 hover:underline dark:text-brand-400">Asígnala en Metas</Link> para leer el avance del equipo contra un objetivo.</>
-            ) : (
-              <>Aún no tienes meta asignada para {periodo}. Pídesela a tu promotor; mientras tanto, aquí va tu avance real.</>
-            )
-          ) : proj == null ? (
-            <>El periodo aún no inicia. La meta del mes es <B>{mxn(metaPrima)}</B> en prima.</>
-          ) : clave === 'CUMPLIDA' ? (
-            <>Meta cumplida con <B>{mxn(data.primaAnualTotal)}</B> colocados. Lo que cierres de aquí al día {dias(mes, anio)} es terreno ganado.</>
-          ) : clave === 'EN_RITMO' ? (
-            <>Vas a buen ritmo. Al paso actual el mes cierra en <B>{mxn(proj)}</B>, alrededor del <B>{projPct}%</B> de la meta.</>
-          ) : (
-            <>Vas por debajo del ritmo del mes. Al paso actual cerrarías en <B>{mxn(proj)}</B> — cerca del <B>{projPct}%</B> de la meta. Faltan <B>{mxn(metaPrima - data.primaAnualTotal)}</B> para llegar.</>
-          )}
+    <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <div className="kpi kpi-green">
+        <p className="kpi-label">Prima vendida</p>
+        <p className="kpi-val">{mxn(data.primaAnualTotal)}</p>
+        <p className={`kpi-note ${sinMeta ? '' : st.text}`}>
+          {sinMeta ? (admin ? 'sin meta de promotoría' : 'sin meta asignada') : `${pct}% de ${admin ? 'la meta de equipo' : 'tu meta'}`}
         </p>
-        <div className="grid grid-cols-2 gap-3 pt-1 sm:flex sm:flex-wrap sm:gap-x-10 sm:gap-y-4">
-          <HeroStat k="Ventas" v={metaVentas ? `${num(data.ventasAprobadas)} / ${num(metaVentas)}` : num(data.ventasAprobadas)}
-            d={metaVentas ? `${pctAvance(data.ventasAprobadas, metaVentas)}% de la meta` : 'pagadas o aprobadas'} />
-          <HeroStat k="Comisión ganada" v={mxn(data.comisionTotal)} d="de ventas del mes" green />
-          <HeroStat k="Clientes" v={num(data.totalClientes)} d={`+${num(data.clientesMes)} nuevos este mes`} />
-          <HeroStat k="Citas completadas" v={num(data.citasCompletadasMes)} d={`de ${num(data.citasPeriodo)} en el mes`} />
-        </div>
-      </div>
-    </section>
-  );
-}
-
-const dias = (mes, anio) => new Date(anio, mes, 0).getDate();
-
-function B({ children }) {
-  return <b className="font-semibold tabular-nums text-slate-800 dark:text-slate-100">{children}</b>;
-}
-
-// En móvil cada stat es una tarjetita (borde + fondo tenue); en escritorio
-// (sm+) se aplana a texto suelto, como el rediseño original de escritorio.
-function HeroStat({ k, v, d, green = false }) {
-  return (
-    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3 dark:border-slate-700/60 dark:bg-slate-900/30 sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{k}</p>
-      <p className={`mt-1 text-[22px] font-bold tabular-nums tracking-tight ${green ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-100'}`}>{v}</p>
-      <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{d}</p>
-    </div>
-  );
-}
-
-// Anillo "eclipse": avance de la meta de prima con punto de ritmo (fracción
-// del mes transcurrida) sobre la misma circunferencia. Se anima al montar,
-// salvo prefers-reduced-motion (motion-reduce anula la transición).
-function Anillo({ pct, clave, fraccion, children }) {
-  const R = 100;
-  const C = 2 * Math.PI * R;
-  const [montado, setMontado] = useState(false);
-  useEffect(() => { setMontado(true); }, []);
-  const offset = C * (1 - Math.min(pct, 100) / 100);
-  const ang = fraccion * 2 * Math.PI;
-  const mostrarPunto = fraccion > 0 && fraccion < 1;
-
-  return (
-    <div className="relative mx-auto h-56 w-56 sm:h-60 sm:w-60">
-      <svg viewBox="0 0 236 236" className="h-full w-full -rotate-90" aria-hidden="true">
-        <circle cx="118" cy="118" r={R} fill="none" strokeWidth="13" className="stroke-slate-100 dark:stroke-slate-700/70" />
-        <circle cx="118" cy="118" r="82" fill="none" strokeWidth="1" className="stroke-slate-100 dark:stroke-slate-700/50" />
-        <circle
-          cx="118" cy="118" r={R} fill="none" strokeWidth="13" strokeLinecap="round" stroke="currentColor"
-          className={`${RITMO_STROKE[clave]} transition-[stroke-dashoffset] duration-1000 ease-out motion-reduce:transition-none`}
-          strokeDasharray={C} strokeDashoffset={montado ? offset : C}
-        />
-        {mostrarPunto && (
-          <circle
-            cx={118 + R * Math.cos(ang)} cy={118 + R * Math.sin(ang)} r="4.5"
-            className="fill-slate-500 dark:fill-slate-200"
-          >
-            <title>Ritmo del mes: {Math.round(fraccion * 100)}% transcurrido</title>
-          </circle>
+        {deltaPrima != null && (
+          <p className="kpi-note flex items-center gap-1">
+            <NotaDelta pct={deltaPrima} /> vs. mes anterior
+          </p>
         )}
-      </svg>
-      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-        {children}
+      </div>
+      <div className="kpi">
+        <p className="kpi-label">Pólizas activas</p>
+        <p className="kpi-val">{num(data.polizasActivas)}</p>
+        <p className="kpi-note">vigentes hoy</p>
+      </div>
+      <div className="kpi kpi-accent">
+        <p className="kpi-label">Clientes</p>
+        <p className="kpi-val">{num(data.totalClientes)}</p>
+        <p className="kpi-note">+{num(data.clientesMes)} este mes</p>
+        {deltaAltas != null && (
+          <p className="kpi-note flex items-center gap-1">
+            <NotaDelta pct={deltaAltas} /> vs. mes anterior
+          </p>
+        )}
+      </div>
+      <div className={`kpi ${vencen.count > 0 ? 'kpi-amber' : ''}`}>
+        <p className="kpi-label">Vencen en {vencen.dias} días</p>
+        <p className="kpi-val">{num(vencen.count)}</p>
+        <p className="kpi-note">próxima vigencia</p>
       </div>
     </div>
   );
 }
 
-/* ---------- Requiere tu atención ---------- */
+/* ---------- Requiere tu atención (= bandeja de notificaciones) ---------- */
 
 function Atencion({ atencion, admin }) {
-  const items = [
+  const navigate = useNavigate();
+  const { data: notifData } = useListaNotificaciones({ estado: 'no-leidas' });
+  const marcarLeida = useMarcarLeida();
+  const marcarTodas = useMarcarTodasLeidas();
+  const notificaciones = notifData?.notificaciones || [];
+
+  const abrirNotificacion = (n) => {
+    marcarLeida.mutate({ id: n.id, leida: true });
+    const url = n.datos?.url;
+    if (!url) return;
+    try {
+      navigate(url.startsWith('http') ? new URL(url).pathname : url);
+    } catch {
+      /* url inválida: no navegar, ya quedó marcada como leída */
+    }
+  };
+
+  // Notificaciones reales primero (más recientes = más arriba, ya vienen
+  // ordenadas por el servidor), luego los pendientes derivados que ya
+  // calculaba este bloque. Mismo estilo de fila para los dos orígenes.
+  const notifItems = notificaciones.map((n) => {
+    const info = infoTipoNotificacion(n.tipo);
+    return {
+      key: `notif:${n.id}`,
+      color: info.dot,
+      t: n.titulo,
+      s: n.cuerpo,
+      onClick: () => abrirNotificacion(n),
+    };
+  });
+
+  const pendientesItems = [
     atencion.pendientesPago.count > 0 && {
+      key: 'pendientes-pago',
       color: 'bg-amber-500',
       to: admin ? '/equipo' : '/ventas',
       t: `${num(atencion.pendientesPago.count)} ${atencion.pendientesPago.count === 1 ? 'póliza pendiente' : 'pólizas pendientes'} de pago`,
       s: `${mxn(atencion.pendientesPago.prima)} en prima sin cobrar`,
     },
     atencion.citasHoy > 0 && {
+      key: 'citas-hoy',
       color: 'bg-brand-500',
       to: '/citas',
       t: `${num(atencion.citasHoy)} ${atencion.citasHoy === 1 ? 'cita' : 'citas'} hoy`,
       s: 'Revisa tu agenda del día',
     },
     atencion.seguimiento > 0 && {
+      key: 'seguimiento',
       color: 'bg-amber-500',
       to: '/clientes',
       t: `${num(atencion.seguimiento)} ${atencion.seguimiento === 1 ? 'cliente necesita' : 'clientes necesitan'} seguimiento`,
       s: 'Marcados en el pipeline de clientes',
     },
     atencion.bonosPorGanar.monto > 0 && {
+      key: 'bonos',
       color: 'bg-emerald-500',
       t: `${mxn(atencion.bonosPorGanar.monto)} en bonos por ganar`,
       s: 'Se liberan al cerrar las ventas del mes',
     },
   ].filter(Boolean);
 
+  const items = [...notifItems, ...pendientesItems];
+
   return (
     <section className="card p-5 sm:p-7">
-      <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Requiere tu atención</h3>
-      <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">Lo que conviene mover esta semana</p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Requiere tu atención</h3>
+          <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">Notificaciones y pendientes de esta semana</p>
+        </div>
+        {notifItems.length > 0 && (
+          <button
+            type="button"
+            onClick={() => marcarTodas.mutate()}
+            disabled={marcarTodas.isPending}
+            className="text-xs font-semibold text-brand-600 transition hover:underline dark:text-brand-400"
+          >
+            Marcar todas como leídas
+          </button>
+        )}
+      </div>
       {items.length === 0 ? (
         <div className="py-10 text-center text-sm text-slate-400 dark:text-slate-500">
           Todo al día por ahora.{' '}
@@ -262,14 +460,14 @@ function Atencion({ atencion, admin }) {
                 <span className={`h-2 w-2 shrink-0 rounded-full ${it.color}`} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-slate-800 transition-colors group-hover:text-brand-600 dark:text-slate-100 dark:group-hover:text-brand-400">{it.t}</p>
-                  <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{it.s}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-400 dark:text-slate-500">{it.s}</p>
                 </div>
-                {it.to && <Chevron />}
+                {(it.to || it.onClick) && <Chevron />}
               </div>
             );
-            return it.to
-              ? <Link key={it.t} to={it.to} className="block cursor-pointer">{fila}</Link>
-              : <div key={it.t}>{fila}</div>;
+            if (it.to) return <Link key={it.key} to={it.to} className="block cursor-pointer">{fila}</Link>;
+            if (it.onClick) return <button key={it.key} type="button" onClick={it.onClick} className="block w-full cursor-pointer text-left">{fila}</button>;
+            return <div key={it.key}>{fila}</div>;
           })}
         </div>
       )}
@@ -285,279 +483,88 @@ function Chevron() {
   );
 }
 
-/* ---------- Embudo diagnóstico ---------- */
+/* ---------- Proceso de ventas ---------- */
 
-// Etapas núcleo del embudo para el diagnóstico de conversión (las posteriores
-// —Referidos, Post venta— son de mantenimiento, no de avance de venta).
-const ETAPAS_NUCLEO = 5;
+// Los 5 pasos del proceso de ventas (2026-08-26, definidos por el usuario),
+// de contacto frío (slate) a póliza cobrada (emerald): mismo criterio de "el
+// color encodea progreso" que usa el mapa de etapas de clientes. Las etiquetas
+// y los conteos vienen del servidor (GET /metricas/proceso-ventas) — aquí solo
+// se pinta, no se define ninguna métrica.
+const DOTS_PROCESO = ['bg-slate-400', 'bg-sky-500', 'bg-violet-500', 'bg-teal-500', 'bg-emerald-500'];
 
-// Colores del embudo de actividad, de contacto frío (slate) a dinero
-// cobrado (emerald): mismo criterio de "el color encodea progreso" que usa el
-// mapa de etapas de clientes.
-const DOTS_ACTIVIDAD = ['bg-slate-400', 'bg-sky-500', 'bg-blue-500', 'bg-violet-500', 'bg-teal-500', 'bg-cyan-500', 'bg-emerald-500'];
+// Debajo de este % de conversión entre dos pasos consecutivos, el paso se
+// marca en ámbar como cuello de botella.
+const CUELLO_BOTELLA_PCT = 50;
 
-function Embudo({ funnel, funnelActividad }) {
-  // Dos lecturas del mismo embudo: "Pipeline" es dónde está parado cada
-  // cliente hoy; "Actividad del mes" es lo que realmente se hizo. La tasa de
-  // cierre real solo se ve en la segunda (por eso se pidió medirla así).
-  const [vista, setVista] = useState('pipeline');
+function ProcesoVentas({ proceso }) {
+  // UNA sola lectura del proceso (antes eran dos, "Pipeline" y "Actividad",
+  // en un toggle): el usuario pidió consolidarlas porque medían "casi las
+  // mismas métricas solo divididas" y obligaban a reconciliar dos embudos.
+  const niveles = proceso?.niveles || [];
+  const total = niveles.reduce((s, n) => s + n.count, 0);
+  const top = Math.max(...niveles.map((n) => n.count), 1);
 
-  const datos = (funnel || []).map((f) => ({ ...infoEtapa(f.etapa), count: f.count }));
-  const total = datos.reduce((s, d) => s + d.count, 0);
-  const top = Math.max(...datos.map((d) => d.count), 1);
-
-  // Conversión entre etapas consecutivas del núcleo + mayor cuello de botella.
-  let peor = null;
-  const conversiones = datos.slice(0, ETAPAS_NUCLEO).map((d, i) => {
-    if (i === 0) return null;
-    const prev = datos[i - 1];
-    if (!prev.count) return null;
-    const pct = Math.round((d.count / prev.count) * 100);
-    if (!peor || pct < peor.pct) peor = { pct, de: prev.label, a: d.label };
-    return { pct, de: prev.label, a: d.label };
-  });
-
-  const niveles = funnelActividad?.niveles || [];
-  const totalActividad = niveles.reduce((s, n) => s + n.count, 0);
-  const topActividad = Math.max(...niveles.map((n) => n.count), 1);
-  const peorActividad = niveles.reduce((peor, n) => (
-    n.conversionPct != null && (!peor || n.conversionPct < peor.conversionPct) ? n : peor
+  // Mayor caída entre dos pasos consecutivos: dónde conviene enfocarse.
+  const peor = niveles.reduce((p, n) => (
+    n.conversionPct != null && (!p || n.conversionPct < p.conversionPct) ? n : p
   ), null);
-  const idxPeor = peorActividad ? niveles.indexOf(peorActividad) : -1;
+  const idxPeor = peor ? niveles.indexOf(peor) : -1;
 
   return (
     <section className="card p-5 sm:p-7">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
-            {vista === 'pipeline' ? 'Embudo del pipeline' : 'Embudo de actividad del mes'}
-          </h3>
-          <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
-            {vista === 'pipeline'
-              ? 'Dónde está parado cada cliente hoy'
-              : 'Lo que realmente pasó este mes, del primer contacto al pago'}
-          </p>
-        </div>
-        <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5">
-          {[
-            { value: 'pipeline', label: 'Pipeline' },
-            { value: 'actividad', label: 'Actividad' },
-          ].map((v) => (
-            <button
-              key={v.value}
-              onClick={() => setVista(v.value)}
-              className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
-                vista === v.value
-                  ? 'bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300'
-                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-              }`}
-            >{v.label}</button>
-          ))}
-        </div>
-      </div>
+      <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Proceso de ventas</h3>
+      <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
+        Lo que pasó este mes, del prospecto nuevo a la póliza pagada
+      </p>
 
-      {vista === 'actividad' ? (
-        totalActividad === 0 ? (
-          <div className="py-10 text-center text-sm text-slate-400 dark:text-slate-500">
-            Sin actividad registrada este mes.
-          </div>
-        ) : (
-          <>
-            <div className="mt-4">
-              {niveles.map((n, i) => (
-                <div key={n.clave}>
-                  {n.conversionPct != null && (
-                    <p className="py-0.5 pl-[104px] text-[11px] tabular-nums text-slate-400 dark:text-slate-500 sm:pl-[132px]">
-                      <span className={n.conversionPct < 50 ? 'font-bold text-amber-600 dark:text-amber-400' : ''}>
-                        {niveles[i - 1].label} → {n.label}: {n.conversionPct}%
-                      </span>
-                    </p>
-                  )}
-                  <div className="flex items-center gap-4 py-1.5">
-                    <span className="w-[88px] shrink-0 truncate text-[13px] font-medium text-slate-500 dark:text-slate-400 sm:w-[116px]" title={n.label}>{n.label}</span>
-                    <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700/60">
-                      <div
-                        className={`h-full rounded-full ${DOTS_ACTIVIDAD[i] || 'bg-slate-400'} transition-all duration-500 motion-reduce:transition-none`}
-                        style={{ width: `${Math.max((n.count / topActividad) * 100, 4)}%` }}
-                      />
-                    </div>
-                    <span className="w-8 shrink-0 text-right text-sm font-semibold tabular-nums text-slate-700 dark:text-slate-200">{num(n.count)}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-              <span>
-                Tasa de cierre del embudo completo:{' '}
-                <b className="text-slate-700 dark:text-slate-200 tabular-nums">
-                  {funnelActividad?.tasaCierrePct != null ? `${funnelActividad.tasaCierrePct}%` : '—'}
-                </b>
-                {' '}(de prospecto abordado a pago).
-              </span>
-              {idxPeor > 0 && peorActividad.conversionPct < 50 && (
-                <span>
-                  Mayor caída en <b className="text-slate-700 dark:text-slate-200">{niveles[idxPeor - 1].label} → {peorActividad.label}</b> ({peorActividad.conversionPct}%).
-                </span>
-              )}
-            </div>
-          </>
-        )
-      ) : total === 0 ? (
+      {total === 0 ? (
         <div className="py-10 text-center text-sm text-slate-400 dark:text-slate-500">
-          Aún no hay clientes en el pipeline.{' '}
-          <Link to="/clientes" className="font-semibold text-brand-600 hover:underline dark:text-brand-400">Agrega tu primer cliente</Link>
-          {' '}para ver el embudo.
+          Sin actividad registrada este mes.{' '}
+          <Link to="/clientes" className="font-semibold text-brand-600 hover:underline dark:text-brand-400">Registra un prospecto</Link>
+          {' '}para empezar a medir el proceso.
         </div>
       ) : (
         <>
           <div className="mt-4">
-            {datos.map((d, i) => (
-              <div key={d.value}>
-                {conversiones[i] && (
+            {niveles.map((n, i) => (
+              <div key={n.clave}>
+                {n.conversionPct != null && (
                   <p className="py-0.5 pl-[104px] text-[11px] tabular-nums text-slate-400 dark:text-slate-500 sm:pl-[132px]">
-                    <span className={conversiones[i].pct < 70 ? 'font-bold text-amber-600 dark:text-amber-400' : ''}>
-                      {conversiones[i].de} → {conversiones[i].a}: {conversiones[i].pct}%
+                    <span className={n.conversionPct < CUELLO_BOTELLA_PCT ? 'font-bold text-amber-600 dark:text-amber-400' : ''}>
+                      {niveles[i - 1].label} → {n.label}: {n.conversionPct}%
                     </span>
                   </p>
                 )}
                 <div className="flex items-center gap-4 py-1.5">
-                  <span className="w-[88px] shrink-0 truncate text-[13px] font-medium text-slate-500 dark:text-slate-400 sm:w-[116px]">{d.label}</span>
+                  <span className="w-[88px] shrink-0 text-[13px] font-medium leading-tight text-slate-500 dark:text-slate-400 sm:w-[116px]" title={n.label}>{n.label}</span>
                   <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700/60">
-                    <div className={`h-full rounded-full ${d.dot} transition-all duration-500 motion-reduce:transition-none`} style={{ width: `${Math.max((d.count / top) * 100, 4)}%` }} />
+                    <div
+                      className={`h-full rounded-full ${DOTS_PROCESO[i] || 'bg-slate-400'} transition-all duration-500 motion-reduce:transition-none`}
+                      style={{ width: `${Math.max((n.count / top) * 100, 4)}%` }}
+                    />
                   </div>
-                  <span className="w-8 shrink-0 text-right text-sm font-semibold tabular-nums text-slate-700 dark:text-slate-200">{num(d.count)}</span>
+                  <span className="w-8 shrink-0 text-right text-sm font-semibold tabular-nums text-slate-700 dark:text-slate-200">{num(n.count)}</span>
                 </div>
               </div>
             ))}
           </div>
-          <p className="mt-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-            {peor && peor.pct < 70 ? (
-              <>Mayor caída en <b className="text-slate-700 dark:text-slate-200">{peor.de} → {peor.a}</b> ({peor.pct}%). Ahí conviene enfocar el seguimiento.</>
-            ) : (
-              <>El pipeline avanza sin cuellos de botella marcados.</>
+          <div className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+            <span>
+              Tasa de cierre del proceso completo:{' '}
+              <b className="tabular-nums text-slate-700 dark:text-slate-200">
+                {proceso?.tasaCierrePct != null ? `${proceso.tasaCierrePct}%` : '—'}
+              </b>
+              {' '}(de prospecto nuevo a póliza pagada).
+            </span>
+            {idxPeor > 0 && peor.conversionPct < CUELLO_BOTELLA_PCT && (
+              <span>
+                Mayor caída en <b className="text-slate-700 dark:text-slate-200">{niveles[idxPeor - 1].label} → {peor.label}</b> ({peor.conversionPct}%).
+              </span>
             )}
-          </p>
+          </div>
         </>
       )}
     </section>
   );
 }
 
-/* ---------- Franja: estado de pólizas del mes ---------- */
-
-const ESTADOS_POLIZA_DOT = [
-  ['PENDIENTE_PAGAR', 'bg-amber-500'],
-  ['FIRMADA', 'bg-blue-500'],
-  ['APROBADA', 'bg-emerald-500'],
-  ['PAGADA', 'bg-emerald-500'],
-  ['CANCELADA', 'bg-red-400'],
-  ['RECHAZADA', 'bg-red-400'],
-];
-
-function EstadoPolizas({ polizasMes, periodo }) {
-  const totalMes = Object.values(polizasMes || {}).reduce((s, n) => s + n, 0);
-  return (
-    <section className="card p-5 sm:p-7">
-      <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Estado de pólizas</h3>
-      <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">Pólizas registradas en {periodo}</p>
-      {totalMes === 0 ? (
-        <div className="py-6 text-center text-sm text-slate-400 dark:text-slate-500">
-          Sin pólizas registradas este mes.{' '}
-          <Link to="/ventas" className="font-semibold text-brand-600 hover:underline dark:text-brand-400">Registra la primera</Link>.
-        </div>
-      ) : (
-        // Móvil: rejilla de tarjetitas; escritorio (sm+): franja con divisores.
-        <div className="mt-4 grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:gap-0">
-          {ESTADOS_POLIZA_DOT.map(([estado, dot], i) => (
-            <div
-              key={estado}
-              className={`rounded-xl border border-slate-100 p-3 dark:border-slate-700/60 sm:min-w-[120px] sm:flex-1 sm:rounded-none sm:border-0 sm:p-0 sm:px-5 sm:py-1 ${i > 0 ? 'sm:border-l sm:border-slate-100 dark:sm:border-slate-700/60' : 'sm:pl-0'}`}
-            >
-              <p className="text-2xl font-bold tabular-nums tracking-tight text-slate-800 dark:text-slate-100">{num(polizasMes[estado] || 0)}</p>
-              <p className="mt-1 flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500">
-                <span className={`h-[7px] w-[7px] rounded-full ${dot}`} />
-                {ESTADOS_VENTA_LABEL[estado]}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-/* ---------- Ranking de asesores (solo promotores) ---------- */
-
-function Ranking({ ranking = [], fraccion }) {
-  return (
-    <section className="card p-5 sm:p-7">
-      <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Ranking de asesores</h3>
-      <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">Por prima colocada este mes</p>
-      {ranking.length === 0 ? (
-        <div className="py-10 text-center text-sm text-slate-400 dark:text-slate-500">
-          Aún no hay asesores activos.{' '}
-          <Link to="/asesores" className="font-semibold text-brand-600 hover:underline dark:text-brand-400">Invita al primero</Link>.
-        </div>
-      ) : (
-        <div className="mt-4">
-          {ranking.map((r, i) => {
-            const pct = r.metaPrima ? pctAvance(r.prima, r.metaPrima) : null;
-            const st = r.metaPrima ? ESTADOS_RITMO[claveRitmo(pct, fraccion)] : ESTADOS_RITMO.SIN_META;
-            return (
-              <Link
-                key={r.id}
-                to={`/equipo/${r.id}`}
-                className={`group flex cursor-pointer items-center gap-4 py-4 ${i > 0 ? 'border-t border-slate-100 dark:border-slate-700/60' : ''}`}
-              >
-                <span className="w-5 shrink-0 text-center text-sm font-semibold tabular-nums text-slate-400 dark:text-slate-500">{i + 1}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-slate-800 transition-colors group-hover:text-brand-600 dark:text-slate-100 dark:group-hover:text-brand-400">{r.nombre}</p>
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700/60">
-                    <div className={`h-full rounded-full ${st.bar}`} style={{ width: `${pct == null ? 0 : Math.min(pct, 100)}%` }} />
-                  </div>
-                </div>
-                <div className="shrink-0 text-right">
-                  <p className="money-earned text-sm">{mxn(r.prima)}</p>
-                  <p className="mt-0.5 text-xs tabular-nums text-slate-400 dark:text-slate-500">
-                    {pct == null ? 'sin meta asignada' : `${pct}% de su meta`}
-                  </p>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-      )}
-    </section>
-  );
-}
-
-/* ---------- Referidos y bonos ---------- */
-
-function ReferidosBonos({ data, periodo }) {
-  const { referidosMes, bonosMes } = data;
-  const tasa = referidosMes.total > 0 ? Math.round((referidosMes.convertidos / referidosMes.total) * 100) : null;
-  const Fila = ({ k, v, clase = 'text-slate-800 dark:text-slate-100' }) => (
-    <div className="flex items-baseline justify-between border-t border-slate-100 py-3 text-sm first:border-t-0 dark:border-slate-700/60">
-      <span className="text-slate-500 dark:text-slate-400">{k}</span>
-      <b className={`tabular-nums font-semibold ${clase}`}>{v}</b>
-    </div>
-  );
-  return (
-    <section className="card p-5 sm:p-7">
-      <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Referidos y bonos</h3>
-      <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{periodo}</p>
-      <div className="mt-4 grid gap-x-10 sm:grid-cols-2">
-        <div>
-          <Fila k="Referidos del mes" v={num(referidosMes.total)} />
-          <Fila k="Convertidos" v={num(referidosMes.convertidos)} clase="text-emerald-600 dark:text-emerald-400" />
-          <Fila k="Tasa de referidos" v={tasa == null ? '—' : `${tasa}%`} />
-        </div>
-        <div>
-          <Fila k="Bonos cobrados" v={mxn(bonosMes.cobrados.monto)} clase="text-emerald-600 dark:text-emerald-400" />
-          <Fila k="Bonos por ganar" v={mxn(bonosMes.porGanar.monto)} />
-          <Fila k="Comisión en pipeline" v={mxn(data.comisionPipeline)} clase="text-slate-500 dark:text-slate-400" />
-        </div>
-      </div>
-    </section>
-  );
-}

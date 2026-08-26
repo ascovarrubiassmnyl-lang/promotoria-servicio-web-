@@ -108,7 +108,7 @@ export default function NotaFormModal({
             />
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               Te avisamos <strong>un día antes</strong> y el <strong>mismo día</strong>, en tu
-              bandeja de notificaciones y por push.
+              Dashboard ("Requiere tu atención") y por push.
               {!esCandidato && destinatario === 'CLIENTE' && ' El aviso llega a ti, no al cliente.'}
               {esCandidato && ' El aviso llega a ti, no al candidato.'}
             </p>

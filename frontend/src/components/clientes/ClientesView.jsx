@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { Card, Modal, Field, EmptyState, MenuAcciones } from '../ui.jsx';
 import CandidatoFormModal from '../candidatos/CandidatoFormModal.jsx';
 import NotaFormModal from '../notas/NotaFormModal.jsx';
-import { ETAPAS, ETAPAS_SELECCIONABLES, infoEtapa, FLAG_SEGUIMIENTO } from './etapas.js';
+import { ETAPAS, ETAPAS_FUERA_EMBUDO, ETAPAS_SELECCIONABLES, infoEtapa, FLAG_SEGUIMIENTO } from './etapas.js';
 import { infoFuente, opcionesFuente } from './fuentes.js';
 import { RAMOS_LABEL, fechaCorta, hora } from '../../lib/format.js';
 
@@ -120,7 +120,7 @@ function EtapaCell({ cliente, onCambiarEtapa }) {
   );
 }
 
-export default function ClientesView({ asesorId = null, titulo = 'Clientes', subtitulo = null, banner = null }) {
+export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitulo = null, banner = null }) {
   const { esAdmin } = useAuth();
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -128,6 +128,14 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
   const [q, setQ] = useState('');
   const [asesorFiltro, setAsesorFiltro] = useState('');
   const [etapaActiva, setEtapaActiva] = useState(null); // valor de etapa o '__flag'
+  const [filtroEtapaAbierto, setFiltroEtapaAbierto] = useState(false);
+  const filtroEtapaRef = useRef(null);
+  useEffect(() => {
+    if (!filtroEtapaAbierto) return;
+    const cerrar = (ev) => { if (!filtroEtapaRef.current?.contains(ev.target)) setFiltroEtapaAbierto(false); };
+    document.addEventListener('click', cerrar);
+    return () => document.removeEventListener('click', cerrar);
+  }, [filtroEtapaAbierto]);
   const [verArchivados, setVerArchivados] = useState(false);
   // Segmento: 'todos' | 'prospectos' | 'clientes'. Se DERIVA del flag esCliente
   // que calcula el servidor (tiene póliza viva), no de un campo capturado.
@@ -302,9 +310,6 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
     }
   };
 
-  const chipBase = 'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition bg-white dark:bg-slate-800';
-  const chipOff = 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-600';
-
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -344,7 +349,6 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
       <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 bg-white dark:bg-slate-800">
         {[
           { value: 'todos', label: 'Todos' },
-          { value: 'prospectos', label: 'Prospectos' },
           { value: 'clientes', label: 'Clientes' },
         ].map((s) => {
           const on = segmento === s.value;
@@ -369,35 +373,113 @@ export default function ClientesView({ asesorId = null, titulo = 'Clientes', sub
         })}
       </div>
 
-      {/* Pipeline: los chips de etapa son el filtro (clic = filtra, con conteo).
-          "Necesita seguimiento" es bandera aparte, no etapa. */}
-      <div className="flex flex-wrap gap-2">
-        {ETAPAS_SELECCIONABLES.map((e) => {
-          const on = etapaActiva === e.value;
-          return (
-            <button
-              key={e.value}
-              onClick={() => setEtapaActiva(on ? null : e.value)}
-              className={`${chipBase} ${on ? `border-transparent ring-[1.5px] ring-inset ${e.chipOn} text-slate-800 dark:text-slate-100` : chipOff}`}
-            >
-              <span className={`h-2 w-2 rounded-full ${e.dot}`} />
-              {e.label}
-              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${on ? e.badgeOn : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
-                {conteos[e.value] || 0}
-              </span>
-            </button>
-          );
-        })}
+      {/* Pipeline: el filtro de etapa es un solo botón disparador + menú
+          agrupado (En el embudo / Fuera del embudo / bandera de seguimiento).
+          Rediseño 2026-08-25, segunda vuelta: la fila de chips de texto
+          (punto + label + conteo) "no le gustó" al usuario — pidió algo
+          "limpio, minimalista y profesional" tomando como referencia un menú
+          desplegable con grupos. El proyecto no usa shadcn/ark-ui (JS puro,
+          sin esas dependencias — convención explícita en CLAUDE.md, mismo
+          precedente que el DatePicker hecho a mano), así que el menú se
+          construyó con React/Tailwind ya presentes: mismo patrón de
+          click-outside que `EtapaCell`/`MenuAcciones` de este archivo, sin
+          instalar nada nuevo. Un solo lugar ocupado en vez de 12 botones en
+          fila; el color de cada etapa sigue viviendo solo en su punto, nunca
+          como fondo/borde (misma convención que el resto del sistema). */}
+      <div className="relative inline-block" ref={filtroEtapaRef}>
         <button
-          onClick={() => setEtapaActiva(etapaActiva === '__flag' ? null : '__flag')}
-          className={`${chipBase} ${etapaActiva === '__flag' ? `border-transparent ring-[1.5px] ring-inset ${FLAG_SEGUIMIENTO.chipOn} text-slate-800 dark:text-slate-100` : chipOff}`}
+          type="button"
+          onClick={() => setFiltroEtapaAbierto((o) => !o)}
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700/60 transition"
         >
-          <svg className={`w-3.5 h-3.5 ${FLAG_SEGUIMIENTO.text}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" /></svg>
-          {FLAG_SEGUIMIENTO.label}
-          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${etapaActiva === '__flag' ? FLAG_SEGUIMIENTO.badgeOn : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
-            {conteos.__flag}
-          </span>
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${
+              etapaActiva === '__flag' ? FLAG_SEGUIMIENTO.dot : etapaActiva ? infoEtapa(etapaActiva).dot : 'bg-slate-300 dark:bg-slate-600'
+            }`}
+          />
+          {etapaActiva === '__flag' ? FLAG_SEGUIMIENTO.label : etapaActiva ? infoEtapa(etapaActiva).label : 'Todas las etapas'}
+          <svg
+            className={`h-3.5 w-3.5 text-slate-400 transition-transform ${filtroEtapaAbierto ? 'rotate-180' : ''}`}
+            viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+          >
+            <path d="M6 9l6 6 6-6" />
+          </svg>
         </button>
+        {filtroEtapaAbierto && (
+          <div className="absolute left-0 top-full mt-2 z-30 w-64 max-h-[70vh] overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg p-2 text-sm">
+            <button
+              type="button"
+              onClick={() => { setEtapaActiva(null); setFiltroEtapaAbierto(false); }}
+              className={`w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left font-medium transition ${
+                etapaActiva === null
+                  ? 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-slate-100'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
+              }`}
+            >
+              Todas las etapas
+              <span className="tabular-nums text-xs text-slate-400 dark:text-slate-500">{enSegmento.length}</span>
+            </button>
+
+            <div className="my-1.5 h-px bg-slate-100 dark:bg-slate-700" />
+            <p className="px-3 py-1 text-xs font-semibold uppercase text-slate-400 dark:text-slate-500">En el embudo</p>
+            {ETAPAS.map((e) => {
+              const on = etapaActiva === e.value;
+              return (
+                <button
+                  key={e.value}
+                  type="button"
+                  onClick={() => { setEtapaActiva(on ? null : e.value); setFiltroEtapaAbierto(false); }}
+                  className={`w-full flex items-center gap-2 rounded-lg px-3 py-2 text-left font-medium transition ${
+                    on
+                      ? 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-slate-100'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
+                  }`}
+                >
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${e.dot}`} />
+                  <span className="flex-1">{e.label}</span>
+                  <span className="tabular-nums text-xs text-slate-400 dark:text-slate-500">{conteos[e.value] || 0}</span>
+                </button>
+              );
+            })}
+
+            <div className="my-1.5 h-px bg-slate-100 dark:bg-slate-700" />
+            <p className="px-3 py-1 text-xs font-semibold uppercase text-slate-400 dark:text-slate-500">Fuera del embudo</p>
+            {ETAPAS_FUERA_EMBUDO.map((e) => {
+              const on = etapaActiva === e.value;
+              return (
+                <button
+                  key={e.value}
+                  type="button"
+                  onClick={() => { setEtapaActiva(on ? null : e.value); setFiltroEtapaAbierto(false); }}
+                  className={`w-full flex items-center gap-2 rounded-lg px-3 py-2 text-left font-medium transition ${
+                    on
+                      ? 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-slate-100'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
+                  }`}
+                >
+                  <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${e.dot}`} />
+                  <span className="flex-1">{e.label}</span>
+                  <span className="tabular-nums text-xs text-slate-400 dark:text-slate-500">{conteos[e.value] || 0}</span>
+                </button>
+              );
+            })}
+
+            <div className="my-1.5 h-px bg-slate-100 dark:bg-slate-700" />
+            <button
+              type="button"
+              onClick={() => { setEtapaActiva(etapaActiva === '__flag' ? null : '__flag'); setFiltroEtapaAbierto(false); }}
+              className={`w-full flex items-center gap-2 rounded-lg px-3 py-2 text-left font-medium transition ${
+                etapaActiva === '__flag'
+                  ? 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-slate-100'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
+              }`}
+            >
+              <svg className={`h-3.5 w-3.5 shrink-0 ${FLAG_SEGUIMIENTO.text}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z" /></svg>
+              <span className="flex-1">{FLAG_SEGUIMIENTO.label}</span>
+              <span className="tabular-nums text-xs text-slate-400 dark:text-slate-500">{conteos.__flag}</span>
+            </button>
+          </div>
+        )}
       </div>
 
       <Card>

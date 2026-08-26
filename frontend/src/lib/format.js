@@ -7,6 +7,17 @@ export function num(value) {
   return new Intl.NumberFormat('es-MX').format(Number(value) || 0);
 }
 
+// Monto abreviado para ejes de gráficas ("$1.2M", "$54k"), donde mxn() es
+// demasiado largo. Solo para etiquetas de eje: las cifras que el usuario lee
+// como dato siguen usando mxn().
+export function mxnCompacto(value) {
+  const n = Number(value) || 0;
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return `$${(n / 1_000_000).toFixed(abs >= 10_000_000 ? 0 : 1)}M`;
+  if (abs >= 1_000) return `$${Math.round(n / 1_000)}k`;
+  return `$${Math.round(n)}`;
+}
+
 export function tamanoLegible(bytes) {
   if (!bytes) return '0 KB';
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -56,6 +67,19 @@ export const RAMOS_LABEL = {
   SALUD: 'Salud',
   RETIRO: 'Retiro',
   GMM: 'Gastos Médicos Mayores',
+};
+
+// Color por ramo, fuente única para cualquier gráfica que desglose por ramo
+// (hoy: la dona "Prima por ramo" del Dashboard). Son hex y no clases Tailwind
+// porque recharts pinta SVG y necesita el valor resuelto; los 6 tonos se
+// eligieron con suficiente contraste entre sí y legibles en claro y oscuro.
+export const RAMOS_COLOR = {
+  VIDA: '#2563eb', // brand-500
+  ACUMULACION: '#0d9488', // teal-600
+  PROTECCION: '#7c3aed', // violet-600
+  SALUD: '#059669', // emerald-600
+  RETIRO: '#d97706', // amber-600
+  GMM: '#db2777', // pink-600
 };
 
 export const FORMAS_PAGO = {

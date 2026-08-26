@@ -104,12 +104,14 @@ export const esEventoPersonal = (c) => !c?.clienteId;
 
 // Ciclo de vida. Una cita nace PROGRAMADA (el alta nunca pide estado) y cambia
 // con acciones: completar, cancelar (soft delete: conserva el registro), no asistió.
+// `dot` va escrito completo (nunca `bg-${badge}-500`): Tailwind no genera
+// clases armadas en tiempo de ejecución. Lo consume el riel del calendario.
 export const ESTADOS_CITA = {
-  PROGRAMADA: { value: 'PROGRAMADA', label: 'Programada', badge: 'blue' },
-  CONFIRMADA: { value: 'CONFIRMADA', label: 'Confirmada', badge: 'purple' },
-  COMPLETADA: { value: 'COMPLETADA', label: 'Completada', badge: 'green' },
-  CANCELADA: { value: 'CANCELADA', label: 'Cancelada', badge: 'slate' },
-  NO_ASISTIO: { value: 'NO_ASISTIO', label: 'No asistió', badge: 'red' },
+  PROGRAMADA: { value: 'PROGRAMADA', label: 'Programada', badge: 'blue', dot: 'bg-blue-500' },
+  CONFIRMADA: { value: 'CONFIRMADA', label: 'Confirmada', badge: 'purple', dot: 'bg-purple-500' },
+  COMPLETADA: { value: 'COMPLETADA', label: 'Completada', badge: 'green', dot: 'bg-emerald-500' },
+  CANCELADA: { value: 'CANCELADA', label: 'Cancelada', badge: 'slate', dot: 'bg-slate-400' },
+  NO_ASISTIO: { value: 'NO_ASISTIO', label: 'No asistió', badge: 'red', dot: 'bg-red-500' },
 };
 
 export const infoEstadoCita = (estado) =>

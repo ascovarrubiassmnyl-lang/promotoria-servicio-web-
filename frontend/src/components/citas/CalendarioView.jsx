@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { Card, Modal, CitaBadge, EmptyState, MenuAcciones, Field } from '../ui.jsx';
+import { Modal, Drawer, CitaBadge, EmptyState, MenuAcciones, Field } from '../ui.jsx';
 import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, DISPONIBILIDAD_ESTILO, infoCanal, infoTipoCita, colorCita, infoInvitacion } from './tipos.js';
 import CitaFormModal from './CitaFormModal.jsx';
 import CalendarioMovil from './CalendarioMovil.jsx';
+import { MiniMes, GrupoVisibilidad } from './CalendarioSidebar.jsx';
 import useIsMobile from '../../hooks/useIsMobile.js';
 import { hora, nombreMes, fechaCorta } from '../../lib/format.js';
 
@@ -416,10 +417,16 @@ function CalendarioEscritorio() {
   const [view, setView] = useState('mes');
   const [refDate, setRefDate] = useState(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()));
   const [selectedDay, setSelectedDay] = useState(new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()));
-  const [fCanal, setFCanal] = useState('');
-  const [fEstado, setFEstado] = useState('');
-  const [fClasif, setFClasif] = useState('');
+  // Los filtros dejaron de ser <select> de un solo valor: ahora son casillas de
+  // visibilidad por valor en el riel (patrón "calendarios" del template), así
+  // que se guardan como conjuntos de lo que SÍ se ve. Todo visible por default.
+  const [visClasif, setVisClasif] = useState(() => new Set(Object.keys(CLASIFICACIONES)));
+  const [visCanal, setVisCanal] = useState(() => new Set(Object.keys(CANALES)));
+  const [visEstado, setVisEstado] = useState(() => new Set(Object.keys(ESTADOS_CITA)));
+  const [busqueda, setBusqueda] = useState('');
   const [fAsesor, setFAsesor] = useState('');
+  // Riel izquierdo en pantallas < xl, donde no cabe fijo.
+  const [rielAbierto, setRielAbierto] = useState(false);
   // Promotor cuya disponibilidad se superpone en la vista Semana (solo asesores):
   // sirve para elegir la hora de un acompañamiento sin preguntarle antes.
   const [fPromotor, setFPromotor] = useState('');
@@ -460,10 +467,25 @@ function CalendarioEscritorio() {
     return [ini, fin];
   }, [view, refDate]);
 
+  // Rango CONSULTADO (≠ periodo visible): cubre además los días de meses
+  // vecinos que pinta la rejilla del mes y el mes completo del mini calendario
+  // del riel — si no, sus puntos saldrían vacíos al navegar por semana.
+  const [qDesde, qHasta] = useMemo(() => {
+    const primero = new Date(refDate.getFullYear(), refDate.getMonth(), 1);
+    const ultimo = new Date(refDate.getFullYear(), refDate.getMonth() + 1, 0);
+    const finRejilla = startOfWeek(ultimo);
+    finRejilla.setDate(finRejilla.getDate() + 6);
+    finRejilla.setHours(23, 59, 59, 999);
+    return [
+      new Date(Math.min(desde.getTime(), startOfWeek(primero).getTime())),
+      new Date(Math.max(hasta.getTime(), finRejilla.getTime())),
+    ];
+  }, [desde, hasta, refDate]);
+
   const { data: citas, isLoading } = useQuery({
-    queryKey: ['citas-cal', desde.toISOString(), hasta.toISOString(), fAsesor],
+    queryKey: ['citas-cal', qDesde.toISOString(), qHasta.toISOString(), fAsesor],
     queryFn: async () => {
-      const params = { desde: desde.toISOString(), hasta: hasta.toISOString() };
+      const params = { desde: qDesde.toISOString(), hasta: qHasta.toISOString() };
       if (esAdmin()) {
         if (fAsesor === '__mios__') params.promotorId = user?.id; // acompañamientos donde participo
         else if (fAsesor) params.asesorId = fAsesor;
@@ -472,9 +494,26 @@ function CalendarioEscritorio() {
     },
   });
 
+  const citasBuscadas = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return citas || [];
+    const texto = (c) => [
+      c.titulo,
+      c.cliente && `${c.cliente.nombre} ${c.cliente.apellidoP}`,
+      c.candidato && `${c.candidato.nombre} ${c.candidato.apellidoP}`,
+      c.asesor && `${c.asesor.nombre} ${c.asesor.apellidoP}`,
+      c.ubicacion,
+    ].filter(Boolean).join(' ').toLowerCase();
+    return (citas || []).filter((c) => texto(c).includes(q));
+  }, [citas, busqueda]);
+
   const filtradas = useMemo(
-    () => (citas || []).filter((c) => (!fCanal || c.tipo === fCanal) && (!fEstado || c.estado === fEstado) && (!fClasif || (c.clasificacion || 'PRODUCTIVA') === fClasif)),
-    [citas, fCanal, fEstado, fClasif]
+    () => citasBuscadas.filter((c) =>
+      visClasif.has(c.clasificacion || 'PRODUCTIVA') &&
+      visCanal.has(c.tipo) &&
+      visEstado.has(c.estado)
+    ),
+    [citasBuscadas, visClasif, visCanal, visEstado]
   );
 
   const porDia = useMemo(() => {
@@ -487,9 +526,9 @@ function CalendarioEscritorio() {
   // Agenda ocupada del promotor elegido: solo rangos, sin detalle (el endpoint
   // no lo expone). Se pinta como capa de fondo en la vista Semana.
   const { data: disponibilidad } = useQuery({
-    queryKey: ['disponibilidad-cal', desde.toISOString(), hasta.toISOString(), fPromotor],
+    queryKey: ['disponibilidad-cal', qDesde.toISOString(), qHasta.toISOString(), fPromotor],
     queryFn: async () => (await api.get('/citas/disponibilidad', {
-      params: { usuarioId: fPromotor, desde: desde.toISOString(), hasta: hasta.toISOString() },
+      params: { usuarioId: fPromotor, desde: qDesde.toISOString(), hasta: qHasta.toISOString() },
     })).data,
     enabled: !!fPromotor,
   });
@@ -499,6 +538,13 @@ function CalendarioEscritorio() {
     (disponibilidad?.bloques || []).forEach((b) => { (m[dayKey(new Date(b.inicio))] ||= []).push(b); });
     return m;
   }, [disponibilidad]);
+
+  // Puntos del mini calendario: se derivan de lo ya filtrado, no se recuentan.
+  const conteosPorDia = useMemo(() => {
+    const m = {};
+    Object.entries(porDia).forEach(([k, l]) => { m[k] = l.length; });
+    return m;
+  }, [porDia]);
 
   const promotorVisto = useMemo(
     () => (promotores || []).find((p) => p.id === fPromotor) || null,
@@ -598,43 +644,68 @@ function CalendarioEscritorio() {
   };
 
   // ---------- Vista Mes ----------
+  // Semanas completas: la rejilla incluye los días de los meses vecinos (con
+  // sus citas, ya vienen en el rango consultado) en vez de dejar celdas vacías
+  // — así el mes se lee como una cuadrícula continua, igual que en el template.
   const gridMes = useMemo(() => {
     if (view !== 'mes') return [];
+    const ini = startOfWeek(new Date(refDate.getFullYear(), refDate.getMonth(), 1));
+    const fin = startOfWeek(new Date(refDate.getFullYear(), refDate.getMonth() + 1, 0));
+    fin.setDate(fin.getDate() + 6);
     const g = [];
-    for (let i = 0; i < desde.getDay(); i++) g.push(null);
-    for (let d = 1; d <= hasta.getDate(); d++) g.push(new Date(refDate.getFullYear(), refDate.getMonth(), d));
-    while (g.length % 7 !== 0) g.push(null);
+    for (const d = new Date(ini); d <= fin; d.setDate(d.getDate() + 1)) g.push(new Date(d));
     return g;
-  }, [view, desde, hasta, refDate]);
+  }, [view, refDate]);
 
   const VistaMes = () => (
-    <>
-      <div className="grid grid-cols-7 text-center text-xs uppercase text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700 pb-2 mb-2">
-        {DIAS_SEM.map((d) => <div key={d} className="py-1">{d}</div>)}
+    <div className="flex h-full flex-col">
+      {/* Encabezado de días: fila con separadores, como el resto de la rejilla. */}
+      <div className="grid grid-cols-7 border-b border-slate-200 dark:border-slate-700">
+        {DIAS_SEM.map((d) => (
+          <div key={d} className="border-r border-slate-200 py-2.5 text-center text-xs font-medium uppercase tracking-wide text-slate-500 last:border-r-0 dark:border-slate-700 dark:text-slate-400">
+            {d}
+          </div>
+        ))}
       </div>
-      <div className="grid grid-cols-7 gap-1">
+      {/* Cuerpo: celdas altas pegadas entre sí (sin gap ni esquinas redondeadas),
+          los días de otro mes en tono apagado. Las filas se estiran para llenar
+          el alto del contenedor (5 o 6 semanas según el mes). */}
+      <div
+        className="grid flex-1 grid-cols-7"
+        style={{ gridTemplateRows: `repeat(${gridMes.length / 7}, minmax(118px, 1fr))` }}
+      >
         {gridMes.map((d, i) => {
-          if (!d) return <div key={i} className="min-h-[88px] rounded-lg bg-slate-50/60 dark:bg-slate-800/40 md:min-h-[80px] md:bg-transparent dark:md:bg-transparent" />;
           const items = porDia[dayKey(d)] || [];
           const sel = selectedDay && selectedDay.toDateString() === d.toDateString();
+          const delMes = d.getMonth() === refDate.getMonth();
           return (
             <button
               key={i}
               onClick={() => setSelectedDay(d)}
               onDoubleClick={(e) => { e.preventDefault(); const dt = new Date(d); dt.setHours(0, 0, 0, 0); abrirAgendar(dt); }}
-              className={`min-h-[88px] rounded-lg border p-1.5 text-left transition md:min-h-[80px] ${sel ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/30' : 'border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/60'}`}
+              className={`relative overflow-hidden border-b border-slate-200 p-2 text-left align-top transition dark:border-slate-700 ${i % 7 === 6 ? '' : 'border-r'} ${
+                delMes ? 'hover:bg-slate-50 dark:hover:bg-slate-700/50' : 'bg-slate-50/70 dark:bg-slate-900/30'
+              } ${sel ? 'ring-2 ring-inset ring-brand-500 bg-brand-50/60 dark:bg-brand-900/20' : ''}`}
               title="Doble clic para agendar"
             >
-              <div className={`text-xs font-semibold md:font-normal ${esHoy(d) ? 'w-5 h-5 rounded-full bg-brand-600 text-white flex items-center justify-center' : 'text-slate-600 dark:text-slate-300'}`}>{d.getDate()}</div>
-              <div className="mt-1 space-y-0.5">
+              <div className="mb-1 flex items-center justify-between">
+                <span className={`text-xs font-medium ${
+                  esHoy(d)
+                    ? 'flex h-6 w-6 items-center justify-center rounded-md bg-brand-600 font-semibold text-white'
+                    : delMes ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-500'
+                }`}>{d.getDate()}</span>
+                {items.length > 3 && (
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500">+{items.length - 3}</span>
+                )}
+              </div>
+              <div className="space-y-1">
                 {items.slice(0, 3).map((c) => <LineaCita key={c.id} c={c} />)}
-                {items.length > 3 && <p className="text-[10px] text-slate-400 dark:text-slate-500 pl-1">+{items.length - 3} más</p>}
               </div>
             </button>
           );
         })}
       </div>
-    </>
+    </div>
   );
 
   // ---------- Vista Semana ----------
@@ -790,179 +861,269 @@ function CalendarioEscritorio() {
     );
   };
 
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Calendario</h2>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-            {[['mes', 'Mes'], ['semana', 'Semana'], ['agenda', 'Agenda']].map(([v, l]) => (
-              <button
-                key={v}
-                onClick={() => setView(v)}
-                className={`px-3 py-1.5 text-sm ${view === v ? 'bg-brand-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}
-              >{l}</button>
-            ))}
+  // ---------- Panel del día (riel) ----------
+  // Misma información y acciones que antes vivían en la Card derecha; ahora
+  // cuelga del mini calendario, que es donde se elige el día.
+  const panelDia = (
+    <div className="p-3">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        {selectedDay ? `Citas · ${fechaCorta(selectedDay)}` : 'Selecciona un día'}
+        {selectedDay && citasDiaSel.length > 0 && (
+          <span className="ml-1.5 font-medium normal-case text-slate-400 dark:text-slate-500">({citasDiaSel.length})</span>
+        )}
+      </p>
+      {/* Horarios ocupados del promotor elegido, para este día: cada hueco libre
+          agenda directo el acompañamiento. */}
+      {fPromotor && selectedDay && (
+        <BloquesOcupadosDelDia
+          dia={selectedDay}
+          bloques={ocupadoPorDia[dayKey(selectedDay)] || []}
+          promotor={promotorVisto}
+          onAgendar={(fecha) => abrirAgendar(fecha)}
+        />
+      )}
+      {isLoading ? <div className="py-6 text-center text-sm text-slate-400 dark:text-slate-500">Cargando…</div> :
+        !selectedDay ? <EmptyState message="Selecciona un día del calendario" /> :
+        citasDiaSel.length === 0 ? (
+          <div className="space-y-3">
+            {!fPromotor && <EmptyState message="Sin citas este día" />}
+            <button onClick={() => abrirAgendar(selectedDay)} className="btn-secondary w-full text-xs">Agendar para este día</button>
           </div>
-          <div className="flex items-center gap-1">
-            <button onClick={() => step(-1)} className="btn-secondary px-3">←</button>
-            <button onClick={goHoy} className="btn-secondary px-3">Hoy</button>
-            <button onClick={() => step(1)} className="btn-secondary px-3">→</button>
-            <span className="px-2 text-sm font-semibold text-slate-700 dark:text-slate-300 min-w-[130px] text-center">{tituloPeriodo}</span>
-          </div>
-          <button onClick={() => abrirAgendar(selectedDay)} className="btn-primary">+ Agendar cita</button>
+        ) : (
+          <ul className="space-y-2">
+            {citasDiaSel.map((c) => {
+              const canal = infoCanal(c.tipo);
+              const color = colorCita(c);
+              const viva = CITA_VIVA.includes(c.estado);
+              return (
+                <li key={c.id} className={`rounded-lg border border-slate-100 dark:border-slate-700 border-l-[3px] ${color.borde} p-2.5`}>
+                  {/* En el riel (320px) el título manda: el badge de estado baja
+                      a la línea de la hora para no partirlo en tres renglones. */}
+                  <div className="flex items-start justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDetalle(c)}
+                      className="text-left text-sm font-medium text-slate-800 dark:text-slate-100 hover:text-brand-600 dark:hover:text-brand-400 hover:underline"
+                    >{c.titulo}</button>
+                    <div className="flex items-center gap-1">
+                      <MenuAcciones
+                        small
+                        label={`Acciones de ${c.titulo}`}
+                        items={[
+                          { label: 'Reagendar / editar', onClick: () => abrirReagendar(c) },
+                          viva && { label: 'No asistió', onClick: () => cambiarEstado(c, 'NO_ASISTIO') },
+                          'sep',
+                          { label: 'Eliminar definitivamente', onClick: () => setToDelete(c), danger: true },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-1.5 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+                    <p className="flex flex-wrap items-center gap-1.5">
+                      <span className="tabular-nums">{hora(c.fechaHoraInicio)} – {hora(c.fechaHoraFin)}</span>
+                      <CitaBadge estado={c.estado} />
+                    </p>
+                    <p className="text-slate-600 dark:text-slate-300">
+                      {c.cliente
+                        ? <>{c.cliente.nombre} {c.cliente.apellidoP}{c.cliente.telefono ? ` · ${c.cliente.telefono}` : ''}</>
+                        : c.candidato
+                          ? <>Candidato: {c.candidato.nombre} {c.candidato.apellidoP}{c.candidato.telefono ? ` · ${c.candidato.telefono}` : ''}</>
+                          : MODALIDADES_PROMOTOR.includes(c.modalidad) ? infoTipoCita(c.modalidad).label : 'Evento personal (sin cliente)'}
+                    </p>
+                    <p className="flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full ${color.dot}`} />{color.label}
+                      {c.cliente || MODALIDADES_PROMOTOR.includes(c.modalidad) ? <> · {canal.label}</> : null}{c.ubicacion ? ` · ${c.ubicacion}` : ''}
+                    </p>
+                    {c.modalidad === 'ACOMPANAMIENTO' && (
+                      <p className="inline-flex items-center gap-1 rounded-md bg-violet-50 dark:bg-violet-900/30 px-2 py-0.5 font-medium text-violet-700 dark:text-violet-300">
+                        ◎ Acompañamiento{c.promotor ? ` · ${c.promotor.nombre} ${c.promotor.apellidoP}` : ' · promotor por asignar'}
+                      </p>
+                    )}
+                    {c.modalidad === 'ENTREGA_POLIZA' && (
+                      <p className="inline-flex items-center gap-1 rounded-md bg-teal-50 dark:bg-teal-900/30 px-2 py-0.5 font-medium text-teal-700 dark:text-teal-300">
+                        ⬒ Entrega de póliza
+                      </p>
+                    )}
+                    {c.serieId && (
+                      <p className="inline-flex items-center gap-1 rounded-md bg-slate-100 dark:bg-slate-700/60 px-2 py-0.5 font-medium text-slate-500 dark:text-slate-400">
+                        ↻ Parte de una serie repetida
+                      </p>
+                    )}
+                    {esAdmin() && <p className="text-[10px] text-slate-400 dark:text-slate-500">Asesor: {c.asesor?.nombre} {c.asesor?.apellidoP}</p>}
+                  </div>
+                  {viva && (
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      <button onClick={() => cambiarEstado(c, 'COMPLETADA')} className="rounded-lg border border-emerald-300 dark:border-emerald-700 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">✓ Completar</button>
+                      <button onClick={() => abrirReagendar(c)} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Reagendar</button>
+                      <button onClick={() => cambiarEstado(c, 'CANCELADA')} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Cancelar cita</button>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+    </div>
+  );
+
+  // ---------- Riel izquierdo ----------
+  // Un solo árbol: se monta fijo en ≥xl y dentro de un Drawer en pantallas
+  // menores (donde no cabe), como el Sheet del template.
+  // Los conteos del riel ignoran las casillas de visibilidad (ocultar un valor
+  // lo dejaría en 0 y no se sabría qué se está escondiendo); solo respetan la
+  // búsqueda y el alcance, que sí acotan el universo consultado.
+  const conteoPor = (campo, valor, def) => citasBuscadas.filter((c) => (c[campo] || def) === valor).length;
+  const toggleEn = (setter) => (valor) => setter((prev) => {
+    const s = new Set(prev);
+    if (s.has(valor)) s.delete(valor); else s.add(valor);
+    return s;
+  });
+  const soloEn = (setter) => (valor) => setter(new Set([valor]));
+
+  const riel = (
+    <>
+      <div className="border-b border-slate-200 p-4 dark:border-slate-700">
+        <button onClick={() => { setRielAbierto(false); abrirAgendar(selectedDay); }} className="btn-primary w-full">
+          + Agendar cita
+        </button>
+      </div>
+      <div className="border-b border-slate-200 p-3 dark:border-slate-700">
+        <MiniMes
+          mes={new Date(refDate.getFullYear(), refDate.getMonth(), 1)}
+          onMes={(m) => setRefDate(m)}
+          selected={selectedDay}
+          onSelect={(d) => { setSelectedDay(d); setRefDate(d); }}
+          conteos={conteosPorDia}
+        />
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-slate-200 dark:divide-slate-700">
+        {panelDia}
+        {/* Filtros como "calendarios" que se muestran u ocultan: la casilla lleva
+            el color del evento, así el riel es también la leyenda. */}
+        <div className="space-y-1 p-3">
+          <GrupoVisibilidad
+            titulo="Clasificación"
+            items={Object.values(CLASIFICACIONES).map((cl) => ({ value: cl.value, label: cl.label, dot: cl.dot, count: conteoPor('clasificacion', cl.value, 'PRODUCTIVA') }))}
+            visibles={visClasif}
+            onToggle={toggleEn(setVisClasif)}
+            onSolo={soloEn(setVisClasif)}
+          />
+          <GrupoVisibilidad
+            titulo="Canal"
+            items={Object.values(CANALES).map((ca) => ({ value: ca.value, label: ca.label, dot: ca.dot, count: conteoPor('tipo', ca.value) }))}
+            visibles={visCanal}
+            onToggle={toggleEn(setVisCanal)}
+            onSolo={soloEn(setVisCanal)}
+          />
+          <GrupoVisibilidad
+            titulo="Estado"
+            defaultOpen={false}
+            items={Object.values(ESTADOS_CITA).map((es) => ({ value: es.value, label: es.label, dot: es.dot, count: conteoPor('estado', es.value) }))}
+            visibles={visEstado}
+            onToggle={toggleEn(setVisEstado)}
+            onSolo={soloEn(setVisEstado)}
+          />
         </div>
       </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        {esAdmin() && (
-          <select className="input w-auto" value={fAsesor} onChange={(e) => setFAsesor(e.target.value)}>
+      {/* Alcance: el promotor filtra por asesor; el asesor consulta la
+          disponibilidad de un promotor (espejo, cada rol ve solo uno). */}
+      <div className="border-t border-slate-200 p-3 dark:border-slate-700">
+        {esAdmin() ? (
+          <select className="input w-full" value={fAsesor} onChange={(e) => setFAsesor(e.target.value)}>
             <option value="">Todos los asesores</option>
             <option value="__mios__">Mis acompañamientos</option>
             <option value={user?.id}>Mi agenda</option>
             {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
           </select>
-        )}
-        {!esAdmin() && (
-          <select className="input w-auto" value={fPromotor} onChange={(e) => setFPromotor(e.target.value)}>
+        ) : (
+          <select className="input w-full" value={fPromotor} onChange={(e) => setFPromotor(e.target.value)}>
             <option value="">Ver disponibilidad de…</option>
             {promotores?.map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellidoP}</option>)}
           </select>
         )}
-        <select className="input w-auto" value={fClasif} onChange={(e) => setFClasif(e.target.value)}>
-          <option value="">Todas las clasificaciones</option>
-          {Object.values(CLASIFICACIONES).map((cl) => <option key={cl.value} value={cl.value}>{cl.label}</option>)}
-        </select>
-        <select className="input w-auto" value={fCanal} onChange={(e) => setFCanal(e.target.value)}>
-          <option value="">Todos los canales</option>
-          {Object.values(CANALES).map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-        </select>
-        <select className="input w-auto" value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
-          <option value="">Todos los estados</option>
-          {Object.values(ESTADOS_CITA).map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-        </select>
-        {/* Leyenda = clasificación (el color de los eventos). */}
-        <div className="ml-auto flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">
-          {Object.values(CLASIFICACIONES).map((cl) => (
-            <span key={cl.value} className="inline-flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${cl.dot}`} />{cl.label}
-            </span>
-          ))}
-        </div>
       </div>
+    </>
+  );
 
-      {/* La capa de disponibilidad necesita la rejilla por hora, que solo existe
-          en Semana: si el asesor la activa desde Mes/Agenda hay que decírselo,
-          o parecería que el promotor no tiene nada ocupado. */}
-      {fPromotor && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
-          <span className={`inline-block h-3 w-5 rounded ${DISPONIBILIDAD_ESTILO.bloque}`} />
-          <span>
-            Horarios ocupados de <strong className="font-semibold">{promotorVisto ? `${promotorVisto.nombre} ${promotorVisto.apellidoP}` : 'el promotor'}</strong>.
-            Solo indican que ya tiene algo agendado, no de qué se trata.
-          </span>
-          {view === 'semana'
-            ? <span className="text-slate-500 dark:text-slate-400">Clic en un hueco libre para invitarlo a un acompañamiento.</span>
-            : <button onClick={() => setView('semana')} className="font-semibold text-brand-600 underline dark:text-brand-400">Ver en la vista Semana</button>}
-        </div>
-      )}
+  return (
+    <div className="space-y-4">
+      {/* Un solo contenedor con borde: riel + calendario, como en el template. */}
+      <div className="card overflow-hidden p-0">
+        {/* El alto fijo solo aplica a Mes: Semana ya mide su propia rejilla
+            horaria y Agenda crece con la lista. */}
+        <div className={`flex ${view === 'mes' ? 'min-h-[760px]' : 'min-h-[560px]'}`}>
+          <aside className="hidden w-80 shrink-0 flex-col border-r border-slate-200 dark:border-slate-700 xl:flex">
+            {riel}
+          </aside>
 
-      <div className="grid lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2">
-          {view === 'mes' ? <VistaMes /> : view === 'semana' ? <VistaSemana /> : <VistaAgenda />}
-        </Card>
-
-        <Card title={selectedDay ? `Citas · ${fechaCorta(selectedDay)}` : 'Selecciona un día'}>
-          {/* Horarios ocupados del promotor elegido, para este día: se ven aquí
-              también (no solo superpuestos en la grilla Semana), y cada hueco
-              libre entre bloques permite agendar el acompañamiento directo. */}
-          {fPromotor && selectedDay && (
-            <BloquesOcupadosDelDia
-              dia={selectedDay}
-              bloques={ocupadoPorDia[dayKey(selectedDay)] || []}
-              promotor={promotorVisto}
-              onAgendar={(fecha) => abrirAgendar(fecha)}
-            />
-          )}
-          {isLoading ? <div className="py-6 text-center text-slate-400 dark:text-slate-500">Cargando…</div> :
-            !selectedDay ? <EmptyState message="Selecciona un día del calendario" /> :
-            citasDiaSel.length === 0 ? (
-              <div className="space-y-3">
-                {!fPromotor && <EmptyState message="Sin citas este día" />}
-                <button onClick={() => abrirAgendar(selectedDay)} className="btn-primary text-xs w-full">Agendar para este día</button>
+          <div className="flex min-w-0 flex-1 flex-col">
+            {/* Encabezado del panel principal */}
+            <div className="flex flex-col gap-3 border-b border-slate-200 p-4 dark:border-slate-700 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => setRielAbierto(true)}
+                  className="btn-secondary px-2.5 xl:hidden"
+                  aria-label="Abrir mini calendario y filtros"
+                >☰</button>
+                <div className="inline-flex overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+                  <button onClick={() => step(-1)} aria-label="Periodo anterior" className="px-2.5 py-1.5 text-sm text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700/60">←</button>
+                  <button onClick={goHoy} className="border-x border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700/60">Hoy</button>
+                  <button onClick={() => step(1)} aria-label="Periodo siguiente" className="px-2.5 py-1.5 text-sm text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700/60">→</button>
+                </div>
+                <h2 className="text-xl font-semibold capitalize text-slate-800 dark:text-slate-100 sm:text-2xl">{tituloPeriodo}</h2>
               </div>
-            ) : (
-              <ul className="space-y-3">
-                {citasDiaSel.map((c) => {
-                  const canal = infoCanal(c.tipo);
-                  const color = colorCita(c);
-                  const viva = CITA_VIVA.includes(c.estado);
-                  return (
-                    <li key={c.id} className={`rounded-lg border border-slate-100 dark:border-slate-700 border-l-[3px] ${color.borde} p-3`}>
-                      <div className="flex items-start justify-between gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setDetalle(c)}
-                          className="text-left text-sm font-medium text-slate-800 dark:text-slate-100 hover:text-brand-600 dark:hover:text-brand-400 hover:underline"
-                        >{c.titulo}</button>
-                        <div className="flex items-center gap-1">
-                          <CitaBadge estado={c.estado} />
-                          <MenuAcciones
-                            small
-                            label={`Acciones de ${c.titulo}`}
-                            items={[
-                              { label: 'Reagendar / editar', onClick: () => abrirReagendar(c) },
-                              viva && { label: 'No asistió', onClick: () => cambiarEstado(c, 'NO_ASISTIO') },
-                              'sep',
-                              { label: 'Eliminar definitivamente', onClick: () => setToDelete(c), danger: true },
-                            ]}
-                          />
-                        </div>
-                      </div>
-                      <div className="mt-1.5 space-y-0.5 text-xs text-slate-500 dark:text-slate-400">
-                        <p className="tabular-nums">{hora(c.fechaHoraInicio)} – {hora(c.fechaHoraFin)}</p>
-                        <p className="text-slate-600 dark:text-slate-300">
-                          {c.cliente
-                            ? <>{c.cliente.nombre} {c.cliente.apellidoP}{c.cliente.telefono ? ` · ${c.cliente.telefono}` : ''}</>
-                            : c.candidato
-                              ? <>Candidato: {c.candidato.nombre} {c.candidato.apellidoP}{c.candidato.telefono ? ` · ${c.candidato.telefono}` : ''}</>
-                              : MODALIDADES_PROMOTOR.includes(c.modalidad) ? infoTipoCita(c.modalidad).label : 'Evento personal (sin cliente)'}
-                        </p>
-                        <p className="flex items-center gap-1.5">
-                          <span className={`w-2 h-2 rounded-full ${color.dot}`} />{color.label}
-                          {c.cliente || MODALIDADES_PROMOTOR.includes(c.modalidad) ? <> · {canal.label}</> : null}{c.ubicacion ? ` · ${c.ubicacion}` : ''}
-                        </p>
-                        {c.modalidad === 'ACOMPANAMIENTO' && (
-                          <p className="inline-flex items-center gap-1 rounded-md bg-violet-50 dark:bg-violet-900/30 px-2 py-0.5 font-medium text-violet-700 dark:text-violet-300">
-                            ◎ Acompañamiento{c.promotor ? ` · ${c.promotor.nombre} ${c.promotor.apellidoP}` : ' · promotor por asignar'}
-                          </p>
-                        )}
-                        {c.modalidad === 'ENTREGA_POLIZA' && (
-                          <p className="inline-flex items-center gap-1 rounded-md bg-teal-50 dark:bg-teal-900/30 px-2 py-0.5 font-medium text-teal-700 dark:text-teal-300">
-                            ⬒ Entrega de póliza
-                          </p>
-                        )}
-                        {c.serieId && (
-                          <p className="inline-flex items-center gap-1 rounded-md bg-slate-100 dark:bg-slate-700/60 px-2 py-0.5 font-medium text-slate-500 dark:text-slate-400">
-                            ↻ Parte de una serie repetida
-                          </p>
-                        )}
-                        {esAdmin() && <p className="text-[10px] text-slate-400 dark:text-slate-500">Asesor: {c.asesor?.nombre} {c.asesor?.apellidoP}</p>}
-                      </div>
-                      {viva && (
-                        <div className="mt-2.5 flex flex-wrap gap-1.5">
-                          <button onClick={() => cambiarEstado(c, 'COMPLETADA')} className="rounded-lg border border-emerald-300 dark:border-emerald-700 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">✓ Completar</button>
-                          <button onClick={() => abrirReagendar(c)} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Reagendar</button>
-                          <button onClick={() => cambiarEstado(c, 'CANCELADA')} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Cancelar cita</button>
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative">
+                  <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" strokeLinecap="round" />
+                  </svg>
+                  <input
+                    className="input w-full pl-9 sm:w-56"
+                    placeholder="Buscar citas…"
+                    value={busqueda}
+                    onChange={(e) => setBusqueda(e.target.value)}
+                  />
+                </div>
+                <div className="inline-flex overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+                  {[['mes', 'Mes'], ['semana', 'Semana'], ['agenda', 'Agenda']].map(([v, l]) => (
+                    <button
+                      key={v}
+                      onClick={() => setView(v)}
+                      className={`px-3 py-1.5 text-sm ${view === v ? 'bg-brand-600 text-white' : 'bg-transparent text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700/60'}`}
+                    >{l}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* La capa de disponibilidad necesita la rejilla por hora, que solo
+                existe en Semana: si el asesor la activa desde Mes/Agenda hay que
+                decírselo, o parecería que el promotor no tiene nada ocupado. */}
+            {fPromotor && (
+              <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+                <span className={`inline-block h-3 w-5 rounded ${DISPONIBILIDAD_ESTILO.bloque}`} />
+                <span>
+                  Horarios ocupados de <strong className="font-semibold">{promotorVisto ? `${promotorVisto.nombre} ${promotorVisto.apellidoP}` : 'el promotor'}</strong>.
+                  Solo indican que ya tiene algo agendado, no de qué se trata.
+                </span>
+                {view === 'semana'
+                  ? <span className="text-slate-500 dark:text-slate-400">Clic en un hueco libre para invitarlo a un acompañamiento.</span>
+                  : <button onClick={() => setView('semana')} className="font-semibold text-brand-600 underline dark:text-brand-400">Ver en la vista Semana</button>}
+              </div>
             )}
-        </Card>
+
+            <div className={`min-w-0 flex-1 ${view === 'mes' ? '' : 'p-4'}`}>
+              {view === 'mes' ? <VistaMes /> : view === 'semana' ? <VistaSemana /> : <VistaAgenda />}
+            </div>
+          </div>
+        </div>
       </div>
+
+      {/* Riel en pantallas < xl: mismo contenido dentro de un panel deslizable. */}
+      <Drawer open={rielAbierto} onClose={() => setRielAbierto(false)} title="Calendario">
+        <div className="-m-5">{riel}</div>
+      </Drawer>
 
       <FichaCita
         cita={citaDetalle}

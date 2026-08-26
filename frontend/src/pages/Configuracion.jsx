@@ -291,8 +291,8 @@ function NotificacionesTab() {
       </p>
       <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">
         Esto es solo el aviso del navegador o el celular: los mismos avisos
-        quedan guardados en la sección Notificaciones del panel aunque la push
-        no se entregue.
+        quedan guardados y visibles en "Requiere tu atención" del Dashboard
+        aunque la push no se entregue.
       </p>
 
       {rota && (
@@ -328,7 +328,7 @@ function NotificacionesTab() {
         <div className="mt-5 rounded-lg bg-slate-50 dark:bg-slate-700/40 p-3 text-xs text-slate-500 dark:text-slate-400">
           <p className="font-semibold mb-1">Cómo funciona el backend</p>
           <p>• Un job automático (cada 60s) revisa las <span className="font-mono">Notas</span> tipo <span className="font-mono">RECORDATORIO</span> con <span className="font-mono">fechaAviso</span> vencida y <span className="font-mono">notificacionEnviada=false</span>.</p>
-          <p>• Cuando vence, guarda la notificación del asesor dueño de la nota (la que se ve en la sección Notificaciones) y luego intenta la push.</p>
+          <p>• Cuando vence, guarda la notificación del asesor dueño de la nota (la que se ve en "Requiere tu atención" del Dashboard) y luego intenta la push.</p>
           <p>• <span className="font-mono">notificacionEnviada=true</span> se marca al guardar esa notificación, no al entregar la push: si la push falla el aviso no se pierde, queda en la bandeja.</p>
           <p>• Lo mismo aplica a las invitaciones de acompañamiento y sus respuestas.</p>
         </div>

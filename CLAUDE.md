@@ -160,49 +160,186 @@ Las tres capas para cada fila: enlace condicionado en `Layout.jsx`, guard
 `SeccionRoute`/`AdminRoute` en `App.jsx`, y validación de rol + propiedad en la
 ruta de Express correspondiente (la única capa que garantiza la restricción).
 
-## Sección Dashboard (rediseño 2026-07)
+## Sección Dashboard (rediseño 2026-08-25: minimalista, a pedido del usuario)
 
 `pages/Dashboard.jsx` (`/`, compartida por ambos roles; el alcance lo fuerza el
-servidor). Jerarquía: hero con **anillo de meta de prima** (punto focal único),
-"Requiere tu atención", embudo diagnóstico, franja de estado de pólizas y
-paneles secundarios (ranking solo admin, referidos y bonos). Sin emojis (SVG);
-tipografía = la sans del sistema (no se importó serif del mock).
+servidor). El rediseño 2026-07 (hero con anillo + narrativa de ritmo + 6
+secciones) se sintió "ruidoso" para un asesor — el usuario pidió explícitamente
+volver a lo que se consulta día a día. Jerarquía actual: **encabezado**
+(saludo + fecha + selector de periodo), **4 KPIs** (prima vendida, pólizas
+activas, clientes, vigencias por vencer), "Requiere tu atención", proceso de
+ventas y ranking (solo admin). **Se eliminaron** "Estado de pólizas" y
+"Referidos y bonos" como tarjetas del dashboard — esos números siguen vivos en
+Pólizas y Metas, no se duplican aquí. Sin emojis (SVG); tipografía = la sans
+del sistema.
 
+- **Encabezado**: saludo dinámico por hora (`saludo()`: Buenos días/tardes/
+  noches) + fecha completa de hoy en español (no la del periodo consultado,
+  que vive solo en el selector) + badge de rol (Promotoría/Asesor). El
+  selector de periodo (`PeriodoSelector`) reemplaza el `<select>` de mes y el
+  `<input type="number">` de año: flechas para moverse de mes en mes, un
+  botón "Hoy" que solo aparece si el periodo visible no es el actual, y un
+  popover con cuadrícula de 12 meses + salto de año (mismo patrón que el
+  selector de año de `DatePicker` en `ui.jsx` — llegar lejos sin decenas de
+  clics).
+- **Los 4 KPIs son las métricas que el usuario pidió, ni más ni menos**
+  (`KpiPrincipales`, clases `.kpi`/`.kpi-green`/`.kpi-accent`/`.kpi-amber` del
+  sistema de diseño, mismo patrón que los KPIs de `Asesores.jsx`):
+  "Prima vendida" (`primaAnualTotal` del periodo, verde), "Pólizas activas"
+  (nuevo campo `polizasActivas` — snapshot de hoy, **no** acotado al mes en
+  curso, igual criterio que `totalClientes`), "Clientes" (`totalClientes` +
+  nota de altas del mes, acento de marca) y "Vencen en N días" (nuevo campo
+  `polizasPorVencer: {count, dias}`, ámbar solo si `count > 0`).
+- **El anillo de meta y su narrativa de ritmo se retiraron del centro visual**
+  (eran justo el "ruido" señalado), pero el semáforo de ritmo **no se perdió**:
+  sigue viviendo, más discreto, como color del texto bajo la cifra de "Prima
+  vendida" (reusa `claveRitmo`/`ESTADOS_RITMO`/`pctAvance` de
+  `components/metas/ritmo.js`, sin `proyeccion` — ya no hay párrafo de
+  proyección). Sin meta asignada, la nota dice "sin meta asignada"/"sin meta
+  de promotoría" en vez de mostrar 0%.
+- **"Póliza activa" = misma definición que la ficha de cliente** (`estado ∈
+  {PAGADA, FIRMADA, APROBADA}`, constante `ACTIVA` en
+  `backend/src/routes/metricas.js`, **no** confundir con `GANADA` que usa el
+  dashboard para "venta ganada del periodo" — son dos conjuntos distintos:
+  `GANADA` excluye `FIRMADA`). "Vencen en N días" cuenta esas mismas pólizas
+  activas cuyo `fechaFinVigencia` cae entre hoy y hoy + `DIAS_ALERTA_VIGENCIA`
+  (15). Ninguno de los dos se acota por `creadoEn` del mes: son fotos de hoy,
+  no del periodo consultado (igual criterio que `totalClientes`).
 - **Fuente única**: `GET /metricas/dashboard` (mes/año) devuelve KPIs, `meta`
   (asesor → su `Target`; promotor → `TargetEquipo` — calculado en servidor,
   el asesor jamás recibe la meta o datos de otros), `atencion` (pendientes de
-  pago con prima, citas de hoy, seguimiento, bonos por ganar), `polizasMes`
-  (groupBy estado, creadas en el mes), `referidosMes`, `bonosMes` (por
-  `mes`/`anio` del bono) y `ranking` con `metaPrima` (solo no-asesores).
-  `GET /metricas/funnel` alimenta el embudo. **`/metricas/pipeline` y
+  pago con prima, citas de hoy, seguimiento, bonos por ganar), `polizasActivas`,
+  `polizasPorVencer`, y `ranking` con `metaPrima` (solo no-asesores). El
+  endpoint también sigue calculando `polizasMes`/`referidosMes`/`bonosMes`
+  (no se borraron del backend: `Asesores.jsx` y futuros consumidores de
+  `/metricas/dashboard` pueden necesitarlos) **aunque el dashboard ya no los
+  pinte** — no romper esos campos ni los del ranking al tocar este endpoint.
+  `GET /metricas/proceso-ventas` alimenta el proceso de ventas.
+  **`/metricas/pipeline` y
   `/metricas/ventas-por-ramo` se eliminaron** (métricas duplicadas con
-  definiciones propias — no reintroducirlos). `Asesores.jsx` también consume
-  `/metricas/dashboard`: no romper los campos del ranking.
-- **Dos embudos, deliberadamente distintos** (toggle en la misma tarjeta):
-  `/metricas/funnel` fotografía **dónde está parado** cada cliente hoy;
-  `/metricas/funnel-actividad` (2026-08-13) cuenta **lo que pasó en el mes**
-  — prospectos abordados → llamadas → citas agendadas → citas asistidas →
-  propuestas → firmas → pagos — y de ahí sale la **tasa de cierre del embudo
-  completo** (pagos/prospectos), que es la que se pidió medir en vez de solo
-  el dinero ingresado. Cada nivel reusa la definición de su módulo dueño
-  (llamadas = actividad `LLAMADA`, citas excluyen `PERSONAL`, firmas/pagos =
-  estados de `Venta`); "propuesta" = póliza registrada en el mes en
-  cualquier estado. **No inventar aquí conteos nuevos.**
+  definiciones propias — no reintroducirlos). El desglose por ramo volvió
+  en 2026-08-25 como el campo **`primaPorRamo`** (`[{ramo, prima, count}]`,
+  desc por prima) **del propio `/metricas/dashboard`**, y eso no contradice
+  lo anterior: lo que se eliminó fue un endpoint con **su propia** definición
+  de "venta por ramo"; este campo es un `groupBy(['ramo'])` con exactamente
+  los mismos `GANADA` + `whereAsesor` + `wherePeriodo` que ya calculan
+  `primaAnualTotal`, así que sus segmentos **suman ese mismo número** (es el
+  invariante que hace fiable la dona). Un desglose nuevo se agrega así —
+  afinando la consulta que ya existe— nunca con un endpoint aparte.
+- **UN solo "Proceso de ventas", de 5 pasos** (2026-08-26, definido por el
+  usuario; `ProcesoVentas` en `Dashboard.jsx` +
+  `GET /metricas/proceso-ventas?mes&anio`). Antes eran **dos embudos en un
+  toggle** —`/metricas/funnel` (foto de en qué etapa está parado cada cliente
+  hoy) y `/metricas/funnel-actividad` de 7 niveles (lo que pasó en el mes)—
+  y el usuario los mandó consolidar porque eran "casi las mismas métricas
+  solo divididas": el lector tenía que reconciliar dos lecturas del mismo
+  trabajo. **Ambos endpoints se eliminaron; no reintroducirlos** (mismo
+  criterio con que se borraron `/metricas/pipeline` y `/ventas-por-ramo`).
+  La tarjeta ya no se llama "Embudo del pipeline" ni tiene toggle.
+  Los 5 pasos, del contacto frío a la póliza cobrada, cada uno con la
+  **definición de su módulo dueño** (aquí no se inventa ningún conteo):
+  1. **Prospectos nuevos** — clientes creados en el mes, sin archivados
+     (= la métrica `prospectos` de Metas).
+  2. **Llamadas realizadas** — actividades `LLAMADA` del mes (= Metas).
+  3. **Citas obtenidas** — citas **creadas** en el mes excluyendo `PERSONAL`
+     (mismo criterio de exclusión que el resto de métricas de citas). Es
+     "cita conseguida", no "cita asistida": el vocabulario de la clínica y
+     de 25 puntos. El nivel "citas asistidas" del embudo viejo **ya no se
+     pinta** aquí (sigue disponible como métrica de Metas).
+  4. **Cierres** — pólizas del mes en `FIRMADA`/`APROBADA`/`PAGADA`: el
+     momento en que el prospecto dijo que sí.
+  5. **Pólizas emitidas, pagadas y entregadas** — las del mes en
+     `APROBADA`/`PAGADA`, es decir **exactamente la "venta ganada"** de
+     Pólizas y Metas. (4) contiene a (5), así que el embudo estrecha y la
+     conversión entre ambos se lee sola.
+  De ahí sale la **tasa de cierre del proceso completo** (nivel 5 / nivel 1).
+  **Ojo con los 3 primeros niveles: no son un embudo estricto.** Se llama y
+  se agenda cita con prospectos de meses anteriores, así que la conversión
+  "Prospectos nuevos → Llamadas" puede pasar de 100% (se vio 150% con datos
+  reales). Es correcto y es información: significa que se está trabajando
+  cartera vieja. No "arreglarlo" acotando las llamadas a los prospectos del
+  mes — eso sí inventaría una definición nueva.
 - **Definiciones únicas** (mismas que Pólizas/Metas, no recalcular distinto):
-  venta ganada = `APROBADA`/`PAGADA` con `creadoEn` en el mes; "Comisión
-  ganada" (verde) vs "Comisión en pipeline" (neutra, solo en la tarjeta
-  Referidos y bonos) nunca se suman; la única "tasa de conversión" es la del
-  embudo entre etapas; la de referidos se llama **"tasa de referidos"** y vive
-  solo en su tarjeta.
-- **Ritmo y proyección**: reutiliza `components/metas/ritmo.js`
-  (`claveRitmo`, `proyeccion`, `ESTADOS_RITMO`); el anillo colorea por
-  semáforo de ritmo, lleva **punto de ritmo** en la fracción transcurrida del
-  mes y el copy dice la proyección de cierre en lenguaje llano. El embudo usa
-  el mapa único de `components/clientes/etapas.js` y resalta el mayor cuello
-  de botella entre las 5 etapas núcleo (conversión < 70% en ámbar).
+  venta ganada = `APROBADA`/`PAGADA` con `creadoEn` en el mes; la única "tasa
+  de conversión" es la del proceso de ventas entre niveles consecutivos, que
+  calcula **el servidor** (`conversionPct`) — el frontend solo la pinta y
+  resalta en ámbar el mayor cuello de botella (`CUELLO_BOTELLA_PCT = 50`).
 - Estados vacíos que guían (agregar cliente / agendar cita / invitar asesor) y
-  filas de atención/ranking enlazan a su sección. El anillo se anima al montar
-  salvo `prefers-reduced-motion` (`motion-reduce:transition-none`).
+  filas de atención/ranking enlazan a su sección.
+
+### Gráficas del dashboard (2026-08-25)
+
+Una **sola fila** de dos gráficas entre los KPIs y Atención/Proceso de ventas, tomada
+como referencia de UI de la sección `dashboard-2` de la plantilla
+`shadcn-dashboard-landing-template` que el usuario señaló. Se adoptaron el
+**tipo de gráfica y el layout**, NO su stack: el CRM sigue sin shadcn/ui ni
+Radix, y las tarjetas se visten con `.card` y los tokens de siempre. Aporta
+lo que el rediseño minimalista no tenía —lectura en el tiempo y de dónde
+viene el dinero— sin volver a llenar la pantalla de tarjetas.
+
+- **`recharts` es la única dependencia nueva** (motor de las gráficas, igual
+  que en la plantilla). Pesa ~400 kB, así que las dos gráficas viven en
+  `components/dashboard/Graficas.jsx` y se cargan con `lazy()` + `Suspense`
+  desde `Dashboard.jsx`: **misma convención que el 3D decorativo** — el
+  bundle inicial no debe crecer por una librería de presentación (quedó en
+  703 kB, idéntico a antes; recharts sale en su propio chunk). No importarlas
+  de forma estática.
+- **"Tendencia de ventas"** (área + línea de meta punteada, 12 meses) NO pide
+  datos propios: consume **`GET /targets/historial?meses=12`**, que ya existía
+  para Metas y ya resuelve el alcance por rol en servidor. Así la prima del
+  dashboard y la de Metas no pueden diferir (misma `actualesPorMes()`). El
+  array llega del mes más reciente al más antiguo y el frontend lo invierte.
+  Ese endpoint vive bajo la sección `metas`, así que la gráfica se pide solo
+  si `puede('metas')` y, si no, la fila queda con una sola columna.
+  La línea de meta lleva `connectNulls={false}` (un mes sin `Target` deja
+  hueco, no se inventa la línea) **y `dot` visible, que no es decorativo**:
+  un mes con meta rodeado de meses sin meta no tiene segmento que trazar y
+  sin punto la meta quedaba invisible (pasó con la única meta cargada).
+- **"Prima por ramo"** (dona) consume `primaPorRamo` del mismo
+  `/metricas/dashboard` (ver arriba) y su centro **reusa
+  `data.primaAnualTotal`**, la cifra del KPI "Prima vendida" — nunca la suma
+  de los segmentos, aunque sean iguales: una cifra, un origen. Colores desde
+  `RAMOS_COLOR` (`lib/format.js`, junto a `RAMOS_LABEL`), fuente única.
+- **Delta "vs. mes anterior"** solo en **Prima vendida** y **Clientes**, del
+  mismo `historial` (`actual.prima` / `actual.prospectos`). "Pólizas activas"
+  y "Vencen en N días" se quedan **a propósito** sin delta: son fotos de hoy,
+  no del periodo, y compararlas contra "el mes pasado" no significaría lo
+  mismo. Sin mes previo con dato (`previo = 0`) no se muestra delta: un
+  aumento desde cero no es un porcentaje.
+- recharts pinta SVG y **no entiende las variantes `dark:`**: los colores de
+  grid/ejes salen de `coloresGrafica(tema)` con `useTheme()`, con los mismos
+  slate del sistema. Cualquier gráfica nueva debe hacer lo mismo.
+- **El proceso de ventas y el ranking NO se convirtieron a recharts** (siguen en divs con
+  barras): ya miden bien el proceso y pasarlos a gráfica sería solo estética.
+
+### Ranking de asesores — leaderboard (2026-08-25)
+
+`components/dashboard/Leaderboard.jsx` (`RankingAsesores`) reemplaza la lista
+plana que vivía dentro de `Dashboard.jsx`: encabezado con el rango de fechas
+del periodo, **podio de los 3 primeros** (orden visual 2–1–3, corona en el
+primero) y **lista paginada** de 10 debajo. El diseño viene de un componente
+de referencia que el usuario señaló; **se adoptó el diseño, no el stack** —
+venía en TypeScript sobre shadcn/ui + Radix (`@/components/ui/*`, `cn()`) y
+aquí es JS + Tailwind con los tokens de siempre (`.card`, `.avatar`,
+`.money-earned`, `.input w-auto`), misma decisión que con las gráficas y el
+filtro de etapas. **Cero dependencias nuevas.**
+
+- **Solo promotores**: el bloque se monta con alcance de administración y
+  `/metricas/dashboard` no incluye `ranking` para un ASESOR (`if (!esAsesor)`)
+  — las dos capas de siempre, ninguna se relaja.
+- **El `runOptions` del componente original se tradujo a la métrica de orden**
+  (`METRICAS_RANKING`: prima, pólizas, citas, clientes). **No pide datos
+  nuevos**: las cuatro cifras ya venían en cada fila del `ranking`, así que
+  cambiar de métrica solo reordena en el cliente. La métrica no elegida no se
+  pierde: se muestra como byline de la fila.
+- **La barra conserva el semáforo de ritmo** (`claveRitmo`/`ESTADOS_RITMO`/
+  `pctAvance` de `components/metas/ritmo.js`, fuente única) **solo al ordenar
+  por prima**, que es la única métrica con meta (`metaPrima`). En las otras
+  tres la barra es neutra y mide "% del líder" — no inventar un semáforo para
+  una métrica que no tiene meta.
+- Los colores oro/plata/bronce del podio son decoración local: **no** son
+  tokens semánticos (emerald/amber/red siguen significando ganado/pendiente/
+  peligro) y no deben reusarse como estado.
 
 ## Sección Pólizas (rediseño 2026-07)
 
@@ -554,6 +691,33 @@ que se guardaron ya formateados — no volver a escribirla.
 
 ## Sección Clientes (rediseño 2026-07)
 
+- **La pestaña de navegación se llama "CRM"** (2026-08-25, a pedido del
+  usuario), no "Clientes": label en `allLinks`/`NAV_CORTO` de `Layout.jsx` y
+  `titulo` por defecto de `ClientesView.jsx`. La ruta (`/clientes`), la
+  sección RBAC (`clientes`) y los nombres internos de archivo/componente no
+  cambiaron — es solo el texto que ve el usuario.
+- **Filtro de etapa: menú desplegable, no chips en fila** (2026-08-25,
+  `ClientesView.jsx`, dos vueltas de rediseño a pedido del usuario). Primera
+  vuelta: de píldoras (`rounded-full border` + halo + badge propio) a chips
+  de texto compacto (punto + label + conteo) — el usuario probó esa versión
+  y "no le gustó". Segunda vuelta, con un componente de menú (ark-ui +
+  Tailwind) como referencia visual: **un solo botón disparador** ("Todas las
+  etapas" / la etapa activa, con su punto de color + chevron) que abre un
+  **menú agrupado** — "En el embudo" (`ETAPAS`), "Fuera del embudo"
+  (`ETAPAS_FUERA_EMBUDO`) y, tras un divisor, "Necesita seguimiento" — cada
+  fila con punto de color + label + conteo discreto a la derecha, selección
+  en fondo neutro (`bg-slate-100`/`dark:bg-slate-700`). El proyecto **no usa
+  shadcn/ui ni TypeScript** (es JS puro) y CLAUDE.md ya tenía la convención
+  de no meter dependencias nuevas para piezas de UI chicas (el DatePicker es
+  el precedente hecho a mano) — así que en vez de instalar `@ark-ui/react` +
+  `lucide-react` se recreó el patrón con React/Tailwind ya presentes en el
+  proyecto: mismo click-outside (`ref` + `useEffect` con listener en
+  `document`) que ya usan `EtapaCell` (la pill de la tabla) y `MenuAcciones`.
+  Los campos `chipOn`/`badgeOn` de `components/clientes/etapas.js` (estilo
+  de halo/badge de versiones anteriores de este filtro) siguen sin
+  consumirse aquí — no confundir con los `chipOn`/`badgeOn` propios de
+  `components/candidatos/tipos.js` y `components/actividad/tipos.jsx`, mapas
+  aparte que sí siguen en uso para sus propios filtros de chips.
 - **Prospecto vs. cliente es DERIVADO, no un campo** (2026-08-13): `GET
   /api/clientes` devuelve `esCliente` calculado en servidor (tiene al menos
   una `Venta` en `PENDIENTE_PAGAR`/`FIRMADA`/`APROBADA`/`PAGADA` —
@@ -586,12 +750,15 @@ que se guardaron ya formateados — no volver a escribirla.
   posición (segmentos en la lista, stepper en el expediente).
 - **`CONTACTADO` es un paso del embudo** (2026-08-25), entre `PROSPECTO` y
   `CITA` (indigo): "ya le hablé, todavía no me da cita". Entra en el array
-  `ETAPAS` y en el whitelist de `/metricas/funnel`, así que el embudo del
-  dashboard tiene 8 niveles. No confundir con `Cliente.fechaUltimaLlamada`
-  (cuándo fue la llamada, no en qué punto del proceso está).
+  `ETAPAS`, así que el stepper y los segmentos de progreso tienen 8 pasos. No
+  confundir con `Cliente.fechaUltimaLlamada` (cuándo fue la llamada, no en qué
+  punto del proceso está). **El "Proceso de ventas" del dashboard ya no se
+  arma con estas etapas** desde 2026-08-26 (mide actividad del mes, no dónde
+  está parado cada cliente — ver esa sección): agregar una etapa aquí ya no
+  cambia lo que pinta el dashboard.
 - **Tres etapas FUERA del embudo** (`ETAPAS_FUERA_EMBUDO` en `etapas.js`),
   deliberadamente fuera del array `ETAPAS` y con `orden: -1` — así el stepper,
-  los segmentos de progreso, el funnel del dashboard y `siguienteEtapa()` las
+  los segmentos de progreso y `siguienteEtapa()` las
   ignoran sin lógica extra. Se marcan con `fueraEmbudo: true` (antes se
   llamaba `terminal`, que dejó de describir a las tres; `terminal` quedó solo
   como dato propio de DESCARTADO):
@@ -608,8 +775,7 @@ que se guardaron ya formateados — no volver a escribirla.
   chips de filtro) es `ETAPAS_SELECCIONABLES = [...ETAPAS,
   ...ETAPAS_FUERA_EMBUDO]`; `ETAPAS` a secas se reserva para pintar progreso.
   Donde no hay posición en el embudo se dice ("Fuera del embudo" en la lista,
-  tarjeta en la ficha) en vez de pintar la barra vacía. El whitelist de
-  `/metricas/funnel` no incluye ninguna de las tres y la regla "prospecto
+  tarjeta en la ficha) en vez de pintar la barra vacía. La regla "prospecto
   estancado" de `automatizacionesJob.js` excluye DESCARTADO y STANDBY.
   **Ninguna es lo mismo que archivar** (`Cliente.archivadoEn`, borrado
   lógico): el cliente sigue en la lista y se reactiva cambiándole la etapa.
@@ -826,6 +992,50 @@ conservan sus nombres históricos; la traducción a UI vive en el **mapa único*
   "Repetir" al agendar (ambos ya existían). El copy de `CitaFormModal` lo
   deja explícito. Aplica igual para un asesor bloqueando su propia agenda o
   para el promotor.
+
+### Layout del calendario de escritorio (2026-08-26)
+
+`CalendarioView.jsx` (rama de escritorio) pasó de "tarjeta de filtros + Card
+del calendario + Card del día" a **un solo contenedor con borde partido en
+riel izquierdo (320px) y panel del calendario**, tomando como referencia la
+sección `calendar` de la plantilla `shadcn-dashboard-landing-template` que el
+usuario señaló (la misma de la que salieron las gráficas del dashboard). Se
+adoptó el **diseño y el layout, NO su stack**: allá es TypeScript + shadcn/ui
++ Radix (`Sheet`, `Collapsible`, `DropdownMenu`, `cn()`) y `date-fns`; aquí es
+JS + Tailwind con los tokens de siempre y **cero dependencias nuevas** — misma
+decisión que el leaderboard y el filtro de etapas de Clientes.
+
+- **Riel izquierdo** (`components/citas/CalendarioSidebar.jsx`: `MiniMes` y
+  `GrupoVisibilidad`): botón "+ Agendar cita" de ancho completo, **mini
+  calendario del mes** con punto en los días con citas, el **panel del día
+  seleccionado** (el que vivía en la Card derecha, con sus acciones y los
+  tramos ocupado/libre del promotor) y los filtros. Se monta fijo en `xl`+ y,
+  por debajo, dentro del `Drawer` que abre el botón ☰ del encabezado (el
+  equivalente al `Sheet` de la plantilla). **Es el mismo árbol JSX** (`riel`)
+  en los dos lugares, no dos copias.
+- **Los filtros dejaron de ser `<select>` de un solo valor**: son casillas de
+  visibilidad por valor (clasificación, canal, estado), guardadas como
+  conjuntos de lo que SÍ se ve — patrón "calendarios" de la plantilla. La
+  casilla lleva el color del evento, así el riel **es también la leyenda** (la
+  fila de leyenda suelta se eliminó). Los conteos de cada fila se calculan
+  ignorando las casillas y respetando solo la búsqueda: si se contaran sobre
+  lo filtrado, ocultar un valor lo dejaría en 0 y no se sabría qué se está
+  escondiendo. `ESTADOS_CITA` ganó `dot` en `citas/tipos.js` porque Tailwind
+  no genera clases armadas en runtime (`bg-${badge}-500` no existe).
+- **Buscador** en el encabezado (título, cliente, candidato, asesor,
+  ubicación), client-side sobre lo ya consultado.
+- **Rejilla del mes**: celdas pegadas con separadores (sin gap ni esquinas
+  redondeadas), semanas completas —incluye los días de los meses vecinos, en
+  tono apagado, con sus citas— filas estiradas al alto del contenedor, "hoy"
+  como cuadro de marca sobre el número y `+N` arriba a la derecha. Semana y
+  Agenda **no cambiaron de estructura**, solo quedaron dentro del contenedor.
+- **El rango CONSULTADO ya no es el periodo visible**: cubre además los días
+  de meses vecinos que pinta la rejilla y el mes completo del mini calendario
+  (si no, sus puntos saldrían vacíos al navegar por semana). `desde`/`hasta`
+  siguen siendo el periodo visible (título, Agenda); `qDesde`/`qHasta` son los
+  del `GET /citas` y de `/citas/disponibilidad`.
+- **La vista móvil (`CalendarioMovil.jsx`, < md) no se tocó**: tiene su propio
+  árbol Día/Agenda/Mes y el riel de escritorio no aplica ahí.
 
 ## Sección Metas / Targets (rediseño 2026-07)
 
@@ -1208,33 +1418,44 @@ push sobre esa fila ya guardada.
   `permiteSeccion` — igual que `/api/push`): `GET /` (lista **paginada** +
   `total`/`paginas`/`noLeidas`/`conteos` por tipo, filtros `estado`
   (`no-leidas`/`leidas`) y `tipo`; un `tipo` fuera del catálogo canónico se
-  ignora en vez de devolver vacío), `GET /no-leidas` (solo el conteo, lo
-  consulta el badge del nav cada 30s), `PATCH /leer-todas` (declarada
+  ignora en vez de devolver vacío), `GET /no-leidas` (solo el conteo; sin
+  consumidor en el frontend desde que se quitó el badge del nav, ver más
+  abajo — se deja intacta por si vuelve a hacer falta), `PATCH /leer-todas` (declarada
   **antes** de `/:id`), `PATCH /:id` (`{leida}` — permite marcar leída y
   devolver a no leída) y `DELETE /:id`. Siempre `destinatarioId =
   req.user.id`, **sin excepción de admin**: un promotor no lee ni borra las
   notificaciones de sus asesores (403 si lo intenta). Los `conteos` de los
   chips se calculan sobre **toda** la bandeja, no sobre la página actual, para
   que el número del chip no cambie al paginar.
-- **UI = sección completa, no un panel flotante.** `pages/Notificaciones.jsx`
-  (`/notificaciones`) es una vista de pleno derecho como cualquier otra del
-  CRM: KPIs (`.kpi`), filtros de estado, **chips de tipo como filtro** con
-  conteo (mismo patrón que Clientes y Actividad), lista agrupada por día
-  (Hoy/Ayer/fecha, igual que `ActivityTimeline`), paginación y acciones por
-  fila en menú ⋯ (Abrir / Marcar leída o no leída / Eliminar con
-  confirmación). **No es sección RBAC**: la ruta va sin `SeccionRoute` porque
-  es dato personal self-service (mismo criterio que la API) — todo usuario
-  autenticado tiene la suya.
-- `components/notificaciones/CampanaNotificaciones.jsx` es solo el **enlace de
-  navegación** a esa sección con el badge de no leídas (`NavLink`, no un
-  dropdown): footer del sidebar en escritorio (también colapsado) y barra
-  superior en móvil, más una entrada en la hoja "Más". Datos vía
-  `hooks/useNotificaciones.js` (react-query con `refetchInterval`; no hay
-  WebSockets en el proyecto). Abrir una fila la marca leída y navega a
-  `datos.url`, la misma URL que usa el service worker al tocar la push.
+- **Ya NO hay sección/página propia** (2026-08-25, a pedido del usuario):
+  `pages/Notificaciones.jsx` (`/notificaciones`), el enlace de nav
+  `components/notificaciones/CampanaNotificaciones.jsx` (footer del sidebar,
+  barra superior móvil, hoja "Más") y su badge de no leídas se **eliminaron**.
+  El motivo: para el usuario, "Requiere tu atención" del Dashboard (ver esa
+  sección) **es** la bandeja de notificaciones — mantener las dos era
+  redundante. `useNoLeidas()` se borró de `hooks/useNotificaciones.js` por no
+  tener ya consumidor. **El backend no cambió nada**: modelo, rutas
+  (`GET /`, `/no-leidas`, `PATCH /leer-todas`, `PATCH /:id`, `DELETE /:id`) y
+  el disparo de push siguen igual — solo se movió qué parte del frontend los
+  consume.
+- **Ahora vive dentro de `Atencion` en `pages/Dashboard.jsx`**: ese bloque
+  combina las notificaciones sin leer (`useListaNotificaciones({estado:
+  'no-leidas'})`, con polling de 30s, mismo criterio que tenía el badge) con
+  los pendientes que ya calculaba el servidor (pagos, citas de hoy,
+  seguimiento, bonos), en una sola lista — las notificaciones van primero.
+  Cada fila usa `infoTipoNotificacion()` (`components/notificaciones/
+  tipos.jsx`, sin cambios) para el color del punto; al hacer clic se marca
+  leída (`useMarcarLeida`) y navega a `datos.url` si trae una, igual que
+  hacía la página eliminada. "Marcar todas como leídas" aparece junto al
+  título solo si hay notificaciones sin leer. **No hay bandeja histórica
+  navegable**: al no existir ya una página con paginación/filtros por tipo,
+  "marcar como leída" aquí es "ya lo atendí, quítalo de la lista", no un
+  archivo consultable después — el registro completo sigue en la tabla
+  `Notificacion`, solo que el frontend no lo expone.
 - **Borrado de una notificación es físico**, no lógico (a diferencia de
   Cliente/Candidato): es un aviso ya entregado, no dato de negocio — la cita o
-  el recordatorio que lo originó queda intacto.
+  el recordatorio que lo originó queda intacto. (La acción de eliminar ya no
+  tiene UI propia tras quitar la página; sigue disponible en la API.)
 
 ### Recordatorios segmentados y doble aviso (2026-08-13)
 
