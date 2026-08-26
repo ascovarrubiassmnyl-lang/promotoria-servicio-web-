@@ -134,6 +134,18 @@ enum EstadoVenta {
   RECHAZADA
 }
 
+// Situación de la póliza YA EMITIDA, en el lenguaje de la promotoría.
+// NO sustituye a EstadoVenta: ese es el estado administrativo que decide si
+// la comisión está ganada o en pipeline (y del que salen "póliza activa" y
+// "venta ganada" en métricas, metas y ranking). Esta es la lectura operativa
+// del asesor sobre una póliza viva — qué toca hacer con ella — y no alimenta
+// ningún cálculo de negocio.
+enum SituacionPoliza {
+  ACTIVA
+  POR_RENOVAR
+  EN_RESCATE
+}
+
 // Promotoría NY Life — seguros para personas únicamente
 enum RamoSeguro {
   VIDA
@@ -204,6 +216,11 @@ model Usuario {
   telefono      String?
   rol           RolUsuario @default(ASESOR)
   activo        Boolean    @default(true)
+  // Clave de agente con la que la compañía identifica al asesor. Se captura
+  // una vez en Asesores → Equipo y desde ahí la ficha de cada póliza la
+  // muestra sola: es un dato de la persona, no de la póliza, así que NO se
+  // copia a `Venta` (se lee siempre del asesor dueño).
+  claveAgente   String?
   fotoUrl       String?
   // LEGACY, sin uso: las excepciones por usuario se eliminaron (el acceso es
   // solo por rol, ver PoliticaRol). Nadie lee ni escribe este campo.
@@ -669,6 +686,17 @@ model Venta {
   cliente              Cliente           @relation(fields: [clienteId], references: [id], onDelete: Cascade)
   ramo                 RamoSeguro
   producto             String
+  // Quién contrata la póliza. Por defecto es el propio cliente (la póliza solo
+  // se crea desde su ficha), pero puede ser otra persona: un padre que contrata
+  // para un hijo, una empresa para un socio. Null = es el cliente.
+  contratante          String?
+  // Número de póliza asignado por la compañía. Antes se anexaba al campo Notas
+  // (no tenía columna propia) — los registros viejos conservan esa nota.
+  numeroPoliza         String?
+  // Situación operativa de la póliza emitida (activa / por renovar / en
+  // rescate). Informativa: el estado que manda para comisiones y métricas
+  // sigue siendo `estado` (EstadoVenta).
+  situacion            SituacionPoliza?
   // Producto del catálogo NYL (opcional pero recomendado)
   productoCatalogoId   String?
   productoCatalogo     ProductoCatalogo? @relation(fields: [productoCatalogoId], references: [id])
@@ -728,6 +756,11 @@ model Venta {
   // paridad se le enseñó la cifra al cliente.
   sumaAseguradaTC      Float?
   plazo                String? // ej. "20 pagos", "Anual renovable"
+  // Plan contratado dentro del producto (ej. "Plan A", "Nacional", "Elite").
+  // Distinto de `plazo`, que es el periodo de pago del producto.
+  plan                 String?
+  // Red médica / hospitalaria del plan. Solo aplica a GMM.
+  redMedica            String?
   deducible            Float? // GMM / Salud
   // Moneda del deducible: en GMM internacional (Alfa Medical Internacional) el
   // deducible viene en dólares, no en pesos.
@@ -754,6 +787,10 @@ model Venta {
   // incluida) y `costoMoneda` la denominación de ese costo (default MXN si
   // falta, que es como se guardaron las coberturas anteriores a multi-moneda).
   coberturas           Json?
+  // [{ nombre, parentesco?, fechaNacimiento? }] — personas cubiertas por la
+  // póliza. En GMM familiar son varias; en vida suele ser solo el titular.
+  // No confundir con `beneficiarios`, que son quienes cobran el siniestro.
+  asegurados           Json?
   // [{ nombre, porcentaje? }]
   beneficiarios        Json?
   notas                String?

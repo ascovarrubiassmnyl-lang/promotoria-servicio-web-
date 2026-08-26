@@ -7,11 +7,19 @@ import {
   mxn, fechaCorta, fechaHora, RAMOS_LABEL, FORMAS_PAGO,
   esVentaGanada, esVentaPipeline, PAGOS_POR_ANIO, edad, tamanoLegible,
 } from '../../lib/format.js';
-import { infoMoneda, montoMoneda, labelMetodoPago, semaforoPago, infoSemaforo, equivalenteMXN } from './tipos.js';
+import {
+  infoMoneda, montoMoneda, labelMetodoPago, semaforoPago, infoSemaforo, equivalenteMXN,
+  infoSituacion, ASEGURADORA,
+} from './tipos.js';
 import VisorDocumento, { useVisorDocumento } from '../documentos/VisorDocumento.jsx';
 
-const ASEGURADORA = 'Seguros Monterrey New York Life';
 const PERIODO_LABEL = { MENSUAL: 'por mes', TRIMESTRAL: 'por trimestre', SEMESTRAL: 'por semestre' };
+
+// La fecha de nacimiento de un asegurado se guarda como el string 'YYYY-MM-DD'
+// que captura el DatePicker (es un dato de la carátula, no un instante). Se lee
+// como fecha LOCAL: `new Date('2000-05-10')` es medianoche UTC y en México se
+// pintaría como el día anterior.
+const fechaDia = (iso) => fechaCorta(`${iso}T00:00:00`);
 
 function Kv({ k, children, big = false, green = false }) {
   return (
@@ -88,6 +96,14 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
   const recibos = p.recordatoriosPago || [];
   const historial = p.pagos || [];
   const edadCliente = edad(p.cliente?.fechaNacimiento);
+  const asegurados = Array.isArray(p.asegurados) ? p.asegurados : [];
+  // Pólizas anteriores a la ficha técnica no guardan contratante: ahí el
+  // contratante es el cliente, que es como se registraban.
+  const contratante = p.contratante
+    || `${p.cliente?.nombre || ''} ${p.cliente?.apellidoP || ''} ${p.cliente?.apellidoM || ''}`.replace(/\s+/g, ' ').trim();
+  const contratanteEsOtro = Boolean(p.contratante)
+    && p.contratante.trim().toLowerCase() !== `${p.cliente?.nombre || ''} ${p.cliente?.apellidoP || ''} ${p.cliente?.apellidoM || ''}`.replace(/\s+/g, ' ').trim().toLowerCase();
+  const situacion = infoSituacion(p.situacion);
   const puedeRegistrarPago = !readOnly && p.formaPago !== 'UNICO' && p.fechaProximoPago;
   // Validación: solo promotores, y solo mientras la póliza no esté ya resuelta.
   const puedeValidar = esAdmin() && !['APROBADA', 'RECHAZADA', 'CANCELADA'].includes(p.estado);
@@ -144,14 +160,21 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
         <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
           <div>
             <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">{p.producto}</h2>
-            <div className="flex items-center gap-2 mt-1.5 text-sm text-slate-500 dark:text-slate-400">
+            <div className="flex flex-wrap items-center gap-2 mt-1.5 text-sm text-slate-500 dark:text-slate-400">
               <span className="tag">{RAMOS_LABEL[p.ramo] || p.ramo}</span>
+              {p.plan && <span className="tag">{p.plan}</span>}
               <span>{ASEGURADORA}</span>
+              {p.numeroPoliza && <span className="tabular-nums">· Póliza {p.numeroPoliza}</span>}
             </div>
           </div>
           <div className="text-right space-y-2.5">
             <div className="flex flex-wrap items-center justify-end gap-2">
               <VentaBadge estado={p.estado} />
+              {/* Situación operativa de la póliza emitida: es OTRO campo,
+                  no el estado administrativo que decide la comisión. */}
+              {situacion && (
+                <span className={`badge badge-dot ring-1 ${situacion.chip}`}>{situacion.label}</span>
+              )}
               {/* Semáforo de pagos: derivado de la póliza y su historial */}
               <span className={`badge badge-dot ring-1 ${infoSemaforo(semaforoPago(p)).chip}`}>
                 {infoSemaforo(semaforoPago(p)).label}
@@ -180,11 +203,27 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-5">
-          <Kv k="Cliente / contratante">
-            {p.cliente?.nombre} {p.cliente?.apellidoP} {p.cliente?.apellidoM || ''}
-            {edadCliente != null && <span className="text-slate-400 dark:text-slate-500 font-normal"> · {edadCliente} años</span>}
+          <Kv k="Contratante">
+            {contratante || '—'}
+            {contratanteEsOtro && (
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-normal mt-0.5">
+                Cliente: {p.cliente?.nombre} {p.cliente?.apellidoP} {p.cliente?.apellidoM || ''}
+              </p>
+            )}
+            {!contratanteEsOtro && edadCliente != null && (
+              <span className="text-slate-400 dark:text-slate-500 font-normal"> · {edadCliente} años</span>
+            )}
           </Kv>
-          <Kv k="Asesor">{p.asesor?.nombre} {p.asesor?.apellidoP}</Kv>
+          <Kv k="Asesor">
+            {p.asesor?.nombre} {p.asesor?.apellidoP}
+            {/* Clave de agente: dato del asesor (Asesores → Equipo), no de la
+                póliza — por eso se lee del dueño y no se copia a la Venta. */}
+            {p.asesor?.claveAgente && (
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-normal mt-0.5 tabular-nums">
+                Clave {p.asesor.claveAgente}
+              </p>
+            )}
+          </Kv>
           <Kv k="Suma asegurada" big>
             {p.sumaAsegurada != null
               ? (p.sumaAseguradaMoneda && p.sumaAseguradaMoneda !== 'MXN' ? montoMoneda(p.sumaAsegurada, p.sumaAseguradaMoneda) : mxn(p.sumaAsegurada))
@@ -364,6 +403,28 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
         </div>
 
         <div className="space-y-4">
+          {/* Asegurados: quiénes están cubiertos. Distinto de los
+              beneficiarios, que son quienes cobran el siniestro. */}
+          <Card title="Asegurados">
+            {asegurados.length === 0 ? (
+              <p className="text-sm text-slate-400 dark:text-slate-500">
+                Sin asegurados capturados: se entiende que el asegurado es el contratante.
+              </p>
+            ) : asegurados.map((a, i) => (
+              <div key={i} className="flex items-center justify-between gap-3 py-2.5 border-b border-slate-100 dark:border-slate-700 last:border-0 text-sm">
+                <div className="min-w-0">
+                  <p className="text-slate-700 dark:text-slate-200">{a.nombre}</p>
+                  {a.parentesco && <p className="text-xs text-slate-400 dark:text-slate-500">{a.parentesco}</p>}
+                </div>
+                {a.fechaNacimiento && (
+                  <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums shrink-0">
+                    {fechaDia(a.fechaNacimiento)}
+                  </span>
+                )}
+              </div>
+            ))}
+          </Card>
+
           {/* Beneficiarios */}
           <Card title="Beneficiarios">
             {beneficiarios.length === 0 ? (
@@ -379,7 +440,12 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
           {/* Datos administrativos */}
           <Card title="Datos administrativos">
             <FilaAdmin label="Aseguradora" valor={ASEGURADORA} />
+            <FilaAdmin label="Número de póliza" valor={p.numeroPoliza || '—'} />
             <FilaAdmin label="Ramo" valor={RAMOS_LABEL[p.ramo] || p.ramo} />
+            <FilaAdmin label="Plan" valor={p.plan || '—'} />
+            {p.ramo === 'GMM' && <FilaAdmin label="Red médica" valor={p.redMedica || '—'} />}
+            <FilaAdmin label="Estado de la póliza" valor={situacion?.label || '—'} />
+            <FilaAdmin label="Clave del agente" valor={p.asesor?.claveAgente || '—'} />
             <FilaAdmin label="Plazo" valor={p.plazo || '—'} />
             <FilaAdmin label="Moneda" valor={infoMoneda(p.moneda).label} />
             <FilaAdmin label="Forma de pago" valor={FORMAS_PAGO[p.formaPago] || p.formaPago} />

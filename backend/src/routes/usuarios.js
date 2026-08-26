@@ -66,7 +66,7 @@ router.get('/', esAdmin, permiteSeccion('asesores'), asyncHandler(async (req, re
   ];
   const usuarios = await prisma.usuario.findMany({
     where,
-    select: { id: true, nombre: true, apellidoP: true, apellidoM: true, email: true, telefono: true, rol: true, activo: true, creadoEn: true },
+    select: { id: true, nombre: true, apellidoP: true, apellidoM: true, email: true, telefono: true, rol: true, activo: true, claveAgente: true, creadoEn: true },
     orderBy: { creadoEn: 'desc' },
   });
   res.json(usuarios);
@@ -75,7 +75,9 @@ router.get('/', esAdmin, permiteSeccion('asesores'), asyncHandler(async (req, re
 router.get('/asesores', esAdmin, asyncHandler(async (_req, res) => {
   const asesores = await prisma.usuario.findMany({
     where: { rol: 'ASESOR', activo: true },
-    select: { id: true, nombre: true, apellidoP: true, apellidoM: true, email: true, telefono: true },
+    // claveAgente: la usa la ficha de póliza cuando un promotor captura sobre
+    // la cartera de un asesor (la clave que va en la póliza es la del dueño).
+    select: { id: true, nombre: true, apellidoP: true, apellidoM: true, email: true, telefono: true, claveAgente: true },
     orderBy: { nombre: 'asc' },
   });
   res.json(asesores);
@@ -102,7 +104,7 @@ router.get('/promotores', asyncHandler(async (_req, res) => {
 // (routes/invitaciones.js) — ahí la persona crea su propia contraseña y
 // confirma con la cuenta de Google del correo exacto de aquí.
 router.post('/', esAdmin, permiteSeccion('asesores'), asyncHandler(async (req, res) => {
-  const { nombre, apellidoP, apellidoM, email, telefono, rol } = req.body || {};
+  const { nombre, apellidoP, apellidoM, email, telefono, rol, claveAgente } = req.body || {};
   if (!nombre || !apellidoP || !email) return res.status(400).json({ error: 'nombre, apellidoP y email son requeridos' });
   const rolFinal = rol || 'ASESOR';
   // SUPERADMIN no se crea desde la app (ni el propio superadmin): es un solo
@@ -117,11 +119,12 @@ router.post('/', esAdmin, permiteSeccion('asesores'), asyncHandler(async (req, r
   const hash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
   const data = {
     nombre, apellidoP, apellidoM, email: String(email).toLowerCase(), password: hash, telefono, rol: rolFinal,
+    claveAgente: claveAgente ? String(claveAgente).trim().slice(0, 40) : null,
     activo: false,
   };
   const usuario = await prisma.usuario.create({
     data,
-    select: { id: true, nombre: true, apellidoP: true, apellidoM: true, email: true, telefono: true, rol: true, activo: true, creadoEn: true },
+    select: { id: true, nombre: true, apellidoP: true, apellidoM: true, email: true, telefono: true, rol: true, activo: true, claveAgente: true, creadoEn: true },
   });
   await logPermiso(req.user, 'USUARIO_CREADO', {
     usuarioId: usuario.id,
@@ -153,12 +156,14 @@ router.patch('/:id', esAdmin, permiteSeccion('asesores'), asyncHandler(async (re
   const { id } = req.params;
   // No existen excepciones de permisos por usuario (el acceso es por rol, ver
   // /api/configuracion); este PATCH ignora `permisos` si llega.
-  const { nombre, apellidoP, apellidoM, telefono, rol, activo, password } = req.body || {};
+  const { nombre, apellidoP, apellidoM, telefono, rol, activo, password, claveAgente } = req.body || {};
   const data = {};
   if (nombre) data.nombre = nombre;
   if (apellidoP) data.apellidoP = apellidoP;
   if (apellidoM !== undefined) data.apellidoM = apellidoM;
   if (telefono !== undefined) data.telefono = telefono;
+  // Clave de agente de la compañía: la ficha de cada póliza la lee de aquí.
+  if (claveAgente !== undefined) data.claveAgente = claveAgente ? String(claveAgente).trim().slice(0, 40) : null;
   let previo = null;
   if (rol) {
     previo = await prisma.usuario.findUnique({ where: { id }, select: { rol: true, nombre: true, apellidoP: true } });
@@ -185,7 +190,7 @@ router.patch('/:id', esAdmin, permiteSeccion('asesores'), asyncHandler(async (re
   const usuario = await prisma.usuario.update({
     where: { id },
     data,
-    select: { id: true, nombre: true, apellidoP: true, apellidoM: true, email: true, telefono: true, rol: true, activo: true },
+    select: { id: true, nombre: true, apellidoP: true, apellidoM: true, email: true, telefono: true, rol: true, activo: true, claveAgente: true },
   });
   if (previo && previo.rol !== usuario.rol) {
     await logPermiso(req.user, 'ROL_USUARIO', {

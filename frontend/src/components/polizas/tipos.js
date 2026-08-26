@@ -100,3 +100,35 @@ export function semaforoPago(venta, ahora = new Date()) {
 }
 
 export const infoSemaforo = (clave) => SEMAFOROS_PAGO[clave] || SEMAFOROS_PAGO.SIN_COBROS;
+
+// --- Situación de la póliza emitida ----------------------------------------
+// Espejo del enum SituacionPoliza. Es la lectura OPERATIVA de una póliza viva
+// ("¿qué toca hacer con ella?") y NO sustituye a `Venta.estado` (EstadoVenta),
+// que es el estado administrativo del que salen "comisión ganada", "en
+// pipeline" y "póliza activa" en métricas, metas y ranking. Son dos campos
+// distintos a propósito: una póliza PAGADA puede estar por renovar.
+export const SITUACIONES = [
+  {
+    value: 'ACTIVA',
+    label: 'Activa',
+    chip: 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/30',
+  },
+  {
+    value: 'POR_RENOVAR',
+    label: 'Por renovar',
+    chip: 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/30',
+  },
+  {
+    value: 'EN_RESCATE',
+    label: 'En rescate',
+    chip: 'bg-red-50 text-red-700 ring-red-200 dark:bg-red-500/10 dark:text-red-400 dark:ring-red-500/30',
+  },
+];
+
+const SITUACION_POR_VALOR = Object.fromEntries(SITUACIONES.map((s) => [s.value, s]));
+
+export const infoSituacion = (v) => SITUACION_POR_VALOR[v] || null;
+
+// Nombre de la aseguradora: la promotoría opera una sola compañía, así que en
+// la ficha es un dato fijo, no un campo que se capture.
+export const ASEGURADORA = 'Seguros Monterrey New York Life';

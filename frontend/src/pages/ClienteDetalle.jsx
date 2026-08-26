@@ -724,6 +724,7 @@ export default function ClienteDetalle() {
         onClose={() => setPolizaModal({ open: false, venta: null })}
         venta={polizaModal.venta}
         clienteId={c.id}
+        nombreCliente={`${c.nombre} ${c.apellidoP} ${c.apellidoM || ''}`}
         asesorId={fichaAjena ? c.asesorId : null}
         onSaved={() => qc.invalidateQueries(['cliente', id])}
       />

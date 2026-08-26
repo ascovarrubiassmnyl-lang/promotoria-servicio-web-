@@ -100,6 +100,9 @@ function mapearAForm({ datos, modelo, documentoTmp }) {
     else f.primaAnual = datos.primaAnual;
   }
   if (datos.sumaAsegurada != null) f.sumaAsegurada = datos.sumaAsegurada;
+  // El número de póliza ya tiene columna propia (Venta.numeroPoliza) desde la
+  // ficha técnica: antes se anexaba a las notas por no tener dónde ponerlo.
+  if (datos.numeroPoliza) f.numeroPoliza = datos.numeroPoliza;
   if (datos.plazo) f.plazo = datos.plazo;
   if (datos.formaPago) f.formaPago = datos.formaPago;
   if (datos.deducible != null) f.deducible = datos.deducible;
@@ -116,10 +119,10 @@ function mapearAForm({ datos, modelo, documentoTmp }) {
   if (Array.isArray(datos.beneficiarios) && datos.beneficiarios.length) {
     f.beneficiarios = datos.beneficiarios.map((b) => ({ nombre: b.nombre || '', porcentaje: b.porcentaje ?? '' }));
   }
-  // numeroPoliza/asegurado no tienen campo propio en Venta: se anexan a notas
-  // para no perder el dato, igual que cualquier lectura que no calce 1:1.
+  // `asegurado` es el nombre tal cual aparece en la carátula: no se mete solo
+  // en la lista de asegurados de la ficha porque la IA no distingue titular de
+  // dependientes — se deja en notas para que el asesor lo capture bien.
   const notasExtra = [];
-  if (datos.numeroPoliza) notasExtra.push(`Núm. de póliza: ${datos.numeroPoliza}`);
   if (datos.asegurado) notasExtra.push(`Asegurado en el documento: ${datos.asegurado}`);
   if (datos.confianza === 'BAJA') notasExtra.push('⚠ La IA reportó confianza baja al leer este documento — revisa todos los campos con cuidado.');
   if (Array.isArray(datos.advertencias) && datos.advertencias.length) {

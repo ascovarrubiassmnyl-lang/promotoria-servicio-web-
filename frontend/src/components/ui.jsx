@@ -120,6 +120,75 @@ export function MenuAcciones({ items, small = false, label = 'Más acciones' }) 
   );
 }
 
+// Contenedor de PANTALLA COMPLETA para capturas largas (hoy: la ficha técnica
+// de una póliza). No es un Modal más ancho: ocupa el viewport entero, con
+// encabezado y pie fijos y el contenido scrolleando entre ambos, para que el
+// botón de guardar no se pierda al final de un formulario de cinco secciones.
+//
+// Se usa cuando el formulario ES la tarea (una ficha que se llena de arriba a
+// abajo); un Modal sigue siendo lo correcto para preguntas cortas y
+// confirmaciones — no convertir todos los formularios a esto.
+export function PantallaCompleta({ open, onClose, title, subtitle, children, footer }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-slate-50 dark:bg-slate-900">
+      <header className="shrink-0 flex items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 sm:px-6 py-3">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100 truncate">{title}</h2>
+          {subtitle && <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{subtitle}</p>}
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="shrink-0 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg leading-none px-2"
+          aria-label="cerrar"
+        >✕</button>
+      </header>
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 py-6">{children}</div>
+      </div>
+      {footer && (
+        <footer className="shrink-0 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 sm:px-6 py-3">
+          <div className="mx-auto w-full max-w-5xl">{footer}</div>
+        </footer>
+      )}
+    </div>
+  );
+}
+
+// Bloque numerado de la ficha técnica: título de sección + contenido. Los
+// campos los acomoda quien lo usa (no todos los bloques quieren la misma
+// rejilla).
+export function SeccionFicha({ numero, title, subtitle, children }) {
+  return (
+    <section className="card p-5">
+      <div className="flex items-start gap-3 mb-4">
+        <span className="shrink-0 w-7 h-7 rounded-lg bg-brand-50 dark:bg-brand-500/15 text-brand-700 dark:text-brand-300 text-sm font-semibold flex items-center justify-center tabular-nums">
+          {numero}
+        </span>
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
+          {subtitle && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>}
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+// Valor fijo, de solo lectura, con la misma caja que un .input — para datos
+// que define la compañía o el sistema (aseguradora, clave de agente) y que el
+// asesor no captura pero sí necesita ver en la ficha.
+export function ValorFijo({ children, title, vacio = '—' }) {
+  const hay = children !== null && children !== undefined && children !== '';
+  return (
+    <div
+      className={`input flex items-center bg-slate-50 dark:bg-slate-700/40 ${hay ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-500'}`}
+      title={title}
+    >{hay ? children : vacio}</div>
+  );
+}
+
 export function Modal({ open, onClose, title, children, wide = false }) {
   if (!open) return null;
   return (

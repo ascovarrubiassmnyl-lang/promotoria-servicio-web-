@@ -175,7 +175,7 @@ function EquipoTab() {
   const [rol, setRol] = useState('');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ nombre: '', apellidoP: '', apellidoM: '', email: '', telefono: '', rol: 'ASESOR' });
+  const [form, setForm] = useState({ nombre: '', apellidoP: '', apellidoM: '', email: '', telefono: '', claveAgente: '', rol: 'ASESOR' });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [invitacion, setInvitacion] = useState(null); // { nombre, email, token, expiraEn }
@@ -193,8 +193,8 @@ function EquipoTab() {
     queryFn: async () => (await api.get('/usuarios', { params: rol ? { rol } : {} })).data,
   });
 
-  const openNew = () => { setEditing(null); setForm({ nombre: '', apellidoP: '', apellidoM: '', email: '', telefono: '', rol: 'ASESOR' }); setOpen(true); };
-  const openEdit = (u) => { setEditing(u); setForm({ nombre: u.nombre, apellidoP: u.apellidoP, apellidoM: u.apellidoM || '', email: u.email, telefono: u.telefono || '', rol: u.rol, activo: u.activo }); setOpen(true); };
+  const openNew = () => { setEditing(null); setForm({ nombre: '', apellidoP: '', apellidoM: '', email: '', telefono: '', claveAgente: '', rol: 'ASESOR' }); setOpen(true); };
+  const openEdit = (u) => { setEditing(u); setForm({ nombre: u.nombre, apellidoP: u.apellidoP, apellidoM: u.apellidoM || '', email: u.email, telefono: u.telefono || '', claveAgente: u.claveAgente || '', rol: u.rol, activo: u.activo }); setOpen(true); };
 
   const submit = async (e) => {
     e.preventDefault(); setSaving(true); setErr('');
@@ -267,13 +267,14 @@ function EquipoTab() {
       {!usuarios || usuarios.length === 0 ? <EmptyState message="Sin usuarios" /> : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead><tr className="text-left text-xs uppercase text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700"><th className="py-2 pr-4">Nombre</th><th className="py-2 pr-4">Email</th><th className="py-2 pr-4">Teléfono</th><th className="py-2 pr-4">Rol</th><th className="py-2 pr-4">Estado</th><th className="py-2 pr-4">Creado</th><th></th></tr></thead>
+            <thead><tr className="text-left text-xs uppercase text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700"><th className="py-2 pr-4">Nombre</th><th className="py-2 pr-4">Email</th><th className="py-2 pr-4">Teléfono</th><th className="py-2 pr-4">Clave</th><th className="py-2 pr-4">Rol</th><th className="py-2 pr-4">Estado</th><th className="py-2 pr-4">Creado</th><th></th></tr></thead>
             <tbody>
               {usuarios.map((u) => (
                 <tr key={u.id} className="border-b border-slate-50 hover:bg-slate-50 dark:hover:bg-slate-700/60">
                   <td className="py-2 pr-4 font-medium text-slate-700 dark:text-slate-300">{u.nombre} {u.apellidoP} {u.apellidoM || ''}</td>
                   <td className="py-2 pr-4 text-slate-600 dark:text-slate-300">{u.email}</td>
                   <td className="py-2 pr-4 text-slate-600 dark:text-slate-300">{u.telefono || '—'}</td>
+                  <td className="py-2 pr-4 text-slate-600 dark:text-slate-300 tabular-nums">{u.claveAgente || '—'}</td>
                   <td className="py-2 pr-4"><Badge color={rolColor[u.rol]}>{ROLES_LABEL[u.rol]}</Badge></td>
                   <td className="py-2 pr-4"><Badge color={u.activo ? 'green' : 'red'}>{u.activo ? 'Activo' : 'Inactivo'}</Badge></td>
                   <td className="py-2 pr-4 text-slate-500 dark:text-slate-400">{fechaCorta(u.creadoEn)}</td>
@@ -306,6 +307,12 @@ function EquipoTab() {
             <Field label="Teléfono"><input className="input" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} /></Field>
             <Field label="Email*"><input className="input" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} disabled={!!editing} /></Field>
             <Field label="Rol"><select className="input" value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })}>{ROLES_ASIGNABLES.map((r) => <option key={r} value={r}>{ROLES_LABEL[r]}</option>)}</select></Field>
+            {/* Clave con la que la compañía identifica al agente. Se captura
+                aquí una sola vez y la ficha técnica de cada póliza suya la
+                muestra sola — no se re-teclea en cada alta. */}
+            <Field label="Clave de agente">
+              <input className="input" placeholder="La que asigna la compañía" value={form.claveAgente} onChange={(e) => setForm({ ...form, claveAgente: e.target.value })} />
+            </Field>
           </div>
           {ROLES_DESC[form.rol] && <p className="text-xs text-slate-500 dark:text-slate-400">{ROLES_DESC[form.rol]}</p>}
           {!editing && (

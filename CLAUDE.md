@@ -354,7 +354,8 @@ filtro de etapas. **Cero dependencias nuevas.**
   asesor y el selector de clientes se limita a su cartera). `readOnly` existe
   como modo consulta pero hoy **no se usa**: el promotor tiene control total.
 - Asesor: `/ventas` → su propia cartera, con crear/editar/eliminar/registrar pago
-  (`PolizaFormModal.jsx`, modal único para crear y editar).
+  (`PolizaFormModal.jsx`, formulario único para crear y editar — desde
+  2026-08-25 es una **ficha técnica de pantalla completa**, ver más abajo).
 - Promotor: `/equipo` (roster con agregados por asesor) → `/equipo/:asesorId`
   (misma lista/detalle con **control total**: crear/editar/eliminar/registrar
   pago sobre la cartera del asesor, con banner de alcance). `/ventas` redirige
@@ -386,6 +387,80 @@ filtro de etapas. **Cero dependencias nuevas.**
   preselecciona la única disponible. Es una sugerencia: `Venta.moneda`
   manda. El seed es create-only **salvo este campo**, que sí se rellena en
   productos ya sembrados (se agregó después del catálogo original).
+
+### Ficha técnica de la póliza — pantalla completa (2026-08-25)
+
+`PolizaFormModal` dejó de ser un recuadro centrado: al elegir **"Capturar los
+datos manualmente"** (y también al editar, y al confirmar un prellenado con
+IA) la captura abre en **pantalla completa** con `PantallaCompleta`
+(`components/ui.jsx`) — encabezado y pie fijos, contenido scrolleando entre
+ambos, para que el botón de guardar no se pierda al final de cinco secciones.
+Lo único que sigue siendo un `Modal` chico es la **elección inicial** "subir
+documento / capturar a mano": es una pregunta de dos opciones, no una captura.
+`PantallaCompleta` se usa cuando el formulario ES la tarea; **no convertir
+todos los formularios del sistema a esto** — un `Modal` sigue siendo lo
+correcto para preguntas cortas y confirmaciones.
+
+La ficha está organizada en **5 secciones numeradas** (`SeccionFicha`), en el
+orden que definió el usuario:
+
+1. **Contratante** — el nombre se prellena con el del cliente (la póliza solo
+   se crea desde su ficha) y **queda editable**: a veces contrata otra persona
+   (un padre para un hijo). `Venta.contratante` guarda lo que quedó escrito;
+   `null` = pólizas anteriores a este campo, donde la UI cae al nombre del
+   cliente. El nombre llega por la prop `nombreCliente` desde
+   `ClienteDetalle`, o de la lista cuando el cliente se elige aquí mismo.
+2. **Datos de la póliza** — aseguradora (fija, `ASEGURADORA` en
+   `polizas/tipos.js`, no es un campo), **`Venta.numeroPoliza`** (ya tiene
+   columna propia: antes la extracción con IA lo anexaba a Notas por no tener
+   dónde ponerlo), ramo, producto del catálogo filtrado por ramo (ya existía),
+   plazo, **clave del agente** y estado.
+3. **Vigencia y pago** — inicio/fin de vigencia (con la sugerencia por plazo
+   de siempre), **"Forma de pago" = `metodoPago`** (con qué medio paga:
+   tarjeta, transferencia, efectivo…) y **"Financiamiento / plazo de pago" =
+   `formaPago`** (cada cuánto se cobra: mensual/trimestral/semestral/anual).
+   Ojo con esos dos rótulos: son los nombres que pidió el usuario y quedan
+   cruzados respecto a los nombres de columna históricos. Además prima anual +
+   moneda (`MontoMoneda`), día de pago, monto por pago, fechas de firma y
+   emisión, próximo pago y domiciliación.
+4. **Comisión** — `comisionPct` y **comisión estimada de solo lectura**
+   (`prima en pesos × %`). Con la póliza en divisa usa el equivalente del día;
+   sin tipo de cambio no muestra cifra, en vez de inventar una.
+5. **Detalle del ramo** — plan, suma asegurada, deducible/coaseguro
+   (GMM/Salud), red médica (**solo GMM**), asegurados, coberturas,
+   beneficiarios y notas.
+
+**Dos campos nuevos que NO son lo que parecen:**
+
+- **`Venta.situacion`** (enum `SituacionPoliza`: `ACTIVA` / `POR_RENOVAR` /
+  `EN_RESCATE`, mapa único `SITUACIONES` en `polizas/tipos.js`) es la lectura
+  **operativa** de una póliza viva. **NO sustituye a `Venta.estado`**
+  (`EstadoVenta`), que sigue siendo el estado administrativo del que salen
+  "comisión ganada", "en pipeline" y "póliza activa" en métricas, metas y
+  ranking. Son dos campos a propósito: una póliza `PAGADA` puede estar por
+  renovar. En la ficha se rotulan "Estado de la póliza" y "Estado
+  administrativo". `situacion` es nullable y **ningún cálculo la lee** — no
+  colgarle métricas sin decidirlo explícitamente.
+- **`Venta.asegurados`** (Json `[{nombre, parentesco, fechaNacimiento}]`) son
+  las personas **cubiertas** por la póliza; `beneficiarios` son quienes
+  **cobran** el siniestro. No mezclarlos. `fechaNacimiento` se guarda como el
+  string `'YYYY-MM-DD'` del `DatePicker` (dato de la carátula, no un
+  instante), así que al pintarlo hay que leerlo como fecha **local**
+  (`fechaDia()` en `PolicyDetail`): `new Date('2000-05-10')` es medianoche UTC
+  y en México se vería un día antes.
+
+**`Usuario.claveAgente`** (clave con que la compañía identifica al asesor) se
+captura **una sola vez** en Asesores → Equipo y la ficha de cada póliza la
+muestra sola, de solo lectura. **Es un dato de la persona, no de la póliza: no
+se copia a `Venta`**, se lee siempre del asesor dueño (`GET /ventas` y
+`/ventas/:id` la incluyen en `asesor`). Cuando un promotor captura sobre la
+cartera de otro asesor, la clave que aplica es la de **ese** asesor
+(`GET /usuarios/promotores` no, `GET /usuarios/asesores` sí la devuelve), no
+la de quien teclea. También viaja en `/auth/me` para el caso normal.
+
+El **ramo `VIDA` sigue existiendo** aunque no apareciera en la lista que dio
+el usuario (GMM, Acumulación, Protección, Salud, Retiro): hay pólizas
+registradas con él y quitarlo del enum las rompería.
 
 ### Moneda, domiciliación y pagos (2026-08-13)
 

@@ -173,6 +173,34 @@ function limpiarBeneficiarios(v) {
   return limpio.length ? limpio : null;
 }
 
+// Normaliza el array de asegurados de la ficha técnica:
+// [{ nombre, parentesco?, fechaNacimiento? }]. Son las personas CUBIERTAS por
+// la póliza (en GMM familiar, varias); no confundir con `beneficiarios`, que
+// son quienes cobran el siniestro.
+function limpiarAsegurados(v) {
+  if (!Array.isArray(v)) return null;
+  const limpio = v
+    .filter((a) => a && typeof a === 'object')
+    .map((a) => ({
+      nombre: String(a.nombre || '').trim().slice(0, 140),
+      parentesco: String(a.parentesco || '').trim().slice(0, 60) || null,
+      // Se guarda como el string 'YYYY-MM-DD' que captura el DatePicker: es un
+      // dato de la carátula, no una fecha con la que se calcule nada.
+      fechaNacimiento: String(a.fechaNacimiento || '').trim().slice(0, 10) || null,
+    }))
+    .filter((a) => a.nombre);
+  return limpio.length ? limpio : null;
+}
+
+// Situación operativa de la póliza emitida (enum SituacionPoliza). Fail closed
+// hacia null: un valor basura no se guarda. NO decide comisiones ni métricas
+// — eso sigue siendo `estado` (EstadoVenta).
+const SITUACIONES = ['ACTIVA', 'POR_RENOVAR', 'EN_RESCATE'];
+const situacionValida = (v) => (SITUACIONES.includes(v) ? v : null);
+
+// Texto corto de la ficha (número de póliza, contratante, plan, red médica).
+const texto = (v, max = 140) => (v == null ? null : (String(v).trim().slice(0, max) || null));
+
 // Resumen de cartera por asesor para la vista de promotor (roster de Equipo).
 // SOLO promotores (ADMIN/SUPERADMIN): un asesor no puede ver agregados de otros.
 router.get('/equipo/resumen', asyncHandler(async (req, res) => {
@@ -223,7 +251,7 @@ router.get('/', asyncHandler(async (req, res) => {
     where,
     include: {
       cliente: { select: { id: true, nombre: true, apellidoP: true, apellidoM: true, telefono: true, email: true, fechaNacimiento: true } },
-      asesor: { select: { id: true, nombre: true, apellidoP: true } },
+      asesor: { select: { id: true, nombre: true, apellidoP: true, claveAgente: true } },
       validador: { select: { id: true, nombre: true } },
       productoCatalogo: { select: { id: true, nombre: true, ramo: true, comisionPct: true, descripcion: true } },
       recordatoriosPago: { orderBy: { fechaAviso: 'asc' }, take: 5 },
@@ -295,7 +323,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
     where: { id },
     include: {
       cliente: { select: { id: true, nombre: true, apellidoP: true, apellidoM: true, telefono: true, email: true, rfc: true, direccion: true, fechaNacimiento: true } },
-      asesor: { select: { id: true, nombre: true, apellidoP: true, email: true, telefono: true } },
+      asesor: { select: { id: true, nombre: true, apellidoP: true, email: true, telefono: true, claveAgente: true } },
       validador: { select: { id: true, nombre: true } },
       productoCatalogo: true,
       recordatoriosPago: { orderBy: { fechaAviso: 'asc' } },
@@ -318,6 +346,7 @@ router.post('/', asyncHandler(async (req, res) => {
     montoPagoMoneda,
     sumaAsegurada, sumaAseguradaMoneda, sumaAseguradaTC, plazo, deducible, deducibleMoneda,
     coaseguro, coberturas, beneficiarios,
+    contratante, numeroPoliza, situacion, plan, redMedica, asegurados,
     moneda: monedaBody, primaMoneda, tipoCambio, domiciliada, metodoPago,
     documentoTmp,
   } = req.body || {};
@@ -365,6 +394,13 @@ router.post('/', asyncHandler(async (req, res) => {
     return tx.venta.create({
       data: {
         asesorId, clienteId, ramo, producto,
+        // La ficha lo prellena con el nombre del cliente y se guarda tal cual
+        // (es el nombre que quedó en el contrato, no un espejo vivo de la
+        // ficha). Null = pólizas anteriores a este campo: ahí se muestra el
+        // nombre del cliente como respaldo.
+        contratante: texto(contratante),
+        numeroPoliza: texto(numeroPoliza, 60),
+        situacion: situacionValida(situacion),
         primaAnual: divisa.primaAnual,
         moneda: divisa.moneda, primaMoneda: divisa.primaMoneda, tipoCambio: divisa.tipoCambio,
         comisionPct: pctFinal, comisionMonto: comisionMontoFinal,
@@ -388,10 +424,15 @@ router.post('/', asyncHandler(async (req, res) => {
         sumaAseguradaMoneda: moneda(sumaAseguradaMoneda),
         sumaAseguradaTC: sumaAseguradaTC != null && +sumaAseguradaTC > 0 ? +sumaAseguradaTC : null,
         plazo: plazo || null,
+        plan: texto(plan, 80),
+        // Red médica: dato exclusivo de GMM; en otros ramos no se guarda
+        // aunque el cliente mande el campo.
+        redMedica: ramo === 'GMM' ? texto(redMedica, 120) : null,
         deducible: deducible ?? null,
         deducibleMoneda: moneda(deducibleMoneda),
         coaseguro: coaseguro || null,
         coberturas: limpiarCoberturas(coberturas),
+        asegurados: limpiarAsegurados(asegurados),
         beneficiarios: limpiarBeneficiarios(beneficiarios),
         documentoPolizaId,
         extraccionEn: documentoTmp?.modelo ? new Date() : null,
@@ -428,6 +469,7 @@ router.patch('/:id', asyncHandler(async (req, res) => {
     montoPagoMoneda,
     sumaAsegurada, sumaAseguradaMoneda, sumaAseguradaTC, plazo, deducible, deducibleMoneda,
     coaseguro, coberturas, beneficiarios,
+    contratante, numeroPoliza, situacion, plan, redMedica, asegurados,
     moneda: monedaBody, primaMoneda, tipoCambio, domiciliada, metodoPago,
   } = req.body || {};
   const data = {};
@@ -489,7 +531,18 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   if (deducibleMoneda !== undefined) data.deducibleMoneda = moneda(deducibleMoneda);
   if (coaseguro !== undefined) data.coaseguro = coaseguro || null;
   if (coberturas !== undefined) data.coberturas = limpiarCoberturas(coberturas);
+  if (asegurados !== undefined) data.asegurados = limpiarAsegurados(asegurados);
   if (beneficiarios !== undefined) data.beneficiarios = limpiarBeneficiarios(beneficiarios);
+  if (contratante !== undefined) data.contratante = texto(contratante);
+  if (numeroPoliza !== undefined) data.numeroPoliza = texto(numeroPoliza, 60);
+  if (situacion !== undefined) data.situacion = situacionValida(situacion);
+  if (plan !== undefined) data.plan = texto(plan, 80);
+  // Red médica: dato exclusivo de GMM. Se limpia en cuanto el ramo deja de
+  // ser GMM aunque el cliente no mande el campo — dejarla colgando describiría
+  // un plan que esa póliza ya no tiene.
+  const ramoFinal = ramo || existente.ramo;
+  if (ramoFinal !== 'GMM') data.redMedica = null;
+  else if (redMedica !== undefined) data.redMedica = texto(redMedica, 120);
   if (estado) {
     data.estado = estado;
     if (estado === 'APROBADA' || estado === 'RECHAZADA') {
