@@ -1046,15 +1046,17 @@ decisión que el leaderboard y el filtro de etapas de Clientes.
   muchas citas apiladas en el panel del día estiraba el `<aside>`, y con él
   toda la fila flex, así que la cuadrícula del mes cambiaba de tamaño y el
   calendario quedaba a varios scrolls de distancia. **La cuadrícula es
-  estática: lo que crece scrollea por dentro.** Tres regiones con scroll
-  propio, no una: (1) las citas del día en el riel (`min-h-0 flex-1
-  overflow-y-auto`), (2) los filtros de visibilidad, anclados debajo con
-  `max-h-[45%] overflow-y-auto` para no perderlos al recorrer un día cargado,
-  y (3) el panel del calendario (Mes estira sus filas y solo scrollea si no
-  caben; Semana conserva su rejilla horaria, ahora `h-full` en vez de
-  `max-h-[620px]`; Agenda crece con la lista). Un `flex-1` dentro del riel
-  solo funciona porque el contenedor tiene alto definido — si se vuelve a
-  `min-h`, el scroll del riel deja de existir en silencio.
+  estática: lo que crece scrollea por dentro.** En el riel el scroll es **uno
+  solo** (`min-h-0 flex-1 overflow-y-auto`) y envuelve el apilado completo —
+  citas del día y, debajo, los filtros de visibilidad—, sin recortarle alto a
+  ninguno de los dos: **no partirlo en dos zonas de scroll** (se intentó
+  anclando los filtros abajo con `max-h-%` y el usuario lo rechazó: dejaba las
+  citas en una ventanita y parecía que los bloques se habían eliminado). El
+  panel del calendario scrollea aparte (Mes estira sus filas y solo scrollea
+  si no caben; Semana conserva su rejilla horaria, ahora `h-full` en vez de
+  `max-h-[620px]`; Agenda crece con la lista). Ese `flex-1` del riel solo
+  funciona porque el contenedor tiene alto definido — si se vuelve a `min-h`,
+  el scroll del riel deja de existir en silencio.
   En el `Drawer` (< xl) el riel se apila como antes y scrollea el drawer
   completo: ahí no hay alto definido y `flex-1`/`max-h-%` no aplican.
 

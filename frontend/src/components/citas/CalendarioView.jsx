@@ -996,39 +996,38 @@ function CalendarioEscritorio() {
           conteos={conteosPorDia}
         />
       </div>
-      {/* Las citas del día son lo único que crece sin límite en el riel: se les
-          da su PROPIO scroll para que la rejilla del calendario no se estire
-          (era la causa de que un día cargado alargara toda la página). */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* UNA sola zona de scroll para todo lo que crece: las citas del día
+          apiladas y, debajo, los filtros — el mismo apilado de siempre, sin
+          recortarle alto a ninguno de los dos. El scroll vive aquí y no en la
+          página, que es lo que mantiene estática la cuadrícula del mes. */}
+      <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-slate-200 dark:divide-slate-700">
         {panelDia}
-      </div>
-      {/* Filtros como "calendarios" que se muestran u ocultan: la casilla lleva
-          el color del evento, así el riel es también la leyenda. Quedan
-          anclados bajo la lista, con scroll propio, para no perderlos al
-          recorrer un día con muchas citas. */}
-      <div className="max-h-[45%] shrink-0 space-y-1 overflow-y-auto border-t border-slate-200 p-3 dark:border-slate-700">
-        <GrupoVisibilidad
-          titulo="Clasificación"
-          items={Object.values(CLASIFICACIONES).map((cl) => ({ value: cl.value, label: cl.label, dot: cl.dot, count: conteoPor('clasificacion', cl.value, 'PRODUCTIVA') }))}
-          visibles={visClasif}
-          onToggle={toggleEn(setVisClasif)}
-          onSolo={soloEn(setVisClasif)}
-        />
-        <GrupoVisibilidad
-          titulo="Canal"
-          items={Object.values(CANALES).map((ca) => ({ value: ca.value, label: ca.label, dot: ca.dot, count: conteoPor('tipo', ca.value) }))}
-          visibles={visCanal}
-          onToggle={toggleEn(setVisCanal)}
-          onSolo={soloEn(setVisCanal)}
-        />
-        <GrupoVisibilidad
-          titulo="Estado"
-          defaultOpen={false}
-          items={Object.values(ESTADOS_CITA).map((es) => ({ value: es.value, label: es.label, dot: es.dot, count: conteoPor('estado', es.value) }))}
-          visibles={visEstado}
-          onToggle={toggleEn(setVisEstado)}
-          onSolo={soloEn(setVisEstado)}
-        />
+        {/* Filtros como "calendarios" que se muestran u ocultan: la casilla lleva
+            el color del evento, así el riel es también la leyenda. */}
+        <div className="space-y-1 p-3">
+          <GrupoVisibilidad
+            titulo="Clasificación"
+            items={Object.values(CLASIFICACIONES).map((cl) => ({ value: cl.value, label: cl.label, dot: cl.dot, count: conteoPor('clasificacion', cl.value, 'PRODUCTIVA') }))}
+            visibles={visClasif}
+            onToggle={toggleEn(setVisClasif)}
+            onSolo={soloEn(setVisClasif)}
+          />
+          <GrupoVisibilidad
+            titulo="Canal"
+            items={Object.values(CANALES).map((ca) => ({ value: ca.value, label: ca.label, dot: ca.dot, count: conteoPor('tipo', ca.value) }))}
+            visibles={visCanal}
+            onToggle={toggleEn(setVisCanal)}
+            onSolo={soloEn(setVisCanal)}
+          />
+          <GrupoVisibilidad
+            titulo="Estado"
+            defaultOpen={false}
+            items={Object.values(ESTADOS_CITA).map((es) => ({ value: es.value, label: es.label, dot: es.dot, count: conteoPor('estado', es.value) }))}
+            visibles={visEstado}
+            onToggle={toggleEn(setVisEstado)}
+            onSolo={soloEn(setVisEstado)}
+          />
+        </div>
       </div>
       {/* Alcance: el promotor filtra por asesor; el asesor consulta la
           disponibilidad de un promotor (espejo, cada rol ve solo uno). */}
