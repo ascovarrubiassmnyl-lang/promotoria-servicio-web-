@@ -55,6 +55,10 @@ export default function Layout() {
   const logoSrc = tema === 'dark' ? '/origen-blanco.png' : '/origen-negro.png';
 
   const [conWebGL] = useState(soportaWebGL);
+  // El sidebar se colapsa SOLO al elegir una sección (a pedido del usuario):
+  // una vez que ya se navegó, el menú estorba y el contenido —el calendario en
+  // particular— necesita el ancho. Se vuelve a abrir con el botón de expandir,
+  // y la preferencia se recuerda en localStorage como siempre.
   const [colapsado, setColapsado] = useState(false);
   const [menuAbierto, setMenuAbierto] = useState(false); // hoja "Más" (móvil)
   useEffect(() => {
@@ -150,6 +154,7 @@ export default function Layout() {
                 key={l.to}
                 to={l.to}
                 end={l.end}
+                onClick={() => setColapsado(true)}
                 className={({ isActive }) => linkClase(isActive)}
                 title={colapsado ? l.label : undefined}
               >
@@ -173,6 +178,7 @@ export default function Layout() {
                   <NavLink
                     key={l.to}
                     to={l.to}
+                    onClick={() => setColapsado(true)}
                     className={({ isActive }) => linkClase(isActive)}
                     title={colapsado ? l.label : undefined}
                   >

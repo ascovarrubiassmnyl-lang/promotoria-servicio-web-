@@ -715,7 +715,7 @@ function CalendarioEscritorio() {
   }, [view, desde]);
 
   const VistaSemana = () => (
-    <div className="overflow-auto max-h-[620px]">
+    <div className="h-full overflow-auto">
       {/* Encabezado alineado con la vista Mes: mismos nombres de día en el
           mismo estilo (uppercase, xs, slate-500), con la fila de números
           debajo. La rejilla es la misma retícula de 7 columnas. */}
@@ -996,34 +996,39 @@ function CalendarioEscritorio() {
           conteos={conteosPorDia}
         />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-slate-200 dark:divide-slate-700">
+      {/* Las citas del día son lo único que crece sin límite en el riel: se les
+          da su PROPIO scroll para que la rejilla del calendario no se estire
+          (era la causa de que un día cargado alargara toda la página). */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {panelDia}
-        {/* Filtros como "calendarios" que se muestran u ocultan: la casilla lleva
-            el color del evento, así el riel es también la leyenda. */}
-        <div className="space-y-1 p-3">
-          <GrupoVisibilidad
-            titulo="Clasificación"
-            items={Object.values(CLASIFICACIONES).map((cl) => ({ value: cl.value, label: cl.label, dot: cl.dot, count: conteoPor('clasificacion', cl.value, 'PRODUCTIVA') }))}
-            visibles={visClasif}
-            onToggle={toggleEn(setVisClasif)}
-            onSolo={soloEn(setVisClasif)}
-          />
-          <GrupoVisibilidad
-            titulo="Canal"
-            items={Object.values(CANALES).map((ca) => ({ value: ca.value, label: ca.label, dot: ca.dot, count: conteoPor('tipo', ca.value) }))}
-            visibles={visCanal}
-            onToggle={toggleEn(setVisCanal)}
-            onSolo={soloEn(setVisCanal)}
-          />
-          <GrupoVisibilidad
-            titulo="Estado"
-            defaultOpen={false}
-            items={Object.values(ESTADOS_CITA).map((es) => ({ value: es.value, label: es.label, dot: es.dot, count: conteoPor('estado', es.value) }))}
-            visibles={visEstado}
-            onToggle={toggleEn(setVisEstado)}
-            onSolo={soloEn(setVisEstado)}
-          />
-        </div>
+      </div>
+      {/* Filtros como "calendarios" que se muestran u ocultan: la casilla lleva
+          el color del evento, así el riel es también la leyenda. Quedan
+          anclados bajo la lista, con scroll propio, para no perderlos al
+          recorrer un día con muchas citas. */}
+      <div className="max-h-[45%] shrink-0 space-y-1 overflow-y-auto border-t border-slate-200 p-3 dark:border-slate-700">
+        <GrupoVisibilidad
+          titulo="Clasificación"
+          items={Object.values(CLASIFICACIONES).map((cl) => ({ value: cl.value, label: cl.label, dot: cl.dot, count: conteoPor('clasificacion', cl.value, 'PRODUCTIVA') }))}
+          visibles={visClasif}
+          onToggle={toggleEn(setVisClasif)}
+          onSolo={soloEn(setVisClasif)}
+        />
+        <GrupoVisibilidad
+          titulo="Canal"
+          items={Object.values(CANALES).map((ca) => ({ value: ca.value, label: ca.label, dot: ca.dot, count: conteoPor('tipo', ca.value) }))}
+          visibles={visCanal}
+          onToggle={toggleEn(setVisCanal)}
+          onSolo={soloEn(setVisCanal)}
+        />
+        <GrupoVisibilidad
+          titulo="Estado"
+          defaultOpen={false}
+          items={Object.values(ESTADOS_CITA).map((es) => ({ value: es.value, label: es.label, dot: es.dot, count: conteoPor('estado', es.value) }))}
+          visibles={visEstado}
+          onToggle={toggleEn(setVisEstado)}
+          onSolo={soloEn(setVisEstado)}
+        />
       </div>
       {/* Alcance: el promotor filtra por asesor; el asesor consulta la
           disponibilidad de un promotor (espejo, cada rol ve solo uno). */}
@@ -1049,10 +1054,12 @@ function CalendarioEscritorio() {
     <div className="space-y-4">
       {/* Un solo contenedor con borde: riel + calendario, como en el template. */}
       <div className="card overflow-hidden p-0">
-        {/* El alto fijo solo aplica a Mes: Semana ya mide su propia rejilla
-            horaria y Agenda crece con la lista. */}
-        <div className={`flex ${view === 'mes' ? 'min-h-[760px]' : 'min-h-[560px]'}`}>
-          <aside className="hidden w-80 shrink-0 flex-col border-r border-slate-200 dark:border-slate-700 xl:flex">
+        {/* Alto DEFINIDO (no min-h) y atado a la ventana: es lo que permite que
+            el riel y la rejilla scrolleen por dentro en vez de estirar la
+            página. Antes cualquiera de los dos crecía sin tope y el calendario
+            quedaba a varios scrolls de distancia. */}
+        <div className="flex h-[calc(100vh-7rem)] max-h-[1000px] min-h-[620px]">
+          <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r border-slate-200 dark:border-slate-700 xl:flex">
             {riel}
           </aside>
 
@@ -1113,7 +1120,12 @@ function CalendarioEscritorio() {
               </div>
             )}
 
-            <div className={`min-w-0 flex-1 ${view === 'mes' ? '' : 'p-4'}`}>
+            {/* Cada vista scrollea dentro de este panel: Mes estira sus filas y
+                solo scrollea si no caben, Semana trae su propia rejilla horaria
+                y Agenda crece con la lista. */}
+            <div className={`min-h-0 min-w-0 flex-1 ${
+              view === 'mes' ? 'overflow-y-auto' : view === 'semana' ? 'overflow-hidden p-4' : 'overflow-y-auto p-4'
+            }`}>
               {view === 'mes' ? <VistaMes /> : view === 'semana' ? <VistaSemana /> : <VistaAgenda />}
             </div>
           </div>

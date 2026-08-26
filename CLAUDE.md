@@ -132,7 +132,11 @@ comparación de literales a mano.
 Toda funcionalidad restringida se implementa en **tres capas, fallando cerrado**:
 
 1. **Navegación** — el ítem de menú solo se renderiza si `puede(seccion)`
-   (`Layout.jsx`), que lee `user.accesos` del servidor.
+   (`Layout.jsx`), que lee `user.accesos` del servidor. (El sidebar **se
+   colapsa solo al hacer clic en un `NavLink`** —2026-08-26, a pedido del
+   usuario: ya navegaste, el menú estorba y el contenido necesita el ancho—;
+   se reabre con el botón de expandir y la preferencia sigue viviendo en
+   `localStorage` bajo `crm:sidebar:colapsado`.)
 2. **Guard de ruta** — `<SeccionRoute>` / `<AdminRoute>` en `App.jsx`
    (`components/Protected.jsx`) redirigen a la primera sección permitida.
 3. **Autorización en la API (la que manda)** — `permiteSeccion` + verificación
@@ -1036,6 +1040,23 @@ decisión que el leaderboard y el filtro de etapas de Clientes.
   del `GET /citas` y de `/citas/disponibilidad`.
 - **La vista móvil (`CalendarioMovil.jsx`, < md) no se tocó**: tiene su propio
   árbol Día/Agenda/Mes y el riel de escritorio no aplica ahí.
+- **El contenedor tiene alto DEFINIDO, atado a la ventana**
+  (`h-[calc(100vh-7rem)] max-h-[1000px] min-h-[620px]`, 2026-08-26) — no un
+  `min-h`. Con `min-h` el riel y la rejilla crecían sin tope: un día con
+  muchas citas apiladas en el panel del día estiraba el `<aside>`, y con él
+  toda la fila flex, así que la cuadrícula del mes cambiaba de tamaño y el
+  calendario quedaba a varios scrolls de distancia. **La cuadrícula es
+  estática: lo que crece scrollea por dentro.** Tres regiones con scroll
+  propio, no una: (1) las citas del día en el riel (`min-h-0 flex-1
+  overflow-y-auto`), (2) los filtros de visibilidad, anclados debajo con
+  `max-h-[45%] overflow-y-auto` para no perderlos al recorrer un día cargado,
+  y (3) el panel del calendario (Mes estira sus filas y solo scrollea si no
+  caben; Semana conserva su rejilla horaria, ahora `h-full` en vez de
+  `max-h-[620px]`; Agenda crece con la lista). Un `flex-1` dentro del riel
+  solo funciona porque el contenedor tiene alto definido — si se vuelve a
+  `min-h`, el scroll del riel deja de existir en silencio.
+  En el `Drawer` (< xl) el riel se apila como antes y scrollea el drawer
+  completo: ahí no hay alto definido y `flex-1`/`max-h-%` no aplican.
 
 ## Sección Metas / Targets (rediseño 2026-07)
 
