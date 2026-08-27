@@ -21,10 +21,16 @@ import { GoogleGenAI, Type } from '@google/genai';
 // tiene prioridad sobre la lista, para fijar uno a mano sin tocar código.
 export const MODELOS_EXTRACCION = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-flash'];
 
-// Un modelo que se queda pensando deja al asesor con "Analizando…" para
-// siempre: se corta y se pasa al siguiente candidato. Medido: los modelos
-// vivos responden un PDF de póliza en ~7 s.
-const TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS) || 90_000;
+// Presupuesto TOTAL del análisis, compartido por todos los candidatos — no un
+// timeout por modelo (2026-08-27): al asesor le da igual cuántos se
+// intentaron, lo que ve es "Analizando…" y su navegador tiene su propio
+// límite (TIMEOUT_ANALISIS en frontend/src/api/client.js, que va por encima de
+// éste para que quien corte sea el servidor, el único que sabe por qué falló).
+// Con un timeout por modelo, tres candidatos lentos sumaban minutos.
+// Medido: el mismo PDF tarda entre ~7 s y ~60 s según el momento, así que el
+// presupuesto es holgado a propósito — cortar a los 30 s tiraría análisis que
+// iban a salir bien, y perder el trabajo es peor que esperar.
+const PRESUPUESTO_MS = Number(process.env.GEMINI_TIMEOUT_MS) || 150_000;
 
 // Último modelo que sí respondió, para intentarlo primero la próxima vez.
 let modeloVigente = null;
@@ -150,10 +156,16 @@ export async function analizarPolizaPdf(rutaAbsoluta, { mime = 'application/pdf'
   const bytes = fs.readFileSync(rutaAbsoluta);
   const base64 = bytes.toString('base64');
 
+  const limite = Date.now() + PRESUPUESTO_MS;
   let ultimoError = null;
   for (const modelo of modelosCandidatos()) {
+    // Cada intento se lleva lo que quede del presupuesto: si el primero se
+    // colgó, no hay tiempo para el siguiente y se responde el error en vez de
+    // dejar al asesor esperando otro tanto.
+    const restante = limite - Date.now();
+    if (restante <= 0) break;
     try {
-      const datos = await pedirExtraccion(ai, modelo, base64, mime);
+      const datos = await pedirExtraccion(ai, modelo, base64, mime, restante);
       modeloVigente = modelo;
       return { datos, modelo };
     } catch (e) {
@@ -166,9 +178,9 @@ export async function analizarPolizaPdf(rutaAbsoluta, { mime = 'application/pdf'
   throw ultimoError;
 }
 
-async function pedirExtraccion(ai, modelo, base64, mime) {
+async function pedirExtraccion(ai, modelo, base64, mime, ms) {
   const corte = new AbortController();
-  const reloj = setTimeout(() => corte.abort(), TIMEOUT_MS);
+  const reloj = setTimeout(() => corte.abort(), ms);
   let respuesta;
   try {
     respuesta = await ai.models.generateContent({
@@ -189,7 +201,7 @@ async function pedirExtraccion(ai, modelo, base64, mime) {
     });
   } catch (e) {
     if (corte.signal.aborted) {
-      const err = new Error(`"${modelo}" no respondió en ${Math.round(TIMEOUT_MS / 1000)} s.`);
+      const err = new Error(`"${modelo}" no respondió en ${Math.round(ms / 1000)} s.`);
       err.codigo = 'TIMEOUT';
       throw err;
     }

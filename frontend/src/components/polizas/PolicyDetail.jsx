@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, handleError } from '../../api/client.js';
+import { api, handleError, TIMEOUT_SUBIDA } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Card, VentaBadge, EmptyState, Modal, Field, NumeroFormateado } from '../ui.jsx';
 import {
@@ -565,7 +565,7 @@ function DocumentoPoliza({ polizaId, venta, readOnly, onVer }) {
     try {
       const fd = new FormData();
       fd.append('archivo', archivo);
-      await api.post(`/ventas/${polizaId}/documento`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      await api.post(`/ventas/${polizaId}/documento`, fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: TIMEOUT_SUBIDA });
       qc.invalidateQueries(['poliza', polizaId]);
     } catch (e2) { setErr(handleError(e2)); } finally { setSubiendo(false); }
   };

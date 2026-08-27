@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { api, handleError } from '../api/client.js';
+import { api, handleError, TIMEOUT_SUBIDA } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { Card, Modal, Field, CitaBadge, VentaBadge, EmptyState, MenuAcciones, DatePicker } from '../components/ui.jsx';
 import PolizaFormModal from '../components/polizas/PolizaFormModal.jsx';
@@ -311,7 +311,7 @@ export default function ClienteDetalle() {
       const fd = new FormData();
       fd.append('archivo', archivo);
       fd.append('clienteId', id);
-      await api.post('/documentos', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      await api.post('/documentos', fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: TIMEOUT_SUBIDA });
       qc.invalidateQueries(['cliente', id]);
     } catch (e2) { setDocErr(handleError(e2)); } finally { setDocSubiendo(false); }
   };

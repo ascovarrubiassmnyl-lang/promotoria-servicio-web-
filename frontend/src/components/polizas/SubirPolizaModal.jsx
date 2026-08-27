@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api, handleError } from '../../api/client.js';
+import { api, handleError, TIMEOUT_ANALISIS } from '../../api/client.js';
 import { Modal } from '../ui.jsx';
 
 // Sube el PDF de una póliza y lo manda a analizar (POST /ventas/analizar-documento,
@@ -35,6 +35,7 @@ export default function SubirPolizaModal({ open, onClose, clienteId, onListo }) 
       body.append('archivo', archivo);
       const { data } = await api.post('/ventas/analizar-documento', body, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: TIMEOUT_ANALISIS,
       });
       onListo(mapearAForm(data));
     } catch (e) {
@@ -62,6 +63,11 @@ export default function SubirPolizaModal({ open, onClose, clienteId, onListo }) 
           />
           <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Máximo 35 MB. El documento quedará adjunto a la póliza, con vista previa y descarga.</p>
         </div>
+        {analizando && (
+          <p className="text-sm rounded-lg bg-slate-50 dark:bg-slate-700/40 text-slate-600 dark:text-slate-300 px-3 py-2">
+            Leyendo el documento… puede tardar hasta un minuto. No cierres esta ventana.
+          </p>
+        )}
         {err && <p className="text-sm text-red-600">{err}</p>}
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" onClick={cerrar} disabled={analizando} className="btn-secondary">Cancelar</button>

@@ -710,16 +710,34 @@ capturar a mano abre el formulario de siempre, sin cambios.
   orden y **el primero que responde se memoriza** en `modeloVigente` para no
   volver a pagar el 404 en cada análisis (se reevalúa al reiniciar). Se pasa
   al siguiente candidato solo con los errores que otro modelo sí podría
-  atender —404, 500/503 y el timeout propio (`GEMINI_TIMEOUT_MS`, 90 s: un
-  modelo que se queda pensando dejaba al asesor en "Analizando…" para
-  siempre)—; 401/403/429/400 se propagan tal cual, porque le pasarían igual a
-  los tres y solo triplicarían la espera. `GEMINI_MODELO` en `.env` fija uno a
+  atender —404, 500/503 y el timeout propio—; 401/403/429/400 se propagan tal
+  cual, porque le pasarían igual a los tres y solo triplicarían la espera. `GEMINI_MODELO` en `.env` fija uno a
   mano y se salta la lista. **Cuando el análisis vuelva a fallar, la causa
   está en el log** (`[ventas] análisis de póliza falló (<status>)`) y el
   asesor recibe un mensaje accionable por caso —modelo retirado, cuota
   agotada, llave inválida, servicio saturado, documento ilegible—
   vía `motivoAnalisisFallido()` en `routes/ventas.js`, nunca otra vez un
   texto único para todo.
+- **El límite de tiempo es un presupuesto TOTAL, y el navegador espera más que
+  el servidor** (2026-08-27, segundo bug real): tras arreglar el 404 el asesor
+  vio `timeout of 15000ms exceeded` — el default global de axios
+  (`frontend/src/api/client.js`) cortaba a los 15 s un análisis que del lado
+  del servidor seguía corriendo bien. Dos piezas, en este orden:
+  `PRESUPUESTO_MS` (`GEMINI_TIMEOUT_MS`, **150 s** — el mismo PDF se ha medido
+  entre 7 s y 60 s según el momento, así que el margen es holgado a propósito)
+  es el presupuesto del
+  análisis **completo**, repartido entre los candidatos —cada intento se lleva
+  lo que queda, así tres modelos lentos ya no suman minutos— y el frontend
+  manda `timeout: TIMEOUT_ANALISIS` (240 s) **por petición**, deliberadamente
+  por encima, para que quien corte sea el servidor: es el único que sabe por
+  qué falló y responde el mensaje accionable. El default global de 15 s se
+  queda como está para las consultas normales; **subir un archivo también
+  necesita el suyo** (`TIMEOUT_SUBIDA`, 120 s, en las 3 subidas del sistema:
+  `SubirPolizaModal`, `PolicyDetail` y `ClienteDetalle` — 35 MB desde datos
+  móviles tardan más de 15 s). Cualquier petición nueva que suba archivo o
+  espere a un modelo debe pasar su propio `timeout`. `handleError` ya traduce
+  `ECONNABORTED`/`ERR_NETWORK`: al asesor nunca le vuelve a salir el texto en
+  inglés con milisegundos.
 - **Diagnóstico, no dato de negocio**: `Venta.extraccionEn` /
   `extraccionModelo` / `extraccionConfirmada` solo registran si la póliza
   nació de un análisis y con qué modelo — nadie más los lee; sirven para
