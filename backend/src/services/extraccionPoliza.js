@@ -6,11 +6,47 @@ import { GoogleGenAI, Type } from '@google/genai';
 // mismo shape que el formulario manual, para que el frontend pueda prellenar
 // el mismo modal sin traducir nada aparte.
 //
-// Modelo: Gemini 2.5 Flash (nivel gratuito, lee el PDF nativo sin rasterizar
+// Modelo: un Gemini Flash (nivel gratuito, lee el PDF nativo sin rasterizar
 // a imagen). Requiere GEMINI_API_KEY en .env; sin ella, analizarPolizaPdf
 // lanza y la ruta que la llama responde 503 — subir/ver/descargar el PDF
 // sigue funcionando igual, el análisis es un extra sobre eso.
-export const MODELO_EXTRACCION = 'gemini-2.5-flash';
+//
+// LISTA de modelos, no uno solo (2026-08-27): Google retira modelos para las
+// keys nuevas sin avisar y con la key vigente `gemini-2.5-flash` responde 404
+// "no longer available to new users" — eso era exactamente el "No se pudo
+// analizar el documento" que veía el asesor, con la causa real escondida
+// detrás de un 502 genérico. Se intentan en orden y el primero que responde
+// se memoriza en `modeloVigente` para no volver a pagar el 404 en cada
+// análisis (se reevalúa al reiniciar el servidor). `GEMINI_MODELO` en .env
+// tiene prioridad sobre la lista, para fijar uno a mano sin tocar código.
+export const MODELOS_EXTRACCION = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-flash'];
+
+// Un modelo que se queda pensando deja al asesor con "Analizando…" para
+// siempre: se corta y se pasa al siguiente candidato. Medido: los modelos
+// vivos responden un PDF de póliza en ~7 s.
+const TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS) || 90_000;
+
+// Último modelo que sí respondió, para intentarlo primero la próxima vez.
+let modeloVigente = null;
+
+function modelosCandidatos() {
+  const fijado = (process.env.GEMINI_MODELO || '').trim();
+  if (fijado) return [fijado];
+  if (modeloVigente) return [modeloVigente, ...MODELOS_EXTRACCION.filter((m) => m !== modeloVigente)];
+  return MODELOS_EXTRACCION;
+}
+
+// Errores que valen la pena reintentar con OTRO modelo: 404 (ese modelo no
+// existe para esta key — retirado o sin acceso), 500/503 (falla o saturación
+// del lado de Google, que suele afectar a un modelo y no a los demás) y el
+// timeout propio. Todo lo demás (401 de key mala, 403, 429 de cuota, 400 de
+// payload) le pasaría igual a los tres candidatos, así que se propaga tal
+// cual en vez de repetir la misma falla y triplicar la espera del asesor.
+const REINTENTABLES = [404, 500, 503];
+
+function vaANegarTodos(err) {
+  return !REINTENTABLES.includes(err?.status) && err?.codigo !== 'TIMEOUT';
+}
 
 let cliente = null;
 function clienteGemini() {
@@ -114,21 +150,53 @@ export async function analizarPolizaPdf(rutaAbsoluta, { mime = 'application/pdf'
   const bytes = fs.readFileSync(rutaAbsoluta);
   const base64 = bytes.toString('base64');
 
-  const respuesta = await ai.models.generateContent({
-    model: MODELO_EXTRACCION,
-    contents: [{
-      role: 'user',
-      parts: [
-        { text: INSTRUCCION },
-        { inlineData: { mimeType: mime || 'application/pdf', data: base64 } },
-      ],
-    }],
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: SCHEMA_EXTRACCION,
-      temperature: 0,
-    },
-  });
+  let ultimoError = null;
+  for (const modelo of modelosCandidatos()) {
+    try {
+      const datos = await pedirExtraccion(ai, modelo, base64, mime);
+      modeloVigente = modelo;
+      return { datos, modelo };
+    } catch (e) {
+      ultimoError = e;
+      if (vaANegarTodos(e)) throw e;
+      console.warn(`[extraccionPoliza] "${modelo}" no sirvió (${e.codigo || e.status || e.message}); probando el siguiente`);
+      if (modeloVigente === modelo) modeloVigente = null;
+    }
+  }
+  throw ultimoError;
+}
+
+async function pedirExtraccion(ai, modelo, base64, mime) {
+  const corte = new AbortController();
+  const reloj = setTimeout(() => corte.abort(), TIMEOUT_MS);
+  let respuesta;
+  try {
+    respuesta = await ai.models.generateContent({
+      model: modelo,
+      contents: [{
+        role: 'user',
+        parts: [
+          { text: INSTRUCCION },
+          { inlineData: { mimeType: mime || 'application/pdf', data: base64 } },
+        ],
+      }],
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: SCHEMA_EXTRACCION,
+        temperature: 0,
+        abortSignal: corte.signal,
+      },
+    });
+  } catch (e) {
+    if (corte.signal.aborted) {
+      const err = new Error(`"${modelo}" no respondió en ${Math.round(TIMEOUT_MS / 1000)} s.`);
+      err.codigo = 'TIMEOUT';
+      throw err;
+    }
+    throw e;
+  } finally {
+    clearTimeout(reloj);
+  }
 
   const texto = respuesta.text;
   if (!texto) {
@@ -136,13 +204,11 @@ export async function analizarPolizaPdf(rutaAbsoluta, { mime = 'application/pdf'
     err.codigo = 'SIN_RESPUESTA';
     throw err;
   }
-  let datos;
   try {
-    datos = JSON.parse(texto);
+    return JSON.parse(texto);
   } catch {
     const err = new Error('La respuesta del modelo no fue JSON válido.');
     err.codigo = 'JSON_INVALIDO';
     throw err;
   }
-  return { datos, modelo: MODELO_EXTRACCION };
 }

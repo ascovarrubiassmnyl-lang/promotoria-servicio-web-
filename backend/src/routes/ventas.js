@@ -301,10 +301,27 @@ router.post('/analizar-documento', uploadPoliza.single('archivo'), asyncHandler(
     });
   } catch (e) {
     fs.unlink(req.file.path, () => {});
-    console.error(`[ventas] análisis de póliza falló: ${e.message}`);
-    res.status(502).json({ error: 'No se pudo analizar el documento. Puedes capturar la póliza manualmente.' });
+    // El detalle SÍ va al log completo (status incluido): un 404 de modelo
+    // retirado y un 429 de cuota agotada se veían idénticos desde el frontend
+    // y no había forma de diagnosticar el fallo sin reproducirlo a mano.
+    console.error(`[ventas] análisis de póliza falló (${e.codigo || e.status || 's/status'}): ${e.message}`);
+    res.status(502).json({ error: motivoAnalisisFallido(e) });
   }
 }));
+
+// Traduce el fallo técnico a algo que el asesor pueda accionar (reintentar,
+// capturar a mano, o avisar a quien administra el CRM). Sin esto, un problema
+// de configuración parecía un PDF ilegible.
+function motivoAnalisisFallido(e) {
+  const manual = 'Puedes capturar la póliza manualmente.';
+  if (e.codigo === 'TIMEOUT') return `El análisis tardó demasiado y se canceló. Intenta de nuevo o captura la póliza manualmente.`;
+  if (e.status === 404) return `El modelo de IA configurado ya no está disponible. Avisa a quien administra el CRM para actualizarlo. ${manual}`;
+  if (e.status === 429) return `Se agotó por ahora la cuota de análisis automático. Intenta más tarde o captura la póliza manualmente.`;
+  if (e.status === 401 || e.status === 403) return `La llave del servicio de análisis no es válida. Avisa a quien administra el CRM. ${manual}`;
+  if (e.status === 500 || e.status === 503) return `El servicio de análisis está saturado en este momento. Intenta de nuevo en unos minutos o captura la póliza manualmente.`;
+  if (e.codigo === 'SIN_RESPUESTA' || e.codigo === 'JSON_INVALIDO') return `No se pudo leer este documento (¿es la carátula de la póliza en PDF?). ${manual}`;
+  return `No se pudo analizar el documento. ${manual}`;
+}
 
 // Tipo de cambio oficial del día (Banxico) para USD y UDI. También va antes
 // de '/:id' por la misma razón que las dos rutas de arriba.

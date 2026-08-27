@@ -686,7 +686,7 @@ capturar a mano abre el formulario de siempre, sin cambios.
   huérfano en `/uploads` — mismo trade-off que cualquier upload abandonado en
   el resto del sistema; no hay barrido de limpieza todavía.
 - **Extracción = Google Gemini** (`backend/src/services/extraccionPoliza.js`,
-  modelo `gemini-2.5-flash`, decisión explícita del usuario por costo: tiene
+  **lista** de modelos `MODELOS_EXTRACCION`, no uno solo, decisión explícita del usuario por costo: tiene
   nivel gratuito real para este volumen y lee PDF nativo sin rasterizar a
   imagen — Anthropic habría sido la opción técnica preferida pero se descartó
   por costo). Requiere `GEMINI_API_KEY` en `.env` (gratis en
@@ -701,6 +701,25 @@ capturar a mano abre el formulario de siempre, sin cambios.
   Campos que la IA no encuentra se omiten (nunca se inventan). `numeroPoliza`
   y `asegurado` no tienen campo propio en `Venta`: se anexan al campo Notas
   para no perder el dato.
+- **El modelo se resuelve por lista, con fallback** (2026-08-27, bug real):
+  Google retira modelos para las keys nuevas sin avisar — con la key vigente
+  `gemini-2.5-flash` respondía **404 "no longer available to new users"**, y
+  como la ruta atrapaba todo en un 502 genérico el asesor solo veía "No se
+  pudo analizar el documento" sin causa. `MODELOS_EXTRACCION`
+  (`gemini-3.6-flash` → `gemini-3.5-flash` → `gemini-2.5-flash`) se prueba en
+  orden y **el primero que responde se memoriza** en `modeloVigente` para no
+  volver a pagar el 404 en cada análisis (se reevalúa al reiniciar). Se pasa
+  al siguiente candidato solo con los errores que otro modelo sí podría
+  atender —404, 500/503 y el timeout propio (`GEMINI_TIMEOUT_MS`, 90 s: un
+  modelo que se queda pensando dejaba al asesor en "Analizando…" para
+  siempre)—; 401/403/429/400 se propagan tal cual, porque le pasarían igual a
+  los tres y solo triplicarían la espera. `GEMINI_MODELO` en `.env` fija uno a
+  mano y se salta la lista. **Cuando el análisis vuelva a fallar, la causa
+  está en el log** (`[ventas] análisis de póliza falló (<status>)`) y el
+  asesor recibe un mensaje accionable por caso —modelo retirado, cuota
+  agotada, llave inválida, servicio saturado, documento ilegible—
+  vía `motivoAnalisisFallido()` en `routes/ventas.js`, nunca otra vez un
+  texto único para todo.
 - **Diagnóstico, no dato de negocio**: `Venta.extraccionEn` /
   `extraccionModelo` / `extraccionConfirmada` solo registran si la póliza
   nació de un análisis y con qué modelo — nadie más los lee; sirven para
