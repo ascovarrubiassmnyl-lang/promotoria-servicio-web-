@@ -132,37 +132,50 @@ export function PantallaCompleta({ open, onClose, title, subtitle, children, foo
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100">
-      <header className="shrink-0 flex items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/90 backdrop-blur px-4 sm:px-8 py-3.5 sticky top-0 z-20 shadow-sm">
-        <div className="min-w-0 flex-1">
+      <header className="shrink-0 flex items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur px-4 sm:px-8 py-3.5 sticky top-0 z-20 shadow-xs">
+        <div className="min-w-0 flex items-center gap-3 sm:gap-4 flex-1">
           {breadcrumb && (
-            <div className="mb-0.5">
+            <div className="shrink-0">
               {typeof breadcrumb === 'string' ? (
                 <button
                   type="button"
                   onClick={onClose}
-                  className="inline-flex items-center text-xs font-medium text-brand-600 dark:text-brand-400 hover:underline cursor-pointer"
+                  className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-slate-500 dark:text-slate-400 hover:text-brand-600 dark:hover:text-brand-400 py-1.5 px-2.5 -ml-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                  title="Volver a pólizas"
                 >
-                  {breadcrumb}
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                  </svg>
+                  <span className="hidden sm:inline">{breadcrumb.replace(/^[←\s]+/, '')}</span>
                 </button>
               ) : breadcrumb}
             </div>
           )}
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50 truncate">{title}</h2>
-          {subtitle && (
-            <div className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-              {subtitle}
-            </div>
-          )}
+          {breadcrumb && <div className="h-5 w-px bg-slate-200 dark:bg-slate-700 shrink-0 hidden sm:block" />}
+          <div className="min-w-0 flex-1">
+            <h2 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-50 truncate">
+              {title}
+            </h2>
+            {subtitle && (
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                {subtitle}
+              </div>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           {headerActions}
+          <div className="h-5 w-px bg-slate-200 dark:bg-slate-700 shrink-0 hidden sm:block" />
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
-            aria-label="cerrar"
+            className="rounded-xl p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+            aria-label="Cerrar"
+            title="Cerrar"
           >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M6 18L18 6M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
           </button>
         </div>
       </header>
@@ -170,7 +183,7 @@ export function PantallaCompleta({ open, onClose, title, subtitle, children, foo
         <div className="mx-auto w-full max-w-7xl px-4 sm:px-8 py-6 sm:py-8">{children}</div>
       </div>
       {footer && (
-        <footer className="shrink-0 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/90 backdrop-blur px-4 sm:px-8 py-3.5 z-20">
+        <footer className="shrink-0 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur px-4 sm:px-8 py-3.5 z-20">
           <div className="mx-auto w-full max-w-7xl">{footer}</div>
         </footer>
       )}

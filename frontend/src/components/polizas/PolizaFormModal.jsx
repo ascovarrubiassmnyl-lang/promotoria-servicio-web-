@@ -406,33 +406,40 @@ export default function PolizaFormModal({
     <PantallaCompleta
       open={open}
       onClose={onClose}
-      breadcrumb="← Pólizas"
+      breadcrumb="Pólizas"
       title={editando ? `Editar póliza · ${venta.producto}` : 'Nueva póliza'}
-      subtitle={(
-        <span className="inline-flex items-center gap-1.5 flex-wrap">
-          ¿Tienes la carátula en PDF?{' '}
+      subtitle={editando ? 'Edición y detalle técnico de la póliza' : 'Ficha técnica y captura manual de póliza'}
+      headerActions={(
+        <div className="flex items-center gap-2 sm:gap-2.5">
           <button
             type="button"
-            onClick={() => setSubiendo(true)}
-            className="font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer"
+            onClick={onClose}
+            className="px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
           >
-            Súbela al Lector IA
-          </button>
-          {' '}y se llena sola.
-        </span>
-      )}
-      headerActions={(
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={onClose} className="btn-secondary text-xs sm:text-sm">
             Cancelar
           </button>
           <button
             type="submit"
             form="ficha-poliza"
             disabled={saving}
-            className="btn bg-[#234932] hover:bg-[#1a3826] dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white font-medium text-xs sm:text-sm px-4 py-2 rounded-lg transition shadow-sm disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-4 sm:px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500 text-white font-semibold text-xs sm:text-sm shadow-sm transition-all disabled:opacity-50 cursor-pointer"
           >
-            {saving ? 'Guardando…' : 'Guardar póliza'}
+            {saving ? (
+              <>
+                <svg className="animate-spin -ml-0.5 w-4 h-4 text-white" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                <span>Guardando…</span>
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                <span>Guardar póliza</span>
+              </>
+            )}
           </button>
         </div>
       )}
@@ -443,15 +450,60 @@ export default function PolizaFormModal({
           {/* Columna Principal Izquierda (Formulario) */}
           <div className="lg:col-span-8 space-y-8 divide-y divide-slate-200 dark:divide-slate-700/60">
             
+            {/* Banner sugerencia Lector IA cuando es nueva póliza */}
+            {!editando && !form.documentoTmp && (
+              <div className="rounded-2xl border border-emerald-200/90 dark:border-emerald-800/60 bg-gradient-to-r from-emerald-50/90 via-teal-50/40 to-white dark:from-emerald-950/40 dark:via-slate-800/90 dark:to-slate-800/40 p-4 sm:p-5 shadow-xs transition-all">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3.5">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-600/20">
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
+                      </svg>
+                    </div>
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                          ¿Tienes la carátula en PDF?
+                        </h4>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300">
+                          Lector IA
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed max-w-xl">
+                        Sube el PDF emitido por la compañía y la inteligencia artificial extraerá y rellenará los datos automáticamente por ti.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSubiendo(true)}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs sm:text-sm font-semibold transition-all shadow-sm hover:shadow-md cursor-pointer shrink-0"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    <span>Súbela al Lector IA</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {form.documentoTmp && (
-              <div className="flex items-start gap-2 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 px-4 py-3 text-sm">
-                <span className="flex-1 text-emerald-800 dark:text-emerald-300">
-                  Prellenado desde <strong>{form.documentoTmp.nombre}</strong>. Revisa los campos antes de guardar — el documento se adjuntará a la póliza.
-                </span>
+              <div className="flex items-center justify-between gap-3 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 px-4 sm:px-5 py-3.5 text-sm shadow-xs">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-600/10 dark:bg-emerald-400/10 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <span className="text-xs sm:text-sm text-emerald-900 dark:text-emerald-200">
+                    Prellenado con éxito desde <strong>{form.documentoTmp.nombre}</strong>. Revisa los campos antes de guardar.
+                  </span>
+                </div>
                 <button
                   type="button"
                   onClick={() => set('documentoTmp', null)}
-                  className="text-xs font-semibold text-emerald-800 dark:text-emerald-300 hover:underline shrink-0"
+                  className="text-xs font-semibold text-emerald-800 dark:text-emerald-300 hover:text-emerald-950 dark:hover:text-white underline shrink-0 cursor-pointer"
                 >
                   Quitar documento
                 </button>
