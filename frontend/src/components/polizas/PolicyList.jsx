@@ -4,6 +4,7 @@ import {
   mxn, fechaCorta, RAMOS, RAMOS_LABEL, FORMAS_PAGO,
   ESTADOS_VENTA, ESTADOS_VENTA_LABEL, esVentaGanada, esVentaPipeline,
 } from '../../lib/format.js';
+import { montoMoneda, primaPendienteConversion } from './tipos.js';
 
 // Lista de pólizas COMPARTIDA entre roles (asesor y promotor).
 // El comportamiento se condiciona solo por props (readOnly / onOpen), nunca se duplica.
@@ -121,9 +122,15 @@ export default function PolicyList({ ventas, loading = false, onOpen }) {
                       <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{RAMOS_LABEL[v.ramo] || v.ramo}</p>
                     </td>
                     <td className="py-3 px-4 text-slate-700 dark:text-slate-200">{v.cliente?.nombre} {v.cliente?.apellidoP}</td>
-                    <td className="py-3 px-4 text-right font-semibold tabular-nums">{mxn(v.primaAnual)}</td>
+                    {/* Prima en divisa sin tipo de cambio: se muestra el monto
+                        original, no el "$0" con que se guardó en pesos. */}
+                    <td className="py-3 px-4 text-right font-semibold tabular-nums">
+                      {primaPendienteConversion(v) ? montoMoneda(v.primaMoneda, v.moneda) : mxn(v.primaAnual)}
+                    </td>
                     <td className="py-3 px-4 text-right">
-                      <span className={esVentaGanada(v) ? 'money-earned' : 'money-pending'}>{mxn(v.comisionMonto)}</span>
+                      {primaPendienteConversion(v)
+                        ? <span className="text-xs text-slate-400 dark:text-slate-500">Por convertir</span>
+                        : <span className={esVentaGanada(v) ? 'money-earned' : 'money-pending'}>{mxn(v.comisionMonto)}</span>}
                     </td>
                     <td className="py-3 px-4 text-center"><span className="tag">{FORMAS_PAGO[v.formaPago] || v.formaPago}</span></td>
                     <td className="py-3 px-4 tabular-nums text-slate-600 dark:text-slate-300">

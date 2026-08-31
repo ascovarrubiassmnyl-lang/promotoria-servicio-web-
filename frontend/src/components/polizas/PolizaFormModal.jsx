@@ -29,7 +29,9 @@ const VACIO = {
   fechaFirma: '', fechaEmision: '', fechaInicioVigencia: '', fechaFinVigencia: '',
   fechaProximoPago: '', diaPago: '', montoPago: '', montoPagoMoneda: 'MXN', notas: '',
   coberturas: [], beneficiarios: [],
-  documentoTmp: null,
+  // Documentos ya subidos y analizados que se adjuntarán al guardar (varios:
+  // carátula + tabla de primas + anexos). El primero es el principal.
+  documentosTmp: [],
 };
 
 const d = (v) => (v ? isoLocalDateInput(new Date(v)) : '');
@@ -140,7 +142,7 @@ export default function PolizaFormModal({
       notas: venta.notas || '',
       coberturas: Array.isArray(venta.coberturas) ? venta.coberturas : [],
       beneficiarios: Array.isArray(venta.beneficiarios) ? venta.beneficiarios : [],
-      documentoTmp: null,
+      documentosTmp: [],
     } : { ...VACIO, clienteId: clienteId || '' });
   }, [open, venta, clienteId]);
 
@@ -262,6 +264,11 @@ export default function PolizaFormModal({
     ? equivalenteMXN(form.primaMoneda, form.moneda, tipos)
     : (form.primaAnual !== '' && !Number.isNaN(+form.primaAnual) ? +form.primaAnual : null);
 
+  // Póliza en divisa con prima capturada pero sin tipo de cambio disponible: no
+  // se puede mostrar la cifra en pesos todavía, pero SÍ se puede guardar — el
+  // servidor la deja pendiente y el job la convierte después (utils/prima.js).
+  const sinConversion = necesitaTC && +form.primaMoneda > 0 && primaEnPesos == null;
+
   const comisionEstimada = primaEnPesos != null && form.comisionPct !== '' && !Number.isNaN(+form.comisionPct)
     ? primaEnPesos * (+form.comisionPct) / 100
     : null;
@@ -333,7 +340,7 @@ export default function PolizaFormModal({
           ...payload,
           clienteId: form.clienteId,
           asesorId: asesorId || undefined,
-          documentoTmp: form.documentoTmp || undefined,
+          documentosTmp: form.documentosTmp?.length ? form.documentosTmp : undefined,
         });
       }
       qc.invalidateQueries(['ventas']);
@@ -451,7 +458,7 @@ export default function PolizaFormModal({
           <div className="lg:col-span-8 space-y-8 divide-y divide-slate-200 dark:divide-slate-700/60">
             
             {/* Banner sugerencia Lector IA cuando es nueva póliza */}
-            {!editando && !form.documentoTmp && (
+            {!editando && !form.documentosTmp?.length && (
               <div className="rounded-2xl border border-emerald-200/90 dark:border-emerald-800/60 bg-gradient-to-r from-emerald-50/90 via-teal-50/40 to-white dark:from-emerald-950/40 dark:via-slate-800/90 dark:to-slate-800/40 p-4 sm:p-5 shadow-xs transition-all">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="flex items-start gap-3.5">
@@ -488,7 +495,7 @@ export default function PolizaFormModal({
               </div>
             )}
 
-            {form.documentoTmp && (
+            {form.documentosTmp?.length > 0 && (
               <div className="flex items-center justify-between gap-3 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 px-4 sm:px-5 py-3.5 text-sm shadow-xs">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-emerald-600/10 dark:bg-emerald-400/10 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0">
@@ -497,15 +504,17 @@ export default function PolizaFormModal({
                     </svg>
                   </div>
                   <span className="text-xs sm:text-sm text-emerald-900 dark:text-emerald-200">
-                    Prellenado con éxito desde <strong>{form.documentoTmp.nombre}</strong>. Revisa los campos antes de guardar.
+                    Prellenado con éxito desde{' '}
+                    <strong>{form.documentosTmp.map((d) => d.nombre).join(', ')}</strong>.
+                    {form.documentosTmp.length > 1 ? ` Los ${form.documentosTmp.length} documentos quedarán adjuntos.` : ''} Revisa los campos antes de guardar.
                   </span>
                 </div>
                 <button
                   type="button"
-                  onClick={() => set('documentoTmp', null)}
+                  onClick={() => set('documentosTmp', [])}
                   className="text-xs font-semibold text-emerald-800 dark:text-emerald-300 hover:text-emerald-950 dark:hover:text-white underline shrink-0 cursor-pointer"
                 >
-                  Quitar documento
+                  {form.documentosTmp.length > 1 ? 'Quitar documentos' : 'Quitar documento'}
                 </button>
               </div>
             )}
@@ -711,6 +720,11 @@ export default function PolizaFormModal({
                           <option key={x} value={x}>{ESTADOS_VENTA_LABEL[x]}</option>
                         ))}
                       </select>
+                      {!editando && form.documentosTmp?.length > 0 && form.estado === 'PAGADA' && (
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                          Marcada como pagada: tener la carátula significa que la compañía ya la emitió y cobró.
+                        </p>
+                      )}
                     </Field>
                   </div>
                 </div>
@@ -776,12 +790,17 @@ export default function PolizaFormModal({
                       <select
                         className="input"
                         value={form.formaPago}
-                        onChange={(e) => set('formaPago', e.target.value)}
+                        onChange={(e) => setForm((f) => ({ ...f, formaPago: e.target.value, formaPagoPorConfirmar: false }))}
                       >
                         {FORMAS_PAGO_LIST.map((f) => (
                           <option key={f} value={f}>{FORMAS_PAGO[f]}</option>
                         ))}
                       </select>
+                      {form.formaPagoPorConfirmar && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                          La carátula no dice cada cuánto se paga: confírmalo tú.
+                        </p>
+                      )}
                     </Field>
                   </div>
 
@@ -1250,15 +1269,21 @@ export default function PolizaFormModal({
                   <div className="flex justify-between items-center py-1">
                     <dt className="text-slate-500 dark:text-slate-400 text-xs">Prima</dt>
                     <dd className="font-bold text-slate-900 dark:text-slate-100 tabular-nums">
-                      {primaEnPesos ? mxn(primaEnPesos) : '$0'}
+                      {primaEnPesos ? mxn(primaEnPesos) : (sinConversion ? 'Por convertir' : '$0')}
                     </dd>
                   </div>
                   <div className="flex justify-between items-center py-1">
                     <dt className="text-slate-500 dark:text-slate-400 text-xs">Comisión</dt>
                     <dd className="font-semibold text-slate-800 dark:text-slate-200 tabular-nums">
-                      {comisionEstimada != null ? mxn(comisionEstimada) : '—'}
+                      {comisionEstimada != null ? mxn(comisionEstimada) : (sinConversion ? 'Por convertir' : '—')}
                     </dd>
                   </div>
+                  {sinConversion && (
+                    <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400 pt-0.5">
+                      Sin tipo de cambio disponible ahora mismo. La póliza se guarda igual y la
+                      cifra en pesos se calcula sola en cuanto haya uno.
+                    </p>
+                  )}
                 </dl>
               </div>
 

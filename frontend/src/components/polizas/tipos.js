@@ -47,6 +47,17 @@ export function equivalenteMXN(valor, moneda, tipos) {
 // Tipo de cambio vigente de una moneda según la tabla, o null.
 export const tcDe = (moneda, tipos) => (moneda && moneda !== 'MXN' ? (tipos?.[moneda]?.valor ?? null) : null);
 
+// Prima guardada en divisa que todavía no se pudo convertir a pesos
+// (2026-08-31). Cuando ni Banxico ni el respaldo manual tienen un valor, la
+// póliza se registra igual —antes eso devolvía 400 y no se podía dar de alta—
+// con `primaAnual: 0` y `tipoCambio: null`: esa combinación es la marca de
+// "pendiente". El job de automatizaciones la resuelve sola en cuanto haya un
+// tipo de cambio real (backend/src/utils/prima.js). Se usa para NO enseñar
+// "$0" como si la póliza no valiera nada.
+export const primaPendienteConversion = (venta) => Boolean(
+  venta && venta.moneda && venta.moneda !== 'MXN' && venta.primaMoneda != null && venta.tipoCambio == null,
+);
+
 // --- Método de pago ---------------------------------------------------------
 export const METODOS_PAGO = [
   { value: 'TARJETA_CREDITO', label: 'Tarjeta de crédito' },

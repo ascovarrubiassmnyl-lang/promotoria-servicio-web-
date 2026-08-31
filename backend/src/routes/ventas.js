@@ -10,7 +10,8 @@ import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion } from '../middleware/permisos.js';
 import { registrarActividad } from '../utils/actividad.js';
 import { analizarPolizaPdf, extraccionDisponible } from '../services/extraccionPoliza.js';
-import { tiposDeCambioVigentes, tipoCambioVigente } from '../services/tipoCambio.js';
+import { tiposDeCambioVigentes } from '../services/tipoCambio.js';
+import { MONEDAS, resolverPrima } from '../utils/prima.js';
 
 const router = Router();
 router.use(authenticate);
@@ -75,8 +76,6 @@ async function sincronizarRecordatorioPago(venta) {
   });
 }
 
-const MONEDAS = ['MXN', 'USD', 'UDI'];
-
 // Normaliza cualquier valor de moneda que llegue del cliente a un valor válido
 // del enum MonedaPoliza. Fail closed hacia MXN: un valor basura no puede
 // convertir una cifra en pesos en una cifra en dólares.
@@ -118,47 +117,9 @@ function montoEsperadoDePoliza(venta) {
 
 const METODOS_PAGO = ['TARJETA_CREDITO', 'TARJETA_CREDITO_MSI', 'TARJETA_DEBITO', 'TRANSFERENCIA', 'EFECTIVO', 'CARGO_NOMINA'];
 
-// Prima en MXN a partir del monto en la moneda original. `primaAnual` SIEMPRE
-// queda en pesos porque es la que suman métricas, comisiones, metas y ranking;
-// convertirla aquí evita que cada consumidor invente su propia conversión.
-//
-// El tipo de cambio YA NO lo captura el asesor (2026-08-15, corrección de
-// diseño): la póliza se firma en la moneda que diga el contrato — el asesor
-// solo transcribe la cifra tal cual viene, nunca debería tener que ir a
-// buscar ni calcular un tipo de cambio para poder guardarla. Esta función
-// resuelve el TC ella misma contra `tipoCambioVigente()` (Banxico, o el
-// respaldo manual en .env si Banxico no respondió — ver tipoCambio.js) y solo
-// usa `tipoCambio` si alguien lo manda explícito (edición de una póliza
-// histórica pactada a otra paridad, o el "usar este" de la UI). Si NINGUNA
-// fuente tiene un valor real (ni Banxico ni respaldo configurado), se rechaza
-// con 400 en vez de inventar una cifra: una comisión mal calculada por una
-// paridad ficticia es peor que pedirle al asesor que reintente en un minuto.
-async function resolverPrima({ moneda, primaAnual, primaMoneda, tipoCambio }) {
-  const divisa = MONEDAS.includes(moneda) ? moneda : 'MXN';
-  if (divisa === 'MXN') {
-    return { moneda: 'MXN', primaAnual: +primaAnual, primaMoneda: null, tipoCambio: null };
-  }
-  const original = primaMoneda != null && primaMoneda !== '' ? +primaMoneda : +primaAnual;
-  if (!original || original <= 0) return { error: 'Prima inválida' };
-
-  let tc = +tipoCambio;
-  let fuenteTC = 'manual';
-  if (!tc || tc <= 0) {
-    const oficial = await tipoCambioVigente(divisa);
-    if (!(oficial?.valor > 0)) {
-      return { error: `No se pudo obtener el tipo de cambio de ${divisa}. Intenta de nuevo en un momento.` };
-    }
-    tc = oficial.valor;
-    fuenteTC = oficial.fuente;
-  }
-  return {
-    moneda: divisa,
-    primaAnual: +(original * tc).toFixed(2),
-    primaMoneda: original,
-    tipoCambio: tc,
-    fuenteTC,
-  };
-}
+// `resolverPrima` (prima en MXN a partir del monto en la moneda original) vive
+// en utils/prima.js: la comparte el job que reconcilia las primas que se
+// guardaron sin tipo de cambio disponible.
 
 // Normaliza beneficiarios: [{ nombre, porcentaje? }]
 function limpiarBeneficiarios(v) {
@@ -272,35 +233,47 @@ router.get('/analisis-disponible', asyncHandler(async (_req, res) => {
   res.json({ disponible: extraccionDisponible() });
 }));
 
-// Sube el PDF de la póliza y lo analiza con IA. NO crea la Venta ni el
-// DocumentoCliente aún — solo guarda el archivo temporalmente en /uploads y
+// Cuántos documentos se pueden mandar en un mismo análisis. La información de
+// una póliza real casi nunca cabe en la carátula sola (viene repartida entre
+// carátula, tabla de primas y anexos), así que se analizan JUNTOS en una sola
+// llamada al modelo — no uno por uno: solo viéndolos a la vez puede cruzar,
+// por ejemplo, la prima de la tabla con el producto de la carátula.
+const MAX_DOCUMENTOS_ANALISIS = 6;
+
+// Sube los PDF de la póliza y los analiza con IA. NO crea la Venta ni los
+// DocumentoCliente aún — solo guarda los archivos temporalmente en /uploads y
 // devuelve los datos extraídos para que el frontend prellene el formulario;
-// el archivo se vincula a la póliza real (y el DocumentoCliente se crea)
-// hasta que el asesor confirma con POST /ventas normal (ver `documentoTmp`
-// más abajo). Si el asesor cancela sin guardar, el archivo queda huérfano en
-// disco — mismo trade-off que cualquier upload abandonado; se puede limpiar
+// los archivos se vinculan a la póliza real (y los DocumentoCliente se crean)
+// hasta que el asesor confirma con POST /ventas normal (ver `documentosTmp`
+// más abajo). Si el asesor cancela sin guardar, los archivos quedan huérfanos
+// en disco — mismo trade-off que cualquier upload abandonado; se puede limpiar
 // con un barrido periódico si llega a pesar, no es prioridad ahora.
-router.post('/analizar-documento', uploadPoliza.single('archivo'), asyncHandler(async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No se recibió ningún archivo' });
+router.post('/analizar-documento', uploadPoliza.array('archivos', MAX_DOCUMENTOS_ANALISIS), asyncHandler(async (req, res) => {
+  const archivos = req.files || [];
+  const limpiarTodo = () => archivos.forEach((f) => fs.unlink(f.path, () => {}));
+  if (!archivos.length) return res.status(400).json({ error: 'No se recibió ningún archivo' });
   if (!extraccionDisponible()) {
-    fs.unlink(req.file.path, () => {});
+    limpiarTodo();
     return res.status(503).json({ error: 'El análisis automático no está disponible (falta configurar GEMINI_API_KEY). Puedes seguir capturando la póliza manualmente.' });
   }
-  const nombreOriginal = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
   try {
-    const { datos, modelo } = await analizarPolizaPdf(req.file.path, { mime: req.file.mimetype });
+    const { datos, modelo } = await analizarPolizaPdf(
+      archivos.map((f) => ({ ruta: f.path, mime: f.mimetype })),
+    );
     res.json({
       datos,
       modelo,
-      documentoTmp: {
-        archivo: req.file.filename,
-        nombre: nombreOriginal,
-        mime: req.file.mimetype || null,
-        tamano: req.file.size || 0,
-      },
+      // El PRIMER archivo es el principal (la carátula): es el que queda como
+      // "Documento de la póliza". Los demás se adjuntan igual a la póliza.
+      documentosTmp: archivos.map((f) => ({
+        archivo: f.filename,
+        nombre: Buffer.from(f.originalname, 'latin1').toString('utf8'),
+        mime: f.mimetype || null,
+        tamano: f.size || 0,
+      })),
     });
   } catch (e) {
-    fs.unlink(req.file.path, () => {});
+    limpiarTodo();
     // El detalle SÍ va al log completo (status incluido): un 404 de modelo
     // retirado y un 429 de cuota agotada se veían idénticos desde el frontend
     // y no había forma de diagnosticar el fallo sin reproducirlo a mano.
@@ -346,6 +319,12 @@ router.get('/:id', asyncHandler(async (req, res) => {
       recordatoriosPago: { orderBy: { fechaAviso: 'asc' } },
       pagos: { orderBy: { periodo: 'desc' }, include: { registrador: { select: { id: true, nombre: true, apellidoP: true } } } },
       documentoPoliza: { select: { id: true, nombre: true, mime: true, tamano: true, creadoEn: true } },
+      // Todos los documentos adjuntos a la póliza (incluido el principal): una
+      // póliza real llega repartida en varios PDFs y todos quedan guardados.
+      documentos: {
+        select: { id: true, nombre: true, mime: true, tamano: true, creadoEn: true },
+        orderBy: { creadoEn: 'asc' },
+      },
     },
   });
   if (!venta) return res.status(404).json({ error: 'Póliza no encontrada' });
@@ -365,8 +344,15 @@ router.post('/', asyncHandler(async (req, res) => {
     coaseguro, coberturas, beneficiarios,
     contratante, numeroPoliza, situacion, plan, redMedica, asegurados,
     moneda: monedaBody, primaMoneda, tipoCambio, domiciliada, metodoPago,
-    documentoTmp,
+    documentosTmp,
   } = req.body || {};
+  // Archivos ya subidos por POST /ventas/analizar-documento (uno o varios).
+  // El primero es el principal (la carátula) y queda además como
+  // `documentoPolizaId`; el resto se adjunta igual a la póliza.
+  const documentos = (Array.isArray(documentosTmp) ? documentosTmp : [])
+    .filter((d) => d && d.archivo)
+    .slice(0, MAX_DOCUMENTOS_ANALISIS);
+  const modeloExtraccion = documentos.find((d) => d.modelo)?.modelo || null;
   // Con moneda extranjera la prima viaja en `primaMoneda` (su denominación
   // original) y `primaAnual` en MXN la calcula resolverPrima más abajo — por
   // eso aquí basta con que venga alguna de las dos.
@@ -387,28 +373,16 @@ router.post('/', asyncHandler(async (req, res) => {
   const pctFinal = comisionPct ?? (catalogo?.comisionPct ?? 10);
   const comisionMontoFinal = +(divisa.primaAnual * pctFinal / 100).toFixed(2);
 
-  // documentoTmp viene de POST /ventas/analizar-documento: el archivo ya está
-  // en /uploads pero el DocumentoCliente aún no existe. Se crea aquí, dentro
-  // de la misma transacción que la Venta, para que un fallo a medio camino no
-  // deje un documento huérfano sin póliza ni una póliza sin su PDF.
+  // Los documentos vienen de POST /ventas/analizar-documento: los archivos ya
+  // están en /uploads pero los DocumentoCliente aún no existen. Se crean aquí,
+  // dentro de la misma transacción que la Venta, para que un fallo a medio
+  // camino no deje documentos huérfanos sin póliza ni una póliza sin sus PDF.
+  //
+  // Orden: primero la Venta, luego los documentos con `ventaId` (necesitan el
+  // id de la póliza), y al final se marca el primero como el principal
+  // (`documentoPolizaId`, la tarjeta "Documento de la póliza" de siempre).
   const venta = await prisma.$transaction(async (tx) => {
-    let documentoPolizaId = null;
-    if (documentoTmp?.archivo) {
-      const ruta = path.join(UPLOADS_DIR, path.basename(documentoTmp.archivo));
-      if (fs.existsSync(ruta)) {
-        const doc = await tx.documentoCliente.create({
-          data: {
-            clienteId, asesorId: req.user.id,
-            nombre: String(documentoTmp.nombre || 'Póliza.pdf').slice(0, 200),
-            archivo: path.basename(documentoTmp.archivo),
-            mime: documentoTmp.mime || null,
-            tamano: documentoTmp.tamano || 0,
-          },
-        });
-        documentoPolizaId = doc.id;
-      }
-    }
-    return tx.venta.create({
+    const creada = await tx.venta.create({
       data: {
         asesorId, clienteId, ramo, producto,
         // La ficha lo prellena con el nombre del cliente y se guarda tal cual
@@ -451,11 +425,34 @@ router.post('/', asyncHandler(async (req, res) => {
         coberturas: limpiarCoberturas(coberturas),
         asegurados: limpiarAsegurados(asegurados),
         beneficiarios: limpiarBeneficiarios(beneficiarios),
-        documentoPolizaId,
-        extraccionEn: documentoTmp?.modelo ? new Date() : null,
-        extraccionModelo: documentoTmp?.modelo || null,
-        extraccionConfirmada: Boolean(documentoTmp?.modelo),
+        extraccionEn: modeloExtraccion ? new Date() : null,
+        extraccionModelo: modeloExtraccion,
+        extraccionConfirmada: Boolean(modeloExtraccion),
       },
+      include: { cliente: { select: { id: true, nombre: true, apellidoP: true } } },
+    });
+
+    let principalId = null;
+    for (const d of documentos) {
+      // Un archivo que ya no está en disco (subida abandonada y limpiada) se
+      // salta en silencio: la póliza se guarda igual, sin ese adjunto.
+      const ruta = path.join(UPLOADS_DIR, path.basename(d.archivo));
+      if (!fs.existsSync(ruta)) continue;
+      const doc = await tx.documentoCliente.create({
+        data: {
+          clienteId, asesorId: req.user.id, ventaId: creada.id,
+          nombre: String(d.nombre || 'Póliza.pdf').slice(0, 200),
+          archivo: path.basename(d.archivo),
+          mime: d.mime || null,
+          tamano: d.tamano || 0,
+        },
+      });
+      if (!principalId) principalId = doc.id;
+    }
+    if (!principalId) return creada;
+    return tx.venta.update({
+      where: { id: creada.id },
+      data: { documentoPolizaId: principalId },
       include: { cliente: { select: { id: true, nombre: true, apellidoP: true } } },
     });
   });
@@ -578,11 +575,11 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   res.json(venta);
 }));
 
-// Adjunta (o reemplaza) el PDF de una póliza ya existente — para pólizas
-// creadas a mano que luego reciben el documento de la compañía, o para
-// sustituir un documento ya adjunto. Sin análisis con IA: es solo el archivo,
-// igual que POST /documentos pero vinculado a documentoPolizaId en vez de
-// suelto en la ficha del cliente.
+// Adjunta un PDF a una póliza ya existente — para pólizas creadas a mano que
+// luego reciben el documento de la compañía, o para sumar un anexo a las que
+// ya tienen carátula. Sin análisis con IA: es solo el archivo, igual que
+// POST /documentos pero vinculado a la póliza en vez de suelto en la ficha
+// del cliente.
 router.post('/:id/documento', uploadPoliza.single('archivo'), asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!req.file) return res.status(400).json({ error: 'No se recibió ningún archivo' });
@@ -601,15 +598,16 @@ router.post('/:id/documento', uploadPoliza.single('archivo'), asyncHandler(async
   const venta = await prisma.$transaction(async (tx) => {
     const doc = await tx.documentoCliente.create({
       data: {
-        clienteId: existente.clienteId, asesorId: req.user.id,
+        clienteId: existente.clienteId, asesorId: req.user.id, ventaId: id,
         nombre: nombreOriginal, archivo: req.file.filename,
         mime: req.file.mimetype || null, tamano: req.file.size || 0,
       },
     });
-    // Reemplazar: el documento anterior (si había) queda huérfano en /uploads
-    // en vez de borrarse solo — mismo criterio conservador que el resto del
-    // sistema con archivos (nunca se borra sin que el usuario lo pida en el
-    // menú ⋯ de Documentos).
+    // Solo se vuelve el documento PRINCIPAL si la póliza no tenía uno: si ya
+    // hay carátula, esto es un anexo más y no debe desplazarla de la tarjeta.
+    // El documento anterior nunca se borra solo — mismo criterio conservador
+    // que el resto del sistema con archivos (se borra desde el menú ⋯).
+    if (existente.documentoPolizaId) return tx.venta.findUnique({ where: { id } });
     return tx.venta.update({ where: { id }, data: { documentoPolizaId: doc.id } });
   });
   res.status(201).json(venta);

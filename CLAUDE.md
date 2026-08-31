@@ -615,10 +615,12 @@ es lo que se cobra en un siniestro). Ambos problemas se resolvieron juntos:
   documento de la compañía, en la moneda que sea, y ve el equivalente en
   pesos informativo debajo (o un aviso ámbar si no hay TC disponible en ese
   momento) — nunca un bloqueo para guardar.
-- **`resolverPrima()` (`routes/ventas.js`) resuelve el TC ella misma**, de
-  forma async, contra `tipoCambioVigente()`. Solo usa un `tipoCambio`
-  explícito si alguien lo manda (edición de una póliza histórica pactada a
-  otra paridad); en el flujo normal de alta, el frontend nunca lo manda.
+- **`resolverPrima()` (`utils/prima.js`, antes en `routes/ventas.js`)
+  resuelve el TC ella misma**, de forma async, contra `tipoCambioVigente()`.
+  Solo usa un `tipoCambio` explícito si alguien lo manda (edición de una
+  póliza histórica pactada a otra paridad); en el flujo normal de alta, el
+  frontend nunca lo manda. Vive en `utils/` para que el job de
+  automatizaciones la comparta (ver "Sin tipo de cambio…" abajo).
 - **Respaldo manual cuando Banxico no responde**
   (`TIPO_CAMBIO_USD_RESPALDO` / `TIPO_CAMBIO_UDI_RESPALDO` en `.env`,
   decisión explícita del usuario: tiene su propia alerta que le avisa cuando
@@ -627,11 +629,7 @@ es lo que se cobra en un siniestro). Ambos problemas se resolvieron juntos:
   no reintroducir un servicio que lo intente). `tipoCambioVigente()`
   (`services/tipoCambio.js`) cae a este respaldo solo si Banxico no
   responde (sin token, caído, o sin publicar ese día) y no hay nada en
-  cache; el resultado se marca `fuente: 'respaldo-manual'`. Si NINGUNA
-  fuente tiene un valor real (ni Banxico ni respaldo), la API rechaza con
-  400 en vez de inventar una paridad 1:1 — una comisión mal calculada por un
-  tipo de cambio ficticio es peor que pedirle al asesor reintentar en un
-  momento.
+  cache; el resultado se marca `fuente: 'respaldo-manual'`.
 - **Editar sin tocar la prima no debe re-disparar la conversión**: el
   formulario reenvía `moneda`/`primaMoneda` en cada PATCH aunque el asesor
   no los haya tocado (son parte fija del payload). Si eso disparara siempre
@@ -644,6 +642,42 @@ es lo que se cobra en un siniestro). Ambos problemas se resolvieron juntos:
 - **`resolverPrima` es async** (antes síncrona) porque consulta
   `tipoCambioVigente()`; ambos call sites (`POST /` y `PATCH /:id`) la
   esperan con `await`.
+
+### Sin tipo de cambio NO se bloquea el alta: prima pendiente (2026-08-31)
+
+**Segunda corrección** sobre lo anterior, del mismo reporte del usuario: en
+producción (Railway) faltaban `BANXICO_TOKEN` y las dos variables de respaldo,
+así que `tipoCambioVigente('UDI')` no devolvía nada y `resolverPrima()`
+respondía **400** — el asesor simplemente **no podía registrar ninguna póliza
+en UDIS**, que es la moneda de casi todo Orvi/Star Dotal. La regla vieja
+("mejor rechazar que inventar una paridad") protegía bien el dato pero
+convertía una falla de configuración en un bloqueo total de captura.
+
+- **Nunca se rechaza por falta de TC.** Sin ninguna fuente disponible, la
+  póliza se guarda con `primaAnual: 0` y `tipoCambio: null`: esa combinación
+  con `moneda != 'MXN'` (y `primaMoneda` capturada) **es** la marca de
+  "pendiente de conversión" — **no se agregó columna nueva**, se deriva, mismo
+  criterio que el segmento prospecto/cliente y el semáforo de pagos. Lo que sí
+  sigue rechazando es una prima en 0 o vacía: ese es un error de captura, no
+  de tipo de cambio.
+- **Sigue sin inventarse una paridad**: `primaAnual` en 0 no es una cifra
+  falsa, es la ausencia declarada de la cifra. Ninguna métrica suma un número
+  equivocado; simplemente esa póliza no aporta prima hasta que se convierta.
+- **Se convierte sola**: `reconciliarPrimasPendientes()` (regla 4 de
+  `jobs/automatizacionesJob.js`, cada hora) busca esas pólizas, reintenta
+  `resolverPrima()` y, cuando hay TC, escribe `primaAnual`, `tipoCambio` y
+  recalcula `comisionMonto`. **No notifica**: el asesor ve aparecer la cifra,
+  no necesita un aviso por algo que el sistema resolvió solo (mismo criterio
+  que el llenado de la clínica).
+- **La UI dice "por convertir", nunca "$0"**: `primaPendienteConversion()`
+  (`components/polizas/tipos.js`, implementación única) la detecta y
+  `PolicyDetail`, `PolicyList` y el resumen de `PolizaFormModal` muestran el
+  monto en su moneda original + la explicación, en vez de un cero que haría
+  pensar que la póliza no vale nada. El aviso de `MontoMoneda` dejó de ser
+  ámbar y ahora dice explícitamente que se puede guardar igual.
+- **Configurar Railway sigue siendo lo correcto** (`BANXICO_TOKEN` y/o
+  `TIPO_CAMBIO_USD_RESPALDO`/`TIPO_CAMBIO_UDI_RESPALDO`): esto es la red de
+  seguridad, no el sustituto de tener la fuente de tipo de cambio bien puesta.
 
 ### Formato de miles en todos los montos capturados a mano (2026-08-16)
 
@@ -671,20 +705,35 @@ Al hacer clic en "+ Nueva póliza" aparece primero una pantalla de elección
 en vez de ir directo al formulario — decisión explícita del usuario. Elegir
 capturar a mano abre el formulario de siempre, sin cambios.
 
-- **Subir y analizar**: `SubirPolizaModal.jsx` sube el PDF a
+- **Subir y analizar**: `SubirPolizaModal.jsx` sube los PDF a
   `POST /ventas/analizar-documento` (multipart, reusa el mismo `/uploads` y
   convención de nombre físico que `routes/documentos.js`). El backend NO crea
-  ni `Venta` ni `DocumentoCliente` ahí — solo guarda el archivo y devuelve los
-  campos leídos; `PolizaFormModal` se prellena con esos datos (mismo
+  ni `Venta` ni `DocumentoCliente` ahí — solo guarda los archivos y devuelve
+  los campos leídos; `PolizaFormModal` se prellena con esos datos (mismo
   formulario de captura manual, con un banner "Prellenado desde…" y opción de
-  quitar el documento) y **el asesor siempre revisa y confirma antes de
+  quitar los documentos) y **el asesor siempre revisa y confirma antes de
   guardar** — nada se persiste como póliza sin ese paso, por decisión
-  explícita del usuario. El `DocumentoCliente` recién se crea al hacer
-  submit, dentro de la misma transacción que la `Venta` (`documentoTmp` en el
-  body de `POST /ventas`), vinculado por `Venta.documentoPolizaId` (1:1,
-  `onDelete: SetNull`). Si el asesor cancela sin guardar, el archivo queda
-  huérfano en `/uploads` — mismo trade-off que cualquier upload abandonado en
-  el resto del sistema; no hay barrido de limpieza todavía.
+  explícita del usuario. Los `DocumentoCliente` recién se crean al hacer
+  submit, dentro de la misma transacción que la `Venta` (`documentosTmp` en el
+  body de `POST /ventas`). Si el asesor cancela sin guardar, los archivos
+  quedan huérfanos en `/uploads` — mismo trade-off que cualquier upload
+  abandonado en el resto del sistema; no hay barrido de limpieza todavía.
+- **VARIOS documentos por póliza, analizados juntos** (2026-08-31): una póliza
+  real no cabe en la carátula — la tabla de primas y los anexos vienen en PDF
+  aparte. Se pueden subir hasta `MAX_DOCUMENTOS_ANALISIS` (6) y se mandan al
+  modelo en **una sola petición** con varios `inlineData`, no uno por uno:
+  solo viéndolos a la vez puede cruzar la prima de un documento con el
+  producto de otro (la instrucción se lo dice explícitamente y le pide anotar
+  en `advertencias` si dos se contradicen, quedándose con la carátula).
+  **Todos quedan adjuntos** vía `DocumentoCliente.ventaId` (relación
+  `VentaDocumentos`, 1 póliza → N documentos, migración
+  `20260831120000_venta_documentos_multiples`); el **primero** es la carátula
+  y además se marca en `Venta.documentoPolizaId`, que **no se tocó** (sigue
+  siendo el 1:1 del documento principal, y con él la tarjeta de siempre).
+  `PolicyDetail` los lista todos con el mismo `VisorDocumento` y su uploader
+  ahora acepta múltiples: `POST /ventas/:id/documento` **ya no desplaza a la
+  carátula** — si la póliza ya tiene principal, el archivo nuevo entra como
+  anexo.
 - **Extracción = Google Gemini** (`backend/src/services/extraccionPoliza.js`,
   **lista** de modelos `MODELOS_EXTRACCION`, no uno solo, decisión explícita del usuario por costo: tiene
   nivel gratuito real para este volumen y lee PDF nativo sin rasterizar a
@@ -698,9 +747,38 @@ capturar a mano abre el formulario de siempre, sin cambios.
   moneda, prima, suma asegurada, plazo, forma de pago, deducible/coaseguro,
   fechas de emisión/vigencia, coberturas, beneficiarios, más `confianza`
   (ALTA/MEDIA/BAJA) y `advertencias` cuando el documento es difícil de leer.
-  Campos que la IA no encuentra se omiten (nunca se inventan). `numeroPoliza`
-  y `asegurado` no tienen campo propio en `Venta`: se anexan al campo Notas
-  para no perder el dato.
+  Campos que la IA no encuentra se omiten (nunca se inventan). `asegurado` no
+  tiene campo propio en `Venta`: se anexa al campo Notas para no perder el
+  dato (`numeroPoliza` sí tiene columna desde la ficha técnica).
+- **La prima anual se SUMA en código, no la calcula la IA** (2026-08-31): las
+  carátulas de SMNYL normalmente no imprimen un total — traen una tabla con
+  una columna **"PRIMA INICIAL"** donde cada fila (la cobertura básica, a
+  veces marcada "VM", más cada adicional) aporta su parte, casi siempre en
+  UDIS. El schema pide `primaInicial` **por cobertura** (valor literal de esa
+  celda) y `mapearAForm()` en `SubirPolizaModal.jsx` hace la suma en JS: si
+  hay al menos una fila con prima, esa suma manda sobre el `primaAnual` que
+  el modelo haya adivinado. **No pedirle la aritmética al modelo** — extraer
+  celdas lo hace bien, sumarlas es justo donde se equivoca. Cada
+  `primaInicial` también se guarda como el `costo` de esa cobertura (en la
+  moneda de la póliza), así que la ficha conserva el desglose del que salió
+  el total.
+- **Tener la carátula significa emitida y pagada**: el prellenado deja
+  `estado: 'PAGADA'` (editable), no el `PENDIENTE_PAGAR` del alta manual — el
+  asesor recibe ese documento justo cuando la compañía ya emitió y cobró. El
+  único dato de la sección que la carátula normalmente **no** trae es la
+  periodicidad (mensual/trimestral/semestral/anual): cuando el modelo no la
+  encuentra, el mapeo marca `formaPagoPorConfirmar` y la ficha lo señala en
+  ámbar junto al selector, en vez de dejar pasar el default `ANUAL` como si
+  se hubiera leído del documento. (`formaPagoPorConfirmar` es solo estado de
+  UI: el payload se arma campo por campo y nunca lo manda.)
+- **Fechas: emisión Y vencimiento**. El fin de vigencia sí se mapeaba, pero el
+  modelo lo omitía porque la carátula lo llama de otras formas; el schema
+  ahora enumera los sinónimos reales ("fecha de vencimiento", "vigencia
+  hasta", "vence el", "hasta las 12 horas del") e insiste en no devolver solo
+  la de emisión.
+- **`plan` (el "proyecto" del cliente)** se extrae y cae en el campo Plan de
+  "Detalle del ramo". Es distinto de `producto`: Orvi es el producto,
+  "Proyecto Imagina Ser" es el plan contratado.
 - **El modelo se resuelve por lista, con fallback** (2026-08-27, bug real):
   Google retira modelos para las keys nuevas sin avisar — con la key vigente
   `gemini-2.5-flash` respondía **404 "no longer available to new users"**, y
@@ -1645,6 +1723,11 @@ requisito. Corre cada hora (nada de lo que vigila cambia por minuto).
   sección de Clínica). **Es la única regla que no notifica**: su resultado es
   una fila en `/clinica`, no un aviso — su idempotencia es la propia
   anti-duplicación por `clienteId` + `semanaInicio`, no `datos.clave`.
+- **Conversión de primas pendientes**: `reconciliarPrimasPendientes()`
+  completa la prima en pesos de las pólizas en USD/UDI que se registraron sin
+  tipo de cambio disponible (ver "Sin tipo de cambio NO se bloquea el alta").
+  Tampoco notifica, y su idempotencia es la propia marca derivada
+  (`moneda != MXN` + `tipoCambio: null`), no `datos.clave`.
 - **Idempotencia sin tabla extra**: la propia bandeja (`Notificacion`) es el
   registro — cada aviso lleva `datos.clave` (`prospecto:<id>`,
   `meta:<anio>-<mes>:<hito>`) y se consulta con

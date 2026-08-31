@@ -1,6 +1,7 @@
 import { prisma } from '../prisma.js';
 import { notificar } from '../utils/notificaciones.js';
 import { sincronizarClinicaDeAsesor } from '../utils/clinica.js';
+import { resolverPrima } from '../utils/prima.js';
 
 // Automatizaciones "cableadas" del CRM: reglas fijas, no un motor configurable
 // (un motor tipo n8n quedó como pendiente/experimento, no como requisito).
@@ -164,17 +165,56 @@ async function llenarClinica() {
   return agregados;
 }
 
+// Regla 4 — Primas en USD/UDI que se guardaron sin tipo de cambio.
+//
+// Desde 2026-08-31 una póliza en divisa YA NO se rechaza cuando ni Banxico ni
+// el respaldo manual tienen un valor (antes eso devolvía 400 y el asesor
+// simplemente no podía registrarla). Se guarda con `primaAnual: 0` y
+// `tipoCambio: null` — esa combinación con `moneda != MXN` es la marca de
+// "pendiente de conversión" — y aquí se completa sola en cuanto haya un tipo
+// de cambio real, recalculando también la comisión.
+//
+// No notifica: el asesor ve la cifra aparecer en su póliza, no necesita un
+// aviso por algo que el sistema resolvió por su cuenta.
+async function reconciliarPrimasPendientes() {
+  const pendientes = await prisma.venta.findMany({
+    where: { moneda: { not: 'MXN' }, tipoCambio: null, primaMoneda: { not: null } },
+    select: { id: true, moneda: true, primaMoneda: true, comisionPct: true },
+    take: 200,
+  });
+  let resueltas = 0;
+  for (const v of pendientes) {
+    try {
+      const divisa = await resolverPrima({ moneda: v.moneda, primaMoneda: v.primaMoneda });
+      if (divisa.error || divisa.pendiente) continue; // sigue sin haber TC: se reintenta la próxima hora
+      await prisma.venta.update({
+        where: { id: v.id },
+        data: {
+          primaAnual: divisa.primaAnual,
+          tipoCambio: divisa.tipoCambio,
+          comisionMonto: +(divisa.primaAnual * (v.comisionPct ?? 10) / 100).toFixed(2),
+        },
+      });
+      resueltas += 1;
+    } catch (err) {
+      console.warn(`[automatizaciones] no se pudo convertir la prima de la póliza ${v.id}: ${err.message}`);
+    }
+  }
+  return resueltas;
+}
+
 async function correr() {
   if (corriendo) return;
   corriendo = true;
   try {
-    const [estancados, metas, clinica] = await Promise.all([
+    const [estancados, metas, clinica, primas] = await Promise.all([
       prospectosEstancados(),
       avanceDeMeta(),
       llenarClinica(),
+      reconciliarPrimasPendientes(),
     ]);
-    if (estancados || metas || clinica) {
-      console.log(`[automatizaciones] ${estancados} prospecto(s) estancados · ${metas} aviso(s) de meta · ${clinica} a clínica`);
+    if (estancados || metas || clinica || primas) {
+      console.log(`[automatizaciones] ${estancados} prospecto(s) estancados · ${metas} aviso(s) de meta · ${clinica} a clínica · ${primas} prima(s) convertida(s)`);
     }
   } catch (err) {
     console.error('[automatizaciones] error:', err.message);

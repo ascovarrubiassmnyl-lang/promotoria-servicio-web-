@@ -774,6 +774,14 @@ model Venta {
   // función) simplemente no tienen este vínculo.
   documentoPolizaId    String?           @unique
   documentoPoliza      DocumentoCliente? @relation(fields: [documentoPolizaId], references: [id], onDelete: SetNull)
+  // TODOS los documentos analizados/adjuntos a esta póliza (2026-08-31): antes
+  // solo se podía subir un PDF por póliza (`documentoPolizaId`, 1:1). Muchas
+  // carátulas reales vienen repartidas en varios documentos (carátula + tabla
+  // de primas/anexos), así que ahora se pueden subir varios a la vez y
+  // TODOS quedan adjuntos — `documentoPoliza` de arriba sigue marcando cuál de
+  // ellos es el principal/carátula para la tarjeta de siempre; esta relación
+  // (1 póliza → N documentos) es la lista completa, incluido el principal.
+  documentos           DocumentoCliente[] @relation("VentaDocumentos")
   // Diagnóstico de la extracción con IA sobre documentoPoliza: cuándo corrió,
   // qué modelo, y si el asesor llegó a confirmar el formulario prellenado.
   // No son datos de negocio — nadie más los lee; sirven para saber si vale
@@ -966,11 +974,21 @@ model DocumentoCliente {
   tamano    Int      @default(0) // bytes
   creadoEn  DateTime @default(now())
 
-  // Presente solo si este documento es el PDF oficial de una póliza (subido
-  // desde "Nueva póliza" → "Subir documento", no desde la ficha del cliente).
+  // Presente solo si este documento es el PDF oficial (principal) de una
+  // póliza (subido desde "Nueva póliza" → "Subir documento", no desde la
+  // ficha del cliente).
   ventaPoliza Venta?
 
+  // Póliza a la que queda adjunto este documento (2026-08-31, multi-documento
+  // en el análisis con IA). Nullable: un documento subido desde la ficha del
+  // cliente (no desde una póliza) no lleva este vínculo. Independiente de
+  // `ventaPoliza` de arriba: ese es el 1:1 del documento "principal"; éste es
+  // el N:1 de "a qué póliza pertenece" (una póliza puede tener varios).
+  ventaId String?
+  venta   Venta?  @relation("VentaDocumentos", fields: [ventaId], references: [id], onDelete: SetNull)
+
   @@index([clienteId])
+  @@index([ventaId])
 }
 
 // Relación explícita de referidos: cliente A refiere a cliente B.

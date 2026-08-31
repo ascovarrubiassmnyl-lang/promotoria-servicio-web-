@@ -76,29 +76,34 @@ const FORMAS_PAGO = ['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL', 'UNICO'];
 const SCHEMA_EXTRACCION = {
   type: Type.OBJECT,
   properties: {
-    producto: { type: Type.STRING, description: 'Nombre comercial del producto/plan tal como aparece en la carátula de la póliza' },
+    producto: { type: Type.STRING, description: 'Nombre comercial del producto tal como aparece en la carátula de la póliza (ej. "Orvi", "Star Dotal", "Alfa Medical")' },
+    plan: { type: Type.STRING, description: 'Nombre del PLAN o PROYECTO contratado, cuando la póliza lo distingue del nombre del producto (ej. "Proyecto Imagina Ser", "Plan Elite", "Nacional"). Es lo que identifica el proyecto del cliente dentro del producto.' },
     ramo: { type: Type.STRING, enum: RAMOS, description: 'Ramo del seguro' },
-    moneda: { type: Type.STRING, enum: MONEDAS, description: 'Moneda en que está denominada la prima y la suma asegurada' },
-    primaAnual: { type: Type.NUMBER, description: 'Prima anual total, en la moneda del campo "moneda" (sin convertir)' },
+    moneda: { type: Type.STRING, enum: MONEDAS, description: 'Moneda en que está denominada la prima y la suma asegurada. UDI = "Unidades de Inversión"/UDIS, frecuente en dotales tipo Orvi o Star Dotal.' },
+    primaAnual: { type: Type.NUMBER, description: 'Prima anual TOTAL, en la moneda del campo "moneda" (sin convertir). Si la póliza no imprime un total y solo trae la tabla de primas por cobertura, deja este campo vacío y llena "primaInicial" en cada cobertura: la suma la hace el sistema.' },
     sumaAsegurada: { type: Type.NUMBER, description: 'Suma asegurada principal, en la moneda del campo "moneda"' },
     plazo: { type: Type.STRING, description: 'Plazo de pago de primas tal como lo indica la póliza, ej. "20 pagos", "Anual renovable"' },
     formaPago: { type: Type.STRING, enum: FORMAS_PAGO, description: 'Periodicidad de pago de la prima' },
     deducible: { type: Type.NUMBER, description: 'Deducible en MXN, solo si es GMM/Salud' },
     coaseguro: { type: Type.STRING, description: 'Coaseguro tal como aparece, ej. "10% tope $50,000", solo si es GMM/Salud' },
-    fechaEmision: { type: Type.STRING, description: 'Fecha de emisión de la póliza, formato YYYY-MM-DD' },
-    fechaInicioVigencia: { type: Type.STRING, description: 'Inicio de vigencia, formato YYYY-MM-DD' },
-    fechaFinVigencia: { type: Type.STRING, description: 'Fin de vigencia, formato YYYY-MM-DD' },
+    fechaEmision: { type: Type.STRING, description: 'Fecha de emisión / expedición de la póliza, formato YYYY-MM-DD' },
+    fechaInicioVigencia: { type: Type.STRING, description: 'Inicio de vigencia (también "vigencia desde", "desde las 12 horas del"), formato YYYY-MM-DD' },
+    fechaFinVigencia: { type: Type.STRING, description: 'Fin de vigencia. En la carátula suele venir junto a la fecha de emisión y con otros nombres: "fecha de vencimiento", "vigencia hasta", "vence el", "fin de vigencia", "hasta las 12 horas del". SIEMPRE búscala explícitamente: casi todas las carátulas la traen. Formato YYYY-MM-DD.' },
     numeroPoliza: { type: Type.STRING, description: 'Número de póliza asignado por la aseguradora' },
     asegurado: { type: Type.STRING, description: 'Nombre completo del asegurado tal como aparece en la carátula' },
     coberturas: {
       type: Type.ARRAY,
-      description: 'Coberturas listadas en la póliza (básica y adicionales/riders)',
+      description: 'TODAS las filas de la tabla de coberturas de la póliza (la básica —suele aparecer como "VM" o "Vida Mujer"/cobertura básica— y todas las adicionales/riders), en el mismo orden en que vienen impresas.',
       items: {
         type: Type.OBJECT,
         properties: {
           nombre: { type: Type.STRING },
           detalle: { type: Type.STRING, description: 'Descripción breve si la póliza la da' },
           monto: { type: Type.STRING, description: 'Suma asegurada de esa cobertura como texto, ej. "$800,000" o "Incluida"' },
+          primaInicial: {
+            type: Type.NUMBER,
+            description: 'Valor de la columna "PRIMA INICIAL" (o "prima", "prima anual") de ESA fila de la tabla, como número y en la moneda del campo "moneda" de la póliza (frecuentemente UDIS). Ej. 2174.53. Es el dato clave: la suma de esta columna en todas las filas es la prima anual total de la póliza.',
+          },
         },
         required: ['nombre'],
       },
@@ -133,28 +138,57 @@ const INSTRUCCION = `Eres un asistente que lee pólizas de seguros de vida/GMM e
 Seguros Monterrey New York Life (SMNYL) para una promotoría en México y extrae
 los datos de la carátula y las tablas de coberturas hacia un JSON estructurado.
 
+Puedes recibir VARIOS documentos de una MISMA póliza (carátula, tabla de primas,
+anexos, condiciones): trátalos como un solo expediente y combina la información
+de todos en un único JSON. Un dato que falta en la carátula suele estar en otro
+de los documentos — búscalo ahí antes de omitirlo. Si dos documentos se
+contradicen, usa el de la carátula y anótalo en advertencias.
+
 Reglas:
-- Si un dato no aparece en el documento, omite esa propiedad (no inventes valores).
+- Si un dato no aparece en NINGUNO de los documentos, omite esa propiedad (no
+  inventes valores).
 - Los montos van como número, sin el símbolo de moneda ni comas.
 - Las fechas van en formato YYYY-MM-DD.
 - "moneda" es la denominación de la póliza (MXN, USD o UDI, esta última es
   "Unidades de Inversión", frecuente en productos dotales tipo Orvi/Star Dotal).
+- FECHAS: la carátula casi siempre trae la fecha de emisión Y la de vencimiento
+  (fin de vigencia). Extrae LAS DOS; no devuelvas solo la de emisión.
+- TABLA DE PRIMAS: cuando la póliza traiga una tabla con una columna de prima
+  por cobertura ("PRIMA INICIAL" u homóloga), copia el valor de cada fila en
+  "primaInicial" de la cobertura correspondiente, tal como está impreso y en la
+  moneda de la póliza. Incluye la fila de la cobertura básica (a veces marcada
+  "VM") y todas las adicionales. NO sumes tú la columna: el sistema hace la
+  suma para obtener la prima anual. Solo llena "primaAnual" si el documento
+  imprime explícitamente un total.
 - Si el documento no es una póliza de seguro (o no se puede leer con
   confianza razonable), pon confianza "BAJA" y explica por qué en advertencias.
 - No incluyas datos personales sensibles que no pidan los campos del schema.`;
 
-// Lee el PDF ya guardado en /uploads y devuelve los campos extraídos.
+// Lee los PDF ya guardados en /uploads y devuelve los campos extraídos.
+// `archivos` es una lista de { ruta, mime }: una póliza real llega repartida
+// entre carátula, tabla de primas y anexos, y se mandan JUNTOS en la misma
+// petición para que el modelo pueda cruzarlos (la prima de un documento con el
+// producto de otro) en vez de analizar cada uno a ciegas.
+//
 // Lanza si no hay API key configurada o si Gemini falla — el llamador decide
 // cómo responder (503 / 502), nunca se guarda nada automáticamente aquí.
-export async function analizarPolizaPdf(rutaAbsoluta, { mime = 'application/pdf' } = {}) {
+export async function analizarPolizaPdf(archivos) {
   const ai = clienteGemini();
   if (!ai) {
     const err = new Error('GEMINI_API_KEY no configurada: el análisis automático está deshabilitado.');
     err.codigo = 'SIN_API_KEY';
     throw err;
   }
-  const bytes = fs.readFileSync(rutaAbsoluta);
-  const base64 = bytes.toString('base64');
+  const lista = (Array.isArray(archivos) ? archivos : [archivos]).filter(Boolean);
+  if (!lista.length) {
+    const err = new Error('No se recibió ningún documento para analizar.');
+    err.codigo = 'SIN_ARCHIVOS';
+    throw err;
+  }
+  const documentos = lista.map((a) => ({
+    mime: a.mime || 'application/pdf',
+    base64: fs.readFileSync(a.ruta).toString('base64'),
+  }));
 
   const limite = Date.now() + PRESUPUESTO_MS;
   let ultimoError = null;
@@ -165,7 +199,7 @@ export async function analizarPolizaPdf(rutaAbsoluta, { mime = 'application/pdf'
     const restante = limite - Date.now();
     if (restante <= 0) break;
     try {
-      const datos = await pedirExtraccion(ai, modelo, base64, mime, restante);
+      const datos = await pedirExtraccion(ai, modelo, documentos, restante);
       modeloVigente = modelo;
       return { datos, modelo };
     } catch (e) {
@@ -178,7 +212,7 @@ export async function analizarPolizaPdf(rutaAbsoluta, { mime = 'application/pdf'
   throw ultimoError;
 }
 
-async function pedirExtraccion(ai, modelo, base64, mime, ms) {
+async function pedirExtraccion(ai, modelo, documentos, ms) {
   const corte = new AbortController();
   const reloj = setTimeout(() => corte.abort(), ms);
   let respuesta;
@@ -189,7 +223,10 @@ async function pedirExtraccion(ai, modelo, base64, mime, ms) {
         role: 'user',
         parts: [
           { text: INSTRUCCION },
-          { inlineData: { mimeType: mime || 'application/pdf', data: base64 } },
+          ...(documentos.length > 1
+            ? [{ text: `Recibirás ${documentos.length} documentos de la MISMA póliza. Combínalos en un solo JSON.` }]
+            : []),
+          ...documentos.map((d) => ({ inlineData: { mimeType: d.mime, data: d.base64 } })),
         ],
       }],
       config: {

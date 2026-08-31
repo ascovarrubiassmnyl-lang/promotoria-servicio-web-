@@ -9,7 +9,7 @@ import {
 } from '../../lib/format.js';
 import {
   infoMoneda, montoMoneda, labelMetodoPago, semaforoPago, infoSemaforo, equivalenteMXN,
-  infoSituacion, ASEGURADORA,
+  infoSituacion, ASEGURADORA, primaPendienteConversion,
 } from './tipos.js';
 import VisorDocumento, { useVisorDocumento } from '../documentos/VisorDocumento.jsx';
 
@@ -104,6 +104,9 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
   const contratanteEsOtro = Boolean(p.contratante)
     && p.contratante.trim().toLowerCase() !== `${p.cliente?.nombre || ''} ${p.cliente?.apellidoP || ''} ${p.cliente?.apellidoM || ''}`.replace(/\s+/g, ' ').trim().toLowerCase();
   const situacion = infoSituacion(p.situacion);
+  // Prima en divisa que se guardó sin tipo de cambio: la cifra en pesos (y con
+  // ella la comisión) está pendiente, no es cero.
+  const porConvertir = primaPendienteConversion(p);
   const puedeRegistrarPago = !readOnly && p.formaPago !== 'UNICO' && p.fechaProximoPago;
   // Validación: solo promotores, y solo mientras la póliza no esté ya resuelta.
   const puedeValidar = esAdmin() && !['APROBADA', 'RECHAZADA', 'CANCELADA'].includes(p.estado);
@@ -231,17 +234,26 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
             <EquivalentePesos monto={p.sumaAsegurada} moneda={p.sumaAseguradaMoneda} tipos={tipos} />
           </Kv>
           <Kv k="Prima anual" big>
-            {mxn(p.primaAnual)}
+            {/* Con la conversión pendiente, `primaAnual` es 0 hasta que haya
+                tipo de cambio: mostrar "$0" haría creer que la póliza no vale
+                nada. Se enseña el monto original y se explica el pendiente. */}
+            {porConvertir ? montoMoneda(p.primaMoneda, p.moneda) : mxn(p.primaAnual)}
             <span className="text-xs text-slate-400 dark:text-slate-500 font-normal"> / {(FORMAS_PAGO[p.formaPago] || p.formaPago).toLowerCase()}</span>
             {/* Póliza en divisa: se muestra el monto original y el TC usado.
                 La cifra en pesos es la que cuenta para comisión y metas. */}
-            {p.moneda && p.moneda !== 'MXN' && p.primaMoneda != null && (
+            {p.moneda && p.moneda !== 'MXN' && p.primaMoneda != null && !porConvertir && (
               <p className="text-xs text-slate-500 dark:text-slate-400 font-normal mt-0.5">
                 {montoMoneda(p.primaMoneda, p.moneda)}
                 {p.tipoCambio ? ` · TC ${p.tipoCambio}` : ''}
               </p>
             )}
-            {PERIODO_LABEL[p.formaPago] && (
+            {porConvertir && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 font-normal mt-0.5">
+                Equivalente en pesos pendiente: no había tipo de cambio al registrarla.
+                Se calcula solo en cuanto Banxico publique uno.
+              </p>
+            )}
+            {PERIODO_LABEL[p.formaPago] && !porConvertir && (
               <p className="text-xs text-slate-500 dark:text-slate-400 font-normal mt-0.5">≈ {mxn(p.primaAnual / pagos)} {PERIODO_LABEL[p.formaPago]}</p>
             )}
           </Kv>
@@ -256,8 +268,10 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
               : (p.fechaProximoPago ? fechaCorta(p.fechaProximoPago) : '—')}
           </Kv>
           {/* Comisión: verde SOLO si la póliza está aprobada/pagada */}
-          <Kv k={`Comisión ${p.comisionPct != null ? `(${p.comisionPct}%)` : ''} ${ganada ? '· ganada' : enPipeline ? '· potencial' : ''}`} green={ganada}>
-            {mxn(p.comisionMonto)}
+          <Kv k={`Comisión ${p.comisionPct != null ? `(${p.comisionPct}%)` : ''} ${ganada ? '· ganada' : enPipeline ? '· potencial' : ''}`} green={ganada && !porConvertir}>
+            {porConvertir
+              ? <span className="text-slate-500 dark:text-slate-400">Pendiente del tipo de cambio</span>
+              : mxn(p.comisionMonto)}
           </Kv>
           {p.deducible != null && (
             <Kv k="Deducible">
@@ -548,51 +562,69 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
   );
 }
 
-// Documento oficial de la póliza: ver/descargar si ya está adjunto, o subirlo
-// si la póliza se creó a mano y todavía no tiene uno. Sin análisis con IA
-// (eso solo pasa al crear, en SubirPolizaModal) — aquí es solo el archivo.
+// Documentos de la póliza: ver/descargar los que ya están adjuntos y sumar
+// más. Una póliza real llega repartida en varios PDF (carátula, tabla de
+// primas, anexos) y desde 2026-08-31 se guardan TODOS — el primero, el que se
+// subió como carátula, queda marcado como principal. Sin análisis con IA (eso
+// solo pasa al crear, en SubirPolizaModal): aquí es solo el archivo.
 function DocumentoPoliza({ polizaId, venta, readOnly, onVer }) {
   const qc = useQueryClient();
   const [subiendo, setSubiendo] = useState(false);
   const [err, setErr] = useState('');
-  const doc = venta?.documentoPoliza;
+  const principal = venta?.documentoPoliza;
+  // `documentos` incluye al principal: se ordena para que salga primero y no
+  // se repita. Las pólizas anteriores a esta relación solo traen el principal.
+  const otros = (venta?.documentos || []).filter((d) => d.id !== principal?.id);
+  const lista = [principal, ...otros].filter(Boolean);
 
   const subir = async (e) => {
-    const archivo = e.target.files?.[0];
+    const nuevos = Array.from(e.target.files || []);
     e.target.value = '';
-    if (!archivo) return;
+    if (!nuevos.length) return;
     setSubiendo(true); setErr('');
     try {
-      const fd = new FormData();
-      fd.append('archivo', archivo);
-      await api.post(`/ventas/${polizaId}/documento`, fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: TIMEOUT_SUBIDA });
+      // El endpoint recibe un archivo por llamada; se suben en serie para que
+      // el orden de la lista sea el que el asesor eligió.
+      for (const archivo of nuevos) {
+        const fd = new FormData();
+        fd.append('archivo', archivo);
+        await api.post(`/ventas/${polizaId}/documento`, fd, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: TIMEOUT_SUBIDA });
+      }
       qc.invalidateQueries(['poliza', polizaId]);
     } catch (e2) { setErr(handleError(e2)); } finally { setSubiendo(false); }
   };
 
   return (
-    <Card title="Documento de la póliza">
-      {doc ? (
-        <button
-          type="button"
-          onClick={() => onVer(doc)}
-          className="w-full flex items-center justify-between gap-3 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2.5 hover:border-brand-400 dark:hover:border-brand-500 transition-colors text-left"
-        >
-          <span>
-            <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">{doc.nombre}</span>
-            <span className="block text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-              {tamanoLegible(doc.tamano)} · subido el {fechaCorta(doc.creadoEn)}
-            </span>
-          </span>
-          <span className="text-xs font-medium text-brand-600 dark:text-brand-400 shrink-0">Ver</span>
-        </button>
-      ) : readOnly ? (
-        <p className="text-sm text-slate-400 dark:text-slate-500">Sin documento adjunto.</p>
-      ) : (
+    <Card title={lista.length > 1 ? `Documentos de la póliza (${lista.length})` : 'Documento de la póliza'}>
+      {lista.length > 0 && (
+        <div className="space-y-1.5 mb-2">
+          {lista.map((doc, i) => (
+            <button
+              key={doc.id}
+              type="button"
+              onClick={() => onVer(doc)}
+              className="w-full flex items-center justify-between gap-3 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2.5 hover:border-brand-400 dark:hover:border-brand-500 transition-colors text-left"
+            >
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{doc.nombre}</span>
+                <span className="block text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                  {tamanoLegible(doc.tamano)} · subido el {fechaCorta(doc.creadoEn)}
+                  {i === 0 && lista.length > 1 ? ' · carátula' : ''}
+                </span>
+              </span>
+              <span className="text-xs font-medium text-brand-600 dark:text-brand-400 shrink-0">Ver</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {lista.length === 0 && readOnly && (
+        <p className="text-sm text-slate-400 dark:text-slate-500">Sin documentos adjuntos.</p>
+      )}
+      {!readOnly && (
         <div>
           <label className="input flex items-center justify-center gap-2 cursor-pointer text-sm text-slate-500 dark:text-slate-400 hover:border-brand-400 dark:hover:border-brand-500">
-            {subiendo ? 'Subiendo…' : 'Subir el PDF de esta póliza'}
-            <input type="file" accept="application/pdf" className="hidden" disabled={subiendo} onChange={subir} />
+            {subiendo ? 'Subiendo…' : (lista.length ? 'Agregar otro documento' : 'Subir el PDF de esta póliza')}
+            <input type="file" accept="application/pdf" multiple className="hidden" disabled={subiendo} onChange={subir} />
           </label>
           {err && <p className="text-xs text-red-600 mt-1.5">{err}</p>}
         </div>

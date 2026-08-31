@@ -14,6 +14,10 @@ import { mxn } from '../../lib/format.js';
 // inventa una paridad ni se recicla una vieja sin avisar: si no se puede
 // afirmar la cifra en pesos, no se enseña ninguna.
 //
+// No tener tipo de cambio NO impide registrar la póliza (2026-08-31): el aviso
+// es informativo y el servidor guarda la prima en su moneda, dejando la
+// conversión pendiente hasta que haya un TC real (ver utils/prima.js).
+//
 // Props:
 //   value / onChange       — monto (string), mismo contrato que NumeroFormateado
 //   moneda / onMoneda      — denominación del monto
@@ -67,8 +71,9 @@ export default function MontoMoneda({
         </p>
       )}
       {sinTC && (
-        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-          Sin tipo de cambio del día: no se puede mostrar el equivalente en pesos.
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+          Todavía no hay tipo de cambio del día para mostrar el equivalente en pesos.
+          Puedes guardar la póliza igual: se calcula solo en cuanto haya uno.
         </p>
       )}
     </div>
