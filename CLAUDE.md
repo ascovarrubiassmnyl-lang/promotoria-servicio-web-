@@ -1131,6 +1131,26 @@ conservan sus nombres históricos; la traducción a UI vive en el **mapa único*
   (`GET /api/citas?promotorId=`). Las citas de acompañamiento son visibles
   para el asesor dueño y para el promotor involucrado. Tres capas fallando
   cerrado, como el resto del sistema.
+- **El dueño (`asesorId`) de una cita puede ser una promotora, no solo un
+  asesor** (2026-09-25, pedido de Michelle: agenda citas y acompañamientos
+  tanto para Diana —la promotora— como para asesoras como Lupita). El
+  selector "¿De quién es esta cita?" de `CitaFormModal` (el que aparece para
+  admin/asistente cuando no hay `clienteId`/`asesorId` fijo, en cualquier
+  modalidad) antes solo listaba `GET /usuarios/asesores` (rol `ASESOR`): una
+  promotora nunca aparecía ahí, así que Michelle no podía elegir a Diana
+  salvo en las modalidades de reclutamiento (ver más abajo, que ya traían su
+  propio selector "Promotor que entrevista"). Ahora combina esa lista con
+  `GET /usuarios/promotores`. El backend **ya aceptaba** cualquier
+  `asesorId` activo desde antes (`POST /citas` solo valida que el usuario
+  exista y esté activo, sin filtrar por rol) — el hueco era puramente de UI.
+  Mismo criterio en el filtro "Todos los asesores" del riel del calendario
+  (`CalendarioView.jsx`): antes un admin/asistente no podía aislar la agenda
+  de una promotora específica porque el filtro tampoco ofrecía promotores;
+  ahora sí aparecen ahí (etiqueta "(promotora)"). Nota de dominio: Diana no
+  suele tener cartera propia de clientes, así que una `CITA_UNICA` a su
+  nombre solo tiene clientes para elegir si alguno está `asesorId: Diana`;
+  para agendarle algo sin cliente (una reunión, etc.) se usa "Evento
+  personal" o una modalidad que no lo exija (reclutamiento, acompañamiento).
 - **Disponibilidad del promotor (ocupado/libre, 2026-08-12)**: el asesor puede
   ver en qué horarios está ocupado un promotor para invitarlo a un
   acompañamiento sin preguntarle antes, vía `GET /api/citas/disponibilidad`
@@ -1486,6 +1506,26 @@ no extenderlo). Modelos: `Candidato` (datos del formulario SMNYL + `etapa` +
   `preModalidad` según `MODALIDAD_POR_ETAPA`; clasificación default `GESTION`).
   El calendario (escritorio y móvil) muestra el nombre del candidato en chips
   y panel.
+- **La entrevista vive en la agenda del promotor que entrevista, no en la de
+  quien la captura** (2026-09-18, pedido de Michelle): la asistente agenda las
+  entrevistas iniciales de la promotora, así que `CitaFormModal` muestra un
+  selector **"Promotor que entrevista"** en las modalidades de reclutamiento
+  (`MODALIDADES_PROMOTOR`) y ese id viaja como `asesorId` del `POST /citas`.
+  Antes no había campo y la cita caía siempre en `req.user.id`: Michelle
+  capturaba los datos y no encontraba dónde elegir a Diana. Las opciones salen
+  de `GET /usuarios/promotores` (solo ADMIN) más "Mi agenda" para quien captura
+  sin ser promotor (súper admin, asistente que dirige una PRP). Se
+  autoselecciona si quien captura es promotor o si solo hay uno. **El asesor
+  queda fuera en las tres capas**: no ve las modalidades de reclutamiento en el
+  selector, el POST le responde 403 y —desde 2026-09-18— **el PATCH también**
+  (antes solo el alta lo bloqueaba: un asesor podía convertir su propia cita en
+  "Entrevista inicial" editándola, y encima con cliente, combinación que el POST
+  prohíbe). Su `asesorId` sigue forzado a sí mismo, así que nunca pudo escribir
+  en la agenda de la promotora. Con `asesorId`
+  de otro, el servidor valida que exista y esté activo (400 si no) — el empalme,
+  la disponibilidad y la bitácora ya se calculaban contra ese dueño. Reasignar
+  al editar **no** está soportado (el PATCH nunca aceptó `asesorId`, igual que
+  en las citas normales).
 - Actividad: tipos canónicos nuevos `CANDIDATO_CREADO` y `CANDIDATO_ETAPA`
   (backend `utils/actividad.js` + espejo en `components/actividad/tipos.jsx`).
 - UI: `pages/Candidatos.jsx` (lista con chips de etapa/semáforo como filtro,

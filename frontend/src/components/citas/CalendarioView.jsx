@@ -448,11 +448,13 @@ function CalendarioEscritorio() {
   });
 
   // Espejo del selector de asesor: el promotor filtra por asesor, el asesor
-  // consulta la disponibilidad de un promotor. Cada rol ve solo uno de los dos.
+  // consulta la disponibilidad de un promotor. Un admin/asistente TAMBIÉN lo
+  // necesita para poder filtrar el calendario a la agenda de una promotora
+  // específica (ej. la asistente viendo solo la de Diana) — antes solo se
+  // pedía para el rol no-admin y el filtro de abajo nunca podía aislarla.
   const { data: promotores } = useQuery({
     queryKey: ['promotores-list'],
     queryFn: async () => (await api.get('/usuarios/promotores')).data,
-    enabled: !esAdmin(),
   });
 
   // Rango visible: Semana navega por semana; Mes y Agenda por mes.
@@ -1037,6 +1039,10 @@ function CalendarioEscritorio() {
             <option value="">Todos los asesores</option>
             <option value="__mios__">Mis acompañamientos</option>
             <option value={user?.id}>Mi agenda</option>
+            {/* Promotoras (ej. Diana) — antes no aparecían aquí y un admin/
+                asistente no podía aislar la agenda de una promotora distinta
+                de la propia; el filtro solo listaba GET /usuarios/asesores. */}
+            {promotores?.filter((p) => p.id !== user?.id).map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellidoP} (promotora)</option>)}
             {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
           </select>
         ) : (

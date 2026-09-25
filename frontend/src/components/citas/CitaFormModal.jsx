@@ -66,8 +66,11 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
       if (preFecha && preFecha.getHours() === 0) base.setHours(10, 0, 0, 0);
       else { base.setMinutes(base.getMinutes() + (30 - (base.getMinutes() % 30)) % 30 || 30, 0, 0); }
       const inicio = isoLocalInput(base);
+      const propiaDeEntrada = preModalidad && MODALIDADES_PROMOTOR.includes(preModalidad);
       setForm({
-        asesorId: asesorId || '',
+        // En una cita de reclutamiento el dueño es el promotor que entrevista,
+        // no el asesor del filtro del calendario: ese scope no aplica aquí.
+        asesorId: propiaDeEntrada ? '' : (asesorId || ''),
         clienteId: clienteId || '',
         candidatoId: candidatoId || '',
         esPersonal: false,
@@ -160,6 +163,19 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
     }
   }, [open, esAdmin, editando, form?.modalidad, form?.promotorId, promotores]);
 
+  // Citas de reclutamiento (PRP/entrevistas): el dueño de la cita es el
+  // promotor que entrevista, no quien la captura — la asistente agenda sobre
+  // la agenda de la promotora. Se preselecciona solo si quien captura es
+  // promotor (se agenda a sí mismo) o si hay uno solo en la promotoría; con
+  // varios, el selector de abajo obliga a elegir.
+  useEffect(() => {
+    if (!open || editando || !esAdmin()) return;
+    if (!form?.modalidad || !MODALIDADES_PROMOTOR.includes(form.modalidad) || form.asesorId) return;
+    const sugerido = promotores?.find((p) => p.id === user?.id) || (promotores?.length === 1 ? promotores[0] : null);
+    if (!sugerido) return;
+    setForm((f) => (f && MODALIDADES_PROMOTOR.includes(f.modalidad) && !f.asesorId ? { ...f, asesorId: sugerido.id } : f));
+  }, [open, editando, esAdmin, form?.modalidad, form?.asesorId, promotores, user?.id]);
+
   // Disponibilidad del promotor elegido, para el día de la cita: mismo
   // endpoint/uso que la capa del calendario (GET /citas/disponibilidad), aquí
   // acotado a un único día para decidir si el horario elegido cae libre. Nunca
@@ -212,6 +228,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
   const submit = async (e) => {
     e.preventDefault();
     if (!editando && !esPersonal && !modalidadPropia && !form.clienteId) { setErr('Selecciona el cliente'); return; }
+    if (!editando && modalidadPropia && esAdmin() && !form.asesorId) { setErr('Selecciona el promotor que entrevista'); return; }
     if (!form.titulo || !form.fechaHoraInicio) { setErr('Título e inicio son requeridos'); return; }
     if (!finDespuesDeInicio) { setErr('El fin debe ser posterior al inicio'); return; }
     if (promotorElegido && chocaConPromotor) { setErr('El promotor ya está ocupado a esa hora — elige otro horario libre.'); return; }
@@ -290,13 +307,19 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
           </p>
         )}
         {necesitaAsesor && !esPersonal && (
-          <Field label="Asesor*">
+          <Field label="¿De quién es esta cita?*">
             <select className="input" required value={form.asesorId} onChange={(e) => setForm({ ...form, asesorId: e.target.value, clienteId: '' })}>
               <option value="">Selecciona…</option>
               <option value={user?.id}>Sin asesor (mi propia cita)</option>
+              {/* La promotora (Diana) también es dueña de citas normales y
+                  acompañamientos, no solo de las de reclutamiento — antes este
+                  selector solo listaba GET /usuarios/asesores (rol ASESOR) y la
+                  promotora nunca aparecía: la asistente no podía elegirla salvo
+                  en modalidades de reclutamiento. */}
+              {promotores?.filter((p) => p.id !== user?.id).map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellidoP} (promotora)</option>)}
               {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
             </select>
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">No toda cita es con un asesor: elige "Sin asesor" si es tuya.</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">No toda cita es con un asesor: elige a la promotora o "Sin asesor" si es tuya.</p>
           </Field>
         )}
         {!editando && !clienteId && !esPersonal && !modalidadPropia && (
@@ -332,9 +355,24 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
                 {Object.values(TIPOS_CITA).filter((t) => esAdmin() || !MODALIDADES_PROMOTOR.includes(t.value)).map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
               <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
-                {modalidadPropia ? 'Agenda propia: no necesita asesor ni cliente.' : '"Acompañamiento" = el promotor asiste contigo a la cita.'}
+                {modalidadPropia ? 'Agenda del promotor: no necesita asesor ni cliente.' : '"Acompañamiento" = el promotor asiste contigo a la cita.'}
               </p>
             </Field>
+            {/* Reclutamiento: la cita vive en la agenda del promotor que
+                entrevista. Quien captura puede no ser esa persona (la asistente
+                agenda por la promotora), así que aquí se elige el dueño. */}
+            {modalidadPropia && esAdmin() && !editando && (
+              <Field label="Promotor que entrevista*">
+                <select className="input" required value={form.asesorId} onChange={(e) => setForm({ ...form, asesorId: e.target.value })}>
+                  <option value="">Selecciona…</option>
+                  {promotores?.map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellidoP}</option>)}
+                  {/* Quien captura sin ser promotor (súper admin, asistente)
+                      también puede quedarse la cita: ej. una PRP que dirige. */}
+                  {!promotores?.some((p) => p.id === user?.id) && <option value={user?.id}>Mi agenda ({user?.nombre})</option>}
+                </select>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">La cita queda en su calendario y ocupa su agenda.</p>
+              </Field>
+            )}
             {form.modalidad === 'ACOMPANAMIENTO' && (
               <Field label="Promotor que acompaña">
                 <select className="input" value={form.promotorId} onChange={(e) => setForm({ ...form, promotorId: e.target.value })}>

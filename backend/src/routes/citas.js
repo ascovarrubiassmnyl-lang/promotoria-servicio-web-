@@ -256,6 +256,12 @@ router.post('/', asyncHandler(async (req, res) => {
   const candidato = candidatoId ? await prisma.candidato.findUnique({ where: { id: candidatoId } }) : null;
   if (candidatoId && !candidato) return res.status(400).json({ error: 'Candidato no encontrado' });
   const asesorId = (req.user.rol === 'ASESOR') ? req.user.id : (req.body.asesorId || cliente?.asesorId || req.user.id);
+  // Un no-asesor puede agendar sobre la agenda de otro (la asistente agenda las
+  // entrevistas de la promotora): se valida que ese dueño exista y esté activo.
+  if (asesorId !== req.user.id) {
+    const dueno = await prisma.usuario.findUnique({ where: { id: asesorId }, select: { activo: true } });
+    if (!dueno?.activo) return res.status(400).json({ error: 'El usuario al que se asigna la cita no existe o está inactivo' });
+  }
   if (req.user.rol === 'ASESOR' && cliente && cliente.asesorId !== req.user.id) return res.status(403).json({ error: 'El cliente pertenece a otro asesor' });
 
   // Validar promotor si se asigna (debe ser admin/superadmin)
@@ -624,6 +630,14 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   if (titulo) data.titulo = titulo;
   if (descripcion !== undefined) data.descripcion = descripcion || null;
   if (tipo) data.tipo = tipo;
+  // Mismas reglas del alta, que el PATCH no aplicaba: las modalidades de agenda
+  // propia del promotor (PRP/entrevistas) no son para un asesor y no conviven
+  // con un cliente. Sin esto, un asesor convertía su propia cita en "Entrevista
+  // inicial" por PATCH aunque el POST se lo negara con 403.
+  if (modalidad && MODALIDADES_PROMOTOR.includes(modalidad)) {
+    if (req.user.rol === 'ASESOR') return res.status(403).json({ error: 'Este tipo de cita es solo para el promotor' });
+    if (existente.clienteId) return res.status(400).json({ error: 'Una cita de reclutamiento no lleva cliente (elige un candidato)' });
+  }
   if (modalidad) data.modalidad = modalidad;
   // Mismas reglas del alta: candidato solo en citas de reclutamiento y nunca
   // junto a un cliente.
