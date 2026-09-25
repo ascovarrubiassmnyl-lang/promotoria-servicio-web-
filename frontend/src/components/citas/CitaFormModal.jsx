@@ -115,12 +115,18 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
     enabled: open,
   });
 
-  // Candidatos para citas de reclutamiento (opcional: una PRP grupal puede no
-  // llevar candidato). Solo admin — las modalidades propias no existen para asesor.
+  // Candidatos: opcionales en citas de reclutamiento (una PRP grupal puede no
+  // llevar candidato) y, desde 2026-09-25, también seleccionables como el
+  // "dueño" de cualquier otra cita (junto a Cliente, ver el selector más
+  // abajo) — pedido del usuario: Diana/Michelle/Lupita no encontraban a sus
+  // candidatos en la lista al agendar una cita normal, solo aparecían para
+  // reclutamiento. `/candidatos/opciones` es transversal a cualquier rol
+  // (igual que `/usuarios/promotores`), a diferencia de `/candidatos` que
+  // tiene piso de rol admin — así un asesor también puede elegir candidato.
   const { data: candidatos } = useQuery({
     queryKey: ['candidatos-cita'],
-    queryFn: async () => (await api.get('/candidatos')).data,
-    enabled: open && esAdmin() && !candidatoId && MODALIDADES_PROMOTOR.includes(form?.modalidad),
+    queryFn: async () => (await api.get('/candidatos/opciones')).data,
+    enabled: open && !candidatoId && !form?.esPersonal && (MODALIDADES_PROMOTOR.includes(form?.modalidad) || (!editando && !clienteId)),
   });
 
   // Detección de empalme en vivo: citas vivas del mismo asesor alrededor del inicio.
@@ -227,7 +233,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!editando && !esPersonal && !modalidadPropia && !form.clienteId) { setErr('Selecciona el cliente'); return; }
+    if (!editando && !esPersonal && !modalidadPropia && !form.clienteId && !form.candidatoId) { setErr('Selecciona el cliente o el candidato'); return; }
     if (!editando && modalidadPropia && esAdmin() && !form.asesorId) { setErr('Selecciona el promotor que entrevista'); return; }
     if (!form.titulo || !form.fechaHoraInicio) { setErr('Título e inicio son requeridos'); return; }
     if (!finDespuesDeInicio) { setErr('El fin debe ser posterior al inicio'); return; }
@@ -243,9 +249,14 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
         titulo: form.titulo,
         descripcion: form.descripcion,
         modalidad: esPersonal ? 'CITA_UNICA' : form.modalidad,
-        // El candidato solo viaja en citas de reclutamiento; en cualquier otra
-        // modalidad se limpia (el backend rechaza la combinación inválida).
-        ...(editando || modalidadPropia ? { candidatoId: !esPersonal && modalidadPropia ? (form.candidatoId || null) : null } : {}),
+        // Candidato: aplica tanto a citas de reclutamiento (su propio selector
+        // "Candidato (opcional)") como, desde 2026-09-25, a cualquier otra cita
+        // agendada con un candidato en vez de un cliente (selector "Cliente o
+        // candidato" de abajo) — mutuamente excluyente con clienteId en ambos
+        // casos. Al editar se conserva tal cual venía (no hay forma de
+        // reasignarlo aquí salvo el selector propio de reclutamiento, que si
+        // aplica ya viene reflejado en form.candidatoId).
+        candidatoId: esPersonal ? null : (form.candidatoId || null),
         clasificacion: esPersonal ? 'PERSONAL' : form.clasificacion,
         promotorId: !esPersonal && form.modalidad === 'ACOMPANAMIENTO' ? (form.promotorId || undefined) : null,
         tipo: form.tipo,
@@ -259,7 +270,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
         await api.patch(`/citas/${cita.id}`, payload);
       } else {
         if (payload.candidatoId === null) delete payload.candidatoId;
-        if (!esPersonal && !modalidadPropia) payload.clienteId = form.clienteId;
+        if (!esPersonal && !modalidadPropia && !payload.candidatoId) payload.clienteId = form.clienteId;
         if (esAdmin() && form.asesorId) payload.asesorId = form.asesorId;
         if (payload.promotorId === null) delete payload.promotorId;
         if (form.recurrenciaTipo !== 'NO_REPITE') {
@@ -323,10 +334,33 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
           </Field>
         )}
         {!editando && !clienteId && !esPersonal && !modalidadPropia && (
-          <Field label="Cliente*">
-            <select className="input" required value={form.clienteId} disabled={necesitaAsesor && !form.asesorId} onChange={(e) => setForm({ ...form, clienteId: e.target.value })}>
+          <Field label="Cliente o candidato*">
+            <select
+              className="input"
+              required
+              value={form.clienteId ? `cliente:${form.clienteId}` : form.candidatoId ? `candidato:${form.candidatoId}` : ''}
+              disabled={necesitaAsesor && !form.asesorId}
+              onChange={(e) => {
+                const [tipo, id] = e.target.value.split(':');
+                setForm({ ...form, clienteId: tipo === 'cliente' ? id : '', candidatoId: tipo === 'candidato' ? id : '' });
+              }}
+            >
               <option value="">{necesitaAsesor && !form.asesorId ? 'Elige asesor primero' : 'Selecciona…'}</option>
-              {clientes?.map((c) => <option key={c.id} value={c.id}>{c.nombre} {c.apellidoP} {c.apellidoM || ''}</option>)}
+              {!!clientes?.length && (
+                <optgroup label="Clientes">
+                  {clientes.map((c) => <option key={c.id} value={`cliente:${c.id}`}>{c.nombre} {c.apellidoP} {c.apellidoM || ''}</option>)}
+                </optgroup>
+              )}
+              {/* También se puede agendar con un candidato a asesor, no solo con
+                  un cliente (2026-09-25, pedido del usuario: Diana, Michelle y
+                  Lupita no lo encontraban aquí — antes esta lista solo traía
+                  clientes y el candidato solo aparecía en modalidades de
+                  reclutamiento). */}
+              {!!candidatos?.length && (
+                <optgroup label="Candidatos a asesor">
+                  {candidatos.map((c) => <option key={c.id} value={`candidato:${c.id}`}>{c.nombre} {c.apellidoP} {c.apellidoM || ''}</option>)}
+                </optgroup>
+              )}
             </select>
           </Field>
         )}
@@ -347,7 +381,11 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
                     modalidad: e.target.value,
                     clienteId: propia ? '' : form.clienteId,
                     asesorId: propia ? '' : form.asesorId,
-                    candidatoId: propia ? form.candidatoId : '',
+                    // candidatoId ya NO se limpia al cambiar de modalidad: desde
+                    // 2026-09-25 también es válido fuera de reclutamiento (ver
+                    // selector "Cliente o candidato" más abajo), así que cambiar
+                    // entre dos modalidades normales (o ir y venir de
+                    // reclutamiento) no debe perder la selección.
                     promotorId: e.target.value === 'ACOMPANAMIENTO' ? form.promotorId : '',
                   });
                 }}

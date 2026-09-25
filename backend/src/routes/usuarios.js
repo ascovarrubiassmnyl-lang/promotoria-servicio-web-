@@ -99,20 +99,20 @@ router.get('/promotores', asyncHandler(async (_req, res) => {
   res.json(promotores);
 }));
 
-// Toda alta nace inactiva: no hay password que fije el promotor (ni registro
-// abierto). La cuenta solo entra cuando se redime el link de invitación
-// (routes/invitaciones.js) — ahí la persona crea su propia contraseña y
-// confirma con la cuenta de Google del correo exacto de aquí.
-router.post('/', esAdmin, permiteSeccion('asesores'), asyncHandler(async (req, res) => {
+// Lógica compartida del alta por invitación: crea la cuenta inactiva y su
+// invitación. La usan tanto el CRUD de administración (POST /, solo
+// admin/asistente) como el alta abierta a cualquiera (POST /invitar, ver más
+// abajo) — mismo flujo, distinto quién puede dispararlo.
+async function altaPorInvitacion(req) {
   const { nombre, apellidoP, apellidoM, email, telefono, rol, claveAgente } = req.body || {};
-  if (!nombre || !apellidoP || !email) return res.status(400).json({ error: 'nombre, apellidoP y email son requeridos' });
+  if (!nombre || !apellidoP || !email) return { error: [400, { error: 'nombre, apellidoP y email son requeridos' }] };
   const rolFinal = rol || 'ASESOR';
   // SUPERADMIN no se crea desde la app (ni el propio superadmin): es un solo
   // rol reservado para quien desarrolla el servicio, se siembra por env/seed.
-  if (!ROLES_ASIGNABLES.includes(rolFinal)) return res.status(400).json({ error: 'Rol inválido' });
+  if (!ROLES_ASIGNABLES.includes(rolFinal)) return { error: [400, { error: 'Rol inválido' }] };
 
   const existe = await prisma.usuario.findUnique({ where: { email: String(email).toLowerCase() } });
-  if (existe) return res.status(409).json({ error: 'Email ya registrado' });
+  if (existe) return { error: [409, { error: 'Email ya registrado' }] };
 
   // Hash aleatorio irrecuperable: la cuenta solo se activa por invitación,
   // donde la persona fija su propia contraseña.
@@ -137,7 +137,35 @@ router.post('/', esAdmin, permiteSeccion('asesores'), asyncHandler(async (req, r
   // (no bloquea la respuesta ni la creación del usuario) — pero sí se espera
   // el intento para poder informar en el panel si realmente se envió.
   const invitacion = await obtenerOCrearInvitacion(usuario, req, { forzarNueva: true });
+  return { usuario, invitacion };
+}
 
+// Toda alta nace inactiva: no hay password que fije el promotor (ni registro
+// abierto). La cuenta solo entra cuando se redime el link de invitación
+// (routes/invitaciones.js) — ahí la persona crea su propia contraseña y
+// confirma con la cuenta de Google del correo exacto de aquí.
+router.post('/', esAdmin, permiteSeccion('asesores'), asyncHandler(async (req, res) => {
+  const { error, usuario, invitacion } = await altaPorInvitacion(req);
+  if (error) return res.status(error[0]).json(error[1]);
+  res.status(201).json({ ...usuario, invitacion });
+}));
+
+// Invitar a alguien a la promotoría es autoservicio: cualquier persona
+// autenticada puede hacerlo, sin el gate de la sección "asesores" (2026-09-25,
+// pedido del usuario: "cualquier persona pueda invitar a otro asesor o a
+// quienes dentro de la promotoria"). Antes el único alta posible pasaba por
+// POST / (esAdmin + permiteSeccion('asesores')), que es también el CRUD de
+// gestión completo (editar rol, desactivar, eliminar) — no tenía sentido
+// abrir TODO eso a cualquier rol solo para poder invitar. Este endpoint
+// reusa exactamente el mismo flujo de invitación (misma cuenta inactiva,
+// mismo correo, mismo link para compartir) pero es alta-only: no gestiona
+// cuentas existentes, y no tiene el piso de rol de "asesores". El rol elegible
+// sigue acotado a ROLES_ASIGNABLES (nunca SUPERADMIN) — decisión explícita
+// del usuario: cualquiera puede invitar con cualquiera de esos tres roles,
+// igual que hoy puede un admin.
+router.post('/invitar', asyncHandler(async (req, res) => {
+  const { error, usuario, invitacion } = await altaPorInvitacion(req);
+  if (error) return res.status(error[0]).json(error[1]);
   res.status(201).json({ ...usuario, invitacion });
 }));
 

@@ -60,6 +60,22 @@ router.post('/', asyncHandler(async (req, res) => {
   res.status(201).json(candidato);
 }));
 
+// Selector liviano para agendar citas (2026-09-25, pedido del usuario: Diana,
+// Michelle y Lupita necesitan poder agendar una cita con un candidato, no
+// solo con un cliente — el selector de CitaFormModal es accesible a
+// cualquier rol). Deliberadamente antes del gate de la sección `candidatos`
+// de abajo (piso de rol ADMIN/SUPERADMIN): expone solo id/nombre, nunca la
+// ficha completa — mismo patrón que GET /usuarios/promotores, que también es
+// transversal a otras secciones.
+router.get('/opciones', asyncHandler(async (_req, res) => {
+  const candidatos = await prisma.candidato.findMany({
+    where: { archivadoEn: null },
+    select: { id: true, nombre: true, apellidoP: true, apellidoM: true },
+    orderBy: { nombre: 'asc' },
+  });
+  res.json(candidatos);
+}));
+
 router.use(permiteSeccion('candidatos'));
 
 router.get('/', asyncHandler(async (req, res) => {

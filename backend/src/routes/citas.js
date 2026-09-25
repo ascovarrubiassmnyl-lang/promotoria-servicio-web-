@@ -235,21 +235,22 @@ router.post('/', asyncHandler(async (req, res) => {
   if (modalidad && MODALIDADES_PROMOTOR.includes(modalidad) && req.user.rol === 'ASESOR') {
     return res.status(403).json({ error: 'Este tipo de cita es solo para el promotor' });
   }
-  // Candidato y cliente son excluyentes: el candidato solo aplica a citas de
-  // reclutamiento (PRP/ENTREVISTA_*) y es opcional (una PRP grupal no tiene
-  // candidato único); una cita de reclutamiento nunca lleva cliente.
-  if (candidatoId && !MODALIDADES_PROMOTOR.includes(modalidad)) {
-    return res.status(400).json({ error: 'El candidato solo aplica a citas de reclutamiento (PRP/entrevistas)' });
-  }
+  // Candidato y cliente son excluyentes, siempre (una cita es con uno o con
+  // otro, nunca los dos). El candidato ya no está limitado a las citas de
+  // reclutamiento (PRP/ENTREVISTA_*, ver MODALIDADES_PROMOTOR más arriba):
+  // desde 2026-09-25 (pedido del usuario: Diana/Michelle/Lupita agendando con
+  // candidatos igual que con clientes) cualquier modalidad puede llevar un
+  // candidato en vez de un cliente; una cita de reclutamiento sigue sin poder
+  // llevar cliente.
   if (candidatoId && clienteId) return res.status(400).json({ error: 'Una cita no puede llevar cliente y candidato a la vez' });
   if (clienteId && MODALIDADES_PROMOTOR.includes(modalidad)) {
     return res.status(400).json({ error: 'Una cita de reclutamiento no lleva cliente (elige un candidato)' });
   }
   // Solo un evento PERSONAL (bloqueo de agenda) o de agenda propia del
-  // promotor (reclutamiento) puede no llevar cliente; toda cita de trabajo
-  // con un asesor lo exige, igual que antes.
-  if (!clienteId && clasificacion !== 'PERSONAL' && !MODALIDADES_PROMOTOR.includes(modalidad)) {
-    return res.status(400).json({ error: 'clienteId es requerido (salvo eventos personales o de agenda propia)' });
+  // promotor (reclutamiento) puede no llevar cliente ni candidato; toda cita
+  // de trabajo con un asesor exige uno de los dos, igual que antes.
+  if (!clienteId && !candidatoId && clasificacion !== 'PERSONAL' && !MODALIDADES_PROMOTOR.includes(modalidad)) {
+    return res.status(400).json({ error: 'Selecciona un cliente o un candidato (salvo eventos personales o de agenda propia)' });
   }
   const cliente = clienteId ? await prisma.cliente.findUnique({ where: { id: clienteId } }) : null;
   if (clienteId && !cliente) return res.status(400).json({ error: 'Cliente no encontrado' });
@@ -324,7 +325,7 @@ router.post('/', asyncHandler(async (req, res) => {
         titulo, descripcion: descripcion || null,
         tipo: tipo || 'TELEFONICA',
         modalidad: modalidad || 'CITA_UNICA',
-        clasificacion: clasificacion || (clienteId ? 'PRODUCTIVA' : 'PERSONAL'),
+        clasificacion: clasificacion || ((clienteId || candidatoId) ? 'PRODUCTIVA' : 'PERSONAL'),
         promotorId: promotorFinal,
         invitacionEstado,
         invitacionRespondidaEn: invitacionEstado === 'ACEPTADA' ? new Date() : null,
@@ -639,13 +640,9 @@ router.patch('/:id', asyncHandler(async (req, res) => {
     if (existente.clienteId) return res.status(400).json({ error: 'Una cita de reclutamiento no lleva cliente (elige un candidato)' });
   }
   if (modalidad) data.modalidad = modalidad;
-  // Mismas reglas del alta: candidato solo en citas de reclutamiento y nunca
-  // junto a un cliente.
+  // Mismas reglas del alta: candidato y cliente son excluyentes, pero el
+  // candidato ya no está limitado a citas de reclutamiento (ver POST /).
   if (candidatoId !== undefined) {
-    const modalidadEfectiva = modalidad || existente.modalidad;
-    if (candidatoId && !MODALIDADES_PROMOTOR.includes(modalidadEfectiva)) {
-      return res.status(400).json({ error: 'El candidato solo aplica a citas de reclutamiento (PRP/entrevistas)' });
-    }
     if (candidatoId && existente.clienteId) {
       return res.status(400).json({ error: 'Una cita no puede llevar cliente y candidato a la vez' });
     }
@@ -657,10 +654,11 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   }
   if (clasificacion) {
     if (!CLASIFICACIONES.includes(clasificacion)) return res.status(400).json({ error: 'clasificacion inválida' });
-    // Un evento sin cliente solo puede ser PERSONAL o de agenda propia del promotor.
+    // Un evento sin cliente ni candidato solo puede ser PERSONAL o de agenda propia del promotor.
     const modalidadEfectiva = modalidad || existente.modalidad;
-    if (!existente.clienteId && clasificacion !== 'PERSONAL' && !MODALIDADES_PROMOTOR.includes(modalidadEfectiva)) {
-      return res.status(400).json({ error: 'Un evento sin cliente solo puede ser personal o de agenda propia' });
+    const candidatoEfectivo = candidatoId !== undefined ? candidatoId : existente.candidatoId;
+    if (!existente.clienteId && !candidatoEfectivo && clasificacion !== 'PERSONAL' && !MODALIDADES_PROMOTOR.includes(modalidadEfectiva)) {
+      return res.status(400).json({ error: 'Un evento sin cliente ni candidato solo puede ser personal o de agenda propia' });
     }
     data.clasificacion = clasificacion;
   }

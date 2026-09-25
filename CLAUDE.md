@@ -33,6 +33,26 @@ reemplaza con `POST /api/usuarios/:id/invitacion` (botón "Invitar" en el menú
 ⋯ de la fila, solo visible si el usuario está inactivo; también reintenta el
 correo).
 
+**Invitar también es autoservicio: cualquier persona autenticada puede
+invitar a alguien más** (2026-09-25, pedido del usuario: "cualquier persona
+pueda invitar a otro asesor o a quienes dentro de la promotoria"), no solo
+quien tiene alcance de administración. `POST /api/usuarios/invitar`
+(`routes/usuarios.js`) reusa exactamente el mismo flujo de arriba (misma
+función `altaPorInvitacion()`, mismo modelo `InvitacionUsuario`, mismo
+correo, mismo link para compartir) pero **sin** el gate `esAdmin` +
+`permiteSeccion('asesores')` de `POST /api/usuarios` — ese endpoint sigue
+existiendo tal cual (es también el CRUD completo: editar rol, desactivar,
+eliminar, solo Asesores → Equipo) y no se le quitó el gate, porque no tenía
+sentido abrir *toda* la gestión de cuentas a cualquier rol solo para poder
+invitar. El rol a invitar sigue acotado a `ROLES_ASIGNABLES` (nunca
+SUPERADMIN) pero **cualquiera puede elegir cualquiera de los tres** —
+decisión explícita del usuario, no solo "invitar como Asesor". El punto de
+entrada es el botón **"Invitar"** en el footer del sidebar (y en la hoja
+"Más" en móvil, `Layout.jsx`), visible para todos los roles —
+`components/usuarios/InvitarUsuarioModal.jsx` es un modal de **alta
+únicamente** (sin edición, deliberadamente no reusa el modal de Asesores →
+Equipo, que sí mezcla alta y edición y sigue con su propio gate).
+
 El asesor/promotor abre `/invitacion/:token` (`pages/Invitacion.jsx`, pública,
 fuera de `ProtectedRoute`): ahí **crea su propia contraseña** (mínimo 6
 caracteres, con confirmación) y solo cuando es válida aparece el botón de
@@ -1151,6 +1171,31 @@ conservan sus nombres históricos; la traducción a UI vive en el **mapa único*
   nombre solo tiene clientes para elegir si alguno está `asesorId: Diana`;
   para agendarle algo sin cliente (una reunión, etc.) se usa "Evento
   personal" o una modalidad que no lo exija (reclutamiento, acompañamiento).
+- **`candidatoId` ya no está limitado a citas de reclutamiento** (2026-09-25,
+  pedido del usuario: Diana/Michelle/Lupita no encontraban a sus candidatos
+  en la lista al agendar una cita normal — la lista que se desplegaba era
+  solo de clientes). Antes `Cita.candidatoId` solo era válido en
+  `MODALIDADES_PROMOTOR` (PRP/ENTREVISTA_\*); ahora **cualquier modalidad**
+  (`CITA_UNICA`, `ACOMPANAMIENTO`, `ENTREGA_POLIZA`) puede llevar un
+  candidato en vez de un cliente — `clienteId`/`candidatoId` siguen siendo
+  mutuamente excluyentes y una cita de reclutamiento sigue sin poder llevar
+  cliente, esas dos reglas no cambiaron (`routes/citas.js`, POST y PATCH).
+  En `CitaFormModal.jsx` el antiguo campo "Cliente\*" es ahora **"Cliente o
+  candidato\*"**: un solo `<select>` con dos `<optgroup>` (Clientes /
+  Candidatos a asesor), codificando la opción como `cliente:<id>` o
+  `candidato:<id>` para decidir cuál de los dos campos llenar. La lista de
+  candidatos sale de **`GET /candidatos/opciones`**
+  (`routes/candidatos.js`, nuevo, declarado **antes** del
+  `router.use(permiteSeccion('candidatos'))`) — deliberadamente transversal
+  a cualquier rol, igual que `GET /usuarios/promotores`: el módulo
+  Candidatos completo sigue con piso de rol ADMIN/SUPERADMIN (ver Sección
+  Candidatos más abajo), pero este selector solo expone id/nombre, nunca la
+  ficha, así que un asesor como Lupita puede elegir un candidato sin poder
+  ver ni gestionar el pipeline de reclutamiento. El selector propio
+  "Candidato (opcional)" de las modalidades de reclutamiento (más abajo)
+  ahora pega contra este mismo endpoint en vez de `GET /candidatos` —
+  mismos datos, sin cambio de comportamiento ahí (seguía siendo solo para
+  admin/asistente porque solo ellos llegan a esas modalidades).
 - **Disponibilidad del promotor (ocupado/libre, 2026-08-12)**: el asesor puede
   ver en qué horarios está ocupado un promotor para invitarlo a un
   acompañamiento sin preguntarle antes, vía `GET /api/citas/disponibilidad`
@@ -1493,7 +1538,11 @@ no extenderlo). Modelos: `Candidato` (datos del formulario SMNYL + `etapa` +
   `SECCIONES_SOLO_ADMIN`): solo ADMIN/SUPERADMIN ven/gestionan el módulo.
   Excepción deliberada: `POST /api/candidatos` solo exige `authenticate`
   (cualquier rol puede **capturar** — un asesor puede referir un candidato);
-  todo lo demás del router pasa por `permiteSeccion('candidatos')`.
+  todo lo demás del router pasa por `permiteSeccion('candidatos')`. Segunda
+  excepción, misma idea (2026-09-25): `GET /api/candidatos/opciones` (id +
+  nombre, sin ficha) también va antes de ese gate, para que cualquier rol
+  pueda elegir un candidato al agendar una cita sin poder ver el módulo
+  completo — ver Sección Citas / Calendario.
 - **Captura**: el modal "+ Nuevo cliente" (`ClientesView.jsx`) abre con el
   selector "¿Qué vas a registrar?" (Cliente | Candidato a asesor) y rutea a
   `CandidatoFormModal` (formulario SMNYL: requeridos nombre, apellido paterno,
