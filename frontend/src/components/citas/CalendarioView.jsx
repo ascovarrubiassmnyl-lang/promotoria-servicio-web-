@@ -116,6 +116,88 @@ function FichaCita({ cita, onClose, onReagendar, onEliminar, onCambiarEstado, es
     } finally { setRespondiendo(false); }
   };
 
+  // --- Invitados adicionales (2026-09-25) --- mismo patrón que arriba
+  // (promotor de acompañamiento) pero por invitado: cada uno responde su
+  // propia fila, así que el estado de "cuál se está respondiendo/sugiriendo"
+  // se guarda por invitadoId en vez de un solo booleano.
+  const [respondiendoInvitado, setRespondiendoInvitado] = useState(null);
+  const [sugiriendoInvitadoId, setSugiriendoInvitadoId] = useState(null);
+  const [sugerenciaInvitado, setSugerenciaInvitado] = useState({ inicio: '', fin: '', nota: '' });
+
+  const responderInvitado = async (inv, respuesta) => {
+    setRespondiendoInvitado(inv.id);
+    setErr('');
+    try {
+      try {
+        await api.patch(`/citas/${cita.id}/invitados/${inv.id}`, { respuesta });
+      } catch (e) {
+        const empalme = e?.response?.status === 409 && e?.response?.data?.empalme;
+        if (!empalme) throw e;
+        const otra = e.response.data.empalme;
+        const ok = window.confirm(`Ya tienes "${otra.titulo}" a esa hora (${hora(otra.fechaHoraInicio)} – ${hora(otra.fechaHoraFin)}).\n\n¿Aceptar de todos modos?`);
+        if (!ok) { setRespondiendoInvitado(null); return; }
+        await api.patch(`/citas/${cita.id}/invitados/${inv.id}`, { respuesta, ignorarEmpalme: true });
+      }
+      invalidarCitas();
+      onClose();
+    } catch (e2) {
+      setErr(handleError(e2));
+    } finally { setRespondiendoInvitado(null); }
+  };
+
+  const enviarSugerenciaInvitado = async (inv) => {
+    if (!sugerenciaInvitado.inicio || !sugerenciaInvitado.fin) { setErr('Indica inicio y fin de la propuesta'); return; }
+    if (new Date(sugerenciaInvitado.fin) <= new Date(sugerenciaInvitado.inicio)) { setErr('El fin debe ser posterior al inicio'); return; }
+    setRespondiendoInvitado(inv.id);
+    setErr('');
+    try {
+      await api.patch(`/citas/${cita.id}/invitados/${inv.id}`, {
+        respuesta: 'SUGERIDA',
+        sugerenciaInicio: new Date(sugerenciaInvitado.inicio).toISOString(),
+        sugerenciaFin: new Date(sugerenciaInvitado.fin).toISOString(),
+        sugerenciaNota: sugerenciaInvitado.nota.trim() || undefined,
+      });
+      invalidarCitas();
+      onClose();
+    } catch (e2) {
+      setErr(handleError(e2));
+    } finally { setRespondiendoInvitado(null); }
+  };
+
+  // Responder a la sugerencia de UN invitado (dueño de la cita).
+  const responderSugerenciaInvitado = async (inv, aceptar) => {
+    setRespondiendoInvitado(inv.id);
+    setErr('');
+    try {
+      try {
+        await api.patch(`/citas/${cita.id}/invitados/${inv.id}/sugerencia`, { aceptar });
+      } catch (e) {
+        const empalme = e?.response?.status === 409 && e?.response?.data?.empalme;
+        if (!empalme) throw e;
+        const otra = e.response.data.empalme;
+        const ok = window.confirm(`Ya tienes "${otra.titulo}" a esa hora (${hora(otra.fechaHoraInicio)} – ${hora(otra.fechaHoraFin)}).\n\n¿Aceptar de todos modos?`);
+        if (!ok) { setRespondiendoInvitado(null); return; }
+        await api.patch(`/citas/${cita.id}/invitados/${inv.id}/sugerencia`, { aceptar, ignorarEmpalme: true });
+      }
+      invalidarCitas();
+      onClose();
+    } catch (e2) {
+      setErr(handleError(e2));
+    } finally { setRespondiendoInvitado(null); }
+  };
+
+  const quitarInvitado = async (inv) => {
+    if (!window.confirm(`¿Quitar a ${inv.usuario?.nombre} de esta cita?`)) return;
+    setRespondiendoInvitado(inv.id);
+    setErr('');
+    try {
+      await api.delete(`/citas/${cita.id}/invitados/${inv.id}`);
+      invalidarCitas();
+    } catch (e2) {
+      setErr(handleError(e2));
+    } finally { setRespondiendoInvitado(null); }
+  };
+
   const paraInput = (iso) => {
     const d = new Date(iso);
     const p = (n) => String(n).padStart(2, '0');
@@ -270,6 +352,82 @@ function FichaCita({ cita, onClose, onReagendar, onEliminar, onCambiarEstado, es
               {cita.invitacionEstado === 'SUGERIDA' && cita.sugerenciaInicio ? ` · propone ${fechaCorta(cita.sugerenciaInicio)} ${hora(cita.sugerenciaInicio)}` : ''}
             </p>
           )
+        )}
+
+        {/* Invitados adicionales (2026-09-25): lista de asesores/promotoras
+            invitados además del dueño y del promotor de acompañamiento (arriba).
+            Cada quien responde su propia fila; el dueño ve el estado de todas
+            y puede quitar una invitación de más. Un cliente nunca aparece aquí
+            (no tiene cuenta ni forma de notificarlo). */}
+        {cita.invitados?.length > 0 && (
+          <div className="space-y-2">
+            {cita.invitados.map((inv) => {
+              const soyEsteInvitado = inv.usuarioId === usuarioId;
+              const nombreInv = `${inv.usuario?.nombre || ''} ${inv.usuario?.apellidoP || ''}`.trim();
+              if (soyEsteInvitado && inv.estado === 'PENDIENTE') {
+                return (
+                  <div key={inv.id} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 dark:border-amber-700 dark:bg-amber-900/25">
+                    <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+                      {cita.asesor?.nombre} {cita.asesor?.apellidoP} te invitó a esta cita.
+                    </p>
+                    <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">Hasta que la aceptes no ocupa tu agenda.</p>
+                    {sugiriendoInvitadoId !== inv.id ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button type="button" disabled={respondiendoInvitado === inv.id} onClick={() => responderInvitado(inv, 'ACEPTADA')} className="rounded-lg border border-emerald-300 bg-white px-3 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-700 dark:bg-transparent dark:text-emerald-400">✓ Aceptar</button>
+                        <button type="button" disabled={respondiendoInvitado === inv.id} onClick={() => responderInvitado(inv, 'RECHAZADA')} className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-transparent dark:text-slate-300">Rechazar</button>
+                        <button type="button" disabled={respondiendoInvitado === inv.id} onClick={() => { setSugiriendoInvitadoId(inv.id); setSugerenciaInvitado({ inicio: paraInput(cita.fechaHoraInicio), fin: paraInput(cita.fechaHoraFin), nota: '' }); }} className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-transparent dark:text-slate-300">↻ Sugerir otra hora</button>
+                      </div>
+                    ) : (
+                      <div className="mt-2 space-y-2 rounded-lg border border-amber-200 bg-white/60 p-2.5 dark:border-amber-800 dark:bg-transparent">
+                        <div className="grid grid-cols-2 gap-2">
+                          <Field label="Nuevo inicio*">
+                            <input type="datetime-local" className="input" value={sugerenciaInvitado.inicio} onChange={(e) => setSugerenciaInvitado({ ...sugerenciaInvitado, inicio: e.target.value })} />
+                          </Field>
+                          <Field label="Nuevo fin*">
+                            <input type="datetime-local" className="input" value={sugerenciaInvitado.fin} onChange={(e) => setSugerenciaInvitado({ ...sugerenciaInvitado, fin: e.target.value })} />
+                          </Field>
+                        </div>
+                        <Field label="Nota (opcional)">
+                          <input className="input" value={sugerenciaInvitado.nota} onChange={(e) => setSugerenciaInvitado({ ...sugerenciaInvitado, nota: e.target.value })} placeholder="Ej. Tengo junta, ¿te va mejor a esta hora?" />
+                        </Field>
+                        <div className="flex gap-2">
+                          <button type="button" disabled={respondiendoInvitado === inv.id} onClick={() => enviarSugerenciaInvitado(inv)} className="rounded-lg border border-brand-300 bg-white px-3 py-1 text-xs font-semibold text-brand-700 hover:bg-brand-50 disabled:opacity-50 dark:border-brand-700 dark:bg-transparent dark:text-brand-400">Enviar propuesta</button>
+                          <button type="button" disabled={respondiendoInvitado === inv.id} onClick={() => setSugiriendoInvitadoId(null)} className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:bg-transparent dark:text-slate-300">Cancelar</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+              if (!soyEsteInvitado && cita.asesorId === usuarioId && inv.estado === 'SUGERIDA' && inv.sugerenciaInicio) {
+                return (
+                  <div key={inv.id} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 dark:border-amber-700 dark:bg-amber-900/25">
+                    <p className="text-sm font-medium text-amber-900 dark:text-amber-200">{nombreInv} propuso otro horario:</p>
+                    <p className="mt-0.5 text-sm font-semibold text-amber-900 dark:text-amber-200">
+                      {fechaCorta(inv.sugerenciaInicio)} · {hora(inv.sugerenciaInicio)} – {hora(inv.sugerenciaFin)}
+                    </p>
+                    {inv.sugerenciaNota && <p className="mt-0.5 text-xs italic text-amber-700 dark:text-amber-300">"{inv.sugerenciaNota}"</p>}
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" disabled={respondiendoInvitado === inv.id} onClick={() => responderSugerenciaInvitado(inv, true)} className="rounded-lg border border-emerald-300 bg-white px-3 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-700 dark:bg-transparent dark:text-emerald-400">✓ Aceptar nuevo horario</button>
+                      <button type="button" disabled={respondiendoInvitado === inv.id} onClick={() => responderSugerenciaInvitado(inv, false)} className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-transparent dark:text-slate-300">No me sirve</button>
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <p key={inv.id} className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium mr-2 ${
+                  inv.estado === 'ACEPTADA' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                  : inv.estado === 'RECHAZADA' ? 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                  : 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'}`}>
+                  {infoInvitacion(inv.estado)?.icono} {nombreInv}: {infoInvitacion(inv.estado)?.label}
+                  {inv.estado === 'SUGERIDA' && inv.sugerenciaInicio ? ` · propone ${fechaCorta(inv.sugerenciaInicio)} ${hora(inv.sugerenciaInicio)}` : ''}
+                  {cita.asesorId === usuarioId && (
+                    <button type="button" disabled={respondiendoInvitado === inv.id} onClick={() => quitarInvitado(inv)} className="ml-1.5 text-slate-400 hover:text-red-600 dark:text-slate-500 dark:hover:text-red-400" title="Quitar invitado">✕</button>
+                  )}
+                </p>
+              );
+            })}
+          </div>
         )}
 
         <div className="rounded-lg bg-slate-50 dark:bg-slate-700/40 px-3 py-2 text-xs text-slate-600 dark:text-slate-300 space-y-0.5">

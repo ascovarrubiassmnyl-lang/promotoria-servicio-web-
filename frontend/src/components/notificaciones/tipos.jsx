@@ -18,7 +18,7 @@ const ICONO_META = ['M12 12m-9 0a9 9 0 1018 0a9 9 0 10-18 0', 'M12 12m-4 0a4 4 0
 
 export const TIPOS_NOTIFICACION = {
   CITA_INVITACION: {
-    label: 'Invitación de acompañamiento',
+    label: 'Invitación a una cita',
     dot: 'bg-violet-500',
     marker: 'bg-violet-50 text-violet-600 ring-violet-200 dark:bg-violet-500/10 dark:text-violet-400 dark:ring-violet-500/30',
     icon: <Icono d={ICONO_CITA} />,

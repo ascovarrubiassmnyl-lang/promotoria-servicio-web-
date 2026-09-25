@@ -17,8 +17,19 @@ router.use(permiteSeccion('citas'));
 router.get('/', asyncHandler(async (req, res) => {
   const { desde, hasta, estado, asesorId, clienteId, candidatoId, promotorId, clasificacion } = req.query;
   const where = {};
-  if (req.user.rol === 'ASESOR') where.asesorId = req.user.id;
-  else if (asesorId) where.asesorId = asesorId;
+  // Alcance por dueño: un ASESOR siempre ve solo lo suyo; un admin/asistente
+  // ve lo que pida con ?asesorId=. En ambos casos, si el alcance efectivo es
+  // "yo mismo" (forzado para ASESOR, o admin consultando su propia agenda
+  // con "Mi agenda"), también se incluyen las citas donde soy INVITADO (ver
+  // CitaInvitado, 2026-09-25) — no solo las que me pertenecen como dueño. Con
+  // el asesorId de alguien más el filtro se queda exacto: no se le muestran
+  // a un admin las citas ajenas donde esa persona solo fue invitada.
+  const asesorEfectivo = req.user.rol === 'ASESOR' ? req.user.id : (asesorId || null);
+  if (asesorEfectivo === req.user.id) {
+    where.OR = [{ asesorId: asesorEfectivo }, { invitados: { some: { usuarioId: asesorEfectivo } } }];
+  } else if (asesorEfectivo) {
+    where.asesorId = asesorEfectivo;
+  }
   if (promotorId) where.promotorId = promotorId;
   if (clienteId) where.clienteId = clienteId;
   if (candidatoId) where.candidatoId = candidatoId;
@@ -36,6 +47,7 @@ router.get('/', asyncHandler(async (req, res) => {
       candidato: { select: { id: true, nombre: true, apellidoP: true, telefono: true } },
       asesor: { select: { id: true, nombre: true, apellidoP: true } },
       promotor: { select: { id: true, nombre: true, apellidoP: true } },
+      ...INCLUDE_INVITADOS,
     },
     orderBy: { fechaHoraInicio: 'asc' },
   });
@@ -77,10 +89,11 @@ router.get('/disponibilidad', asyncHandler(async (req, res) => {
   }
 
   // Lo que realmente ocupa la agenda de un promotor: sus propias citas (como
-  // dueño: reclutamiento, eventos personales) más los acompañamientos que ya
-  // ACEPTÓ. Mismo criterio que valida el empalme en PATCH /:id/invitacion —
-  // una invitación PENDIENTE todavía no lo ocupa, así que ese hueco sigue
-  // ofreciéndose como libre hasta que responde.
+  // dueño: reclutamiento, eventos personales), los acompañamientos que ya
+  // ACEPTÓ (mecanismo de promotorId) y, desde 2026-09-25, cualquier otra cita
+  // donde lo hayan invitado como participante y ya ACEPTÓ (ver CitaInvitado).
+  // Una invitación PENDIENTE/SUGERIDA todavía no lo ocupa, así que ese hueco
+  // sigue ofreciéndose como libre hasta que responde.
   const citas = await prisma.cita.findMany({
     where: {
       estado: { in: ['PROGRAMADA', 'CONFIRMADA'] },
@@ -89,6 +102,7 @@ router.get('/disponibilidad', asyncHandler(async (req, res) => {
       OR: [
         { asesorId: usuarioId },
         { promotorId: usuarioId, invitacionEstado: 'ACEPTADA' },
+        { invitados: { some: { usuarioId, estado: 'ACEPTADA' } } },
       ],
     },
     select: { fechaHoraInicio: true, fechaHoraFin: true },
@@ -112,23 +126,35 @@ router.get('/:id', asyncHandler(async (req, res) => {
       candidato: { select: { id: true, nombre: true, apellidoP: true, telefono: true, etapa: true } },
       asesor: { select: { id: true, nombre: true, apellidoP: true } },
       promotor: { select: { id: true, nombre: true, apellidoP: true } },
+      ...INCLUDE_INVITADOS,
     },
   });
   if (!cita) return res.status(404).json({ error: 'Cita no encontrada' });
-  if (req.user.rol === 'ASESOR' && cita.asesorId !== req.user.id) return res.status(403).json({ error: 'Sin acceso a esta cita' });
+  // Un ASESOR ve la cita si es el dueño o si está en la lista de invitados
+  // (mismo criterio de alcance que GET / — ver comentario ahí).
+  if (req.user.rol === 'ASESOR' && cita.asesorId !== req.user.id && !cita.invitados.some((i) => i.usuarioId === req.user.id)) {
+    return res.status(403).json({ error: 'Sin acceso a esta cita' });
+  }
   res.json(cita);
 }));
 
 // Empalme = otra cita viva (PROGRAMADA/CONFIRMADA) del mismo asesor que se cruza en horario.
 // Se reporta como 409 con el detalle; el cliente puede reenviar con ignorarEmpalme=true.
+// Desde 2026-09-25 también cuenta lo que ocupa la agenda de `asesorId` como
+// INVITADO ya aceptado (ver CitaInvitado) — no solo lo que le pertenece como
+// dueño. Una invitación PENDIENTE/SUGERIDA todavía no ocupa el hueco, mismo
+// criterio que ya aplicaba a promotorId + invitacionEstado.
 async function buscarEmpalme(asesorId, inicio, fin, excluirId = null) {
   return prisma.cita.findFirst({
     where: {
-      asesorId,
       ...(excluirId ? { id: { not: excluirId } } : {}),
       estado: { in: ['PROGRAMADA', 'CONFIRMADA'] },
       fechaHoraInicio: { lt: fin },
       fechaHoraFin: { gt: inicio },
+      OR: [
+        { asesorId },
+        { invitados: { some: { usuarioId: asesorId, estado: 'ACEPTADA' } } },
+      ],
     },
     select: { id: true, titulo: true, fechaHoraInicio: true, fechaHoraFin: true },
   });
@@ -152,6 +178,7 @@ async function buscarChoquePromotor(promotorId, inicio, fin, excluirId = null) {
       OR: [
         { asesorId: promotorId },
         { promotorId, invitacionEstado: 'ACEPTADA' },
+        { invitados: { some: { usuarioId: promotorId, estado: 'ACEPTADA' } } },
       ],
     },
     select: { id: true, titulo: true, fechaHoraInicio: true, fechaHoraFin: true },
@@ -223,8 +250,27 @@ const CLASIFICACIONES = ['PRODUCTIVA', 'GESTION', 'PERSONAL'];
 // agenda ni se pintan de rojo — su color lo da la clasificación elegida).
 const MODALIDADES_PROMOTOR = ['PRP', 'ENTREVISTA_INICIAL', 'ENTREVISTA_SELECCION', 'ENTREVISTA_CARRERA'];
 
+// Invitados adicionales de una cita (2026-09-25): cualquier usuario invitado
+// más allá del dueño y del promotor de acompañamiento (Cita.promotorId, que
+// es otro mecanismo, ver el modelo). Se spread-ea en cada `include` que ya
+// devuelve la cita completa al frontend, para no repetir la forma a mano.
+const INCLUDE_INVITADOS = {
+  invitados: {
+    select: {
+      id: true,
+      usuarioId: true,
+      estado: true,
+      sugerenciaInicio: true,
+      sugerenciaFin: true,
+      sugerenciaNota: true,
+      usuario: { select: { id: true, nombre: true, apellidoP: true } },
+    },
+    orderBy: { creadoEn: 'asc' },
+  },
+};
+
 router.post('/', asyncHandler(async (req, res) => {
-  const { clienteId, candidatoId, titulo, descripcion, tipo, fechaHoraInicio, fechaHoraFin, ubicacion, recordatorioMinutos, modalidad, clasificacion, promotorId, ignorarEmpalme, recurrencia } = req.body || {};
+  const { clienteId, candidatoId, titulo, descripcion, tipo, fechaHoraInicio, fechaHoraFin, ubicacion, recordatorioMinutos, modalidad, clasificacion, promotorId, ignorarEmpalme, recurrencia, invitadosIds } = req.body || {};
   if (!titulo || !fechaHoraInicio) return res.status(400).json({ error: 'titulo y fechaHoraInicio son requeridos' });
   const tipoRecurrencia = recurrencia?.tipo || 'NO_REPITE';
   if (!TIPOS_RECURRENCIA.includes(tipoRecurrencia)) return res.status(400).json({ error: 'recurrencia.tipo inválido' });
@@ -264,6 +310,27 @@ router.post('/', asyncHandler(async (req, res) => {
     if (!dueno?.activo) return res.status(400).json({ error: 'El usuario al que se asigna la cita no existe o está inactivo' });
   }
   if (req.user.rol === 'ASESOR' && cliente && cliente.asesorId !== req.user.id) return res.status(403).json({ error: 'El cliente pertenece a otro asesor' });
+
+  // Invitados adicionales (2026-09-25, pedido del usuario: "en todas las
+  // cuentas del crm a la hora de crear citas haya una opción para invitar a
+  // más personas del crm como asesores... o promotorías"): cualquier usuario
+  // del sistema —asesor o promotora, nunca SUPERADMIN, que es la cuenta de
+  // quien desarrolla el servicio— además del dueño (asesorId) y del promotor
+  // de acompañamiento (promotorId, otro mecanismo aparte). Se valida antes de
+  // crear nada para no dejar una cita a medio invitar si algún id es inválido.
+  const invitadosIdsLimpios = Array.isArray(invitadosIds)
+    ? [...new Set(invitadosIds.filter((iid) => iid && iid !== asesorId))]
+    : [];
+  let invitadosValidos = [];
+  if (invitadosIdsLimpios.length) {
+    invitadosValidos = await prisma.usuario.findMany({
+      where: { id: { in: invitadosIdsLimpios }, activo: true, rol: { in: ['ADMIN', 'ASISTENTE', 'ASESOR'] } },
+      select: { id: true, nombre: true, apellidoP: true },
+    });
+    if (invitadosValidos.length !== invitadosIdsLimpios.length) {
+      return res.status(400).json({ error: 'Alguno de los invitados no existe o no está activo' });
+    }
+  }
 
   // Validar promotor si se asigna (debe ser admin/superadmin)
   let promotorFinal = null;
@@ -348,6 +415,17 @@ router.post('/', asyncHandler(async (req, res) => {
     return res.status(409).json({ error: 'Todas las fechas de la serie se empalman con otra cita', omitidas });
   }
 
+  // Una fila CitaInvitado por (cita creada × invitado): en una serie repetida
+  // cada instancia lleva su propia invitación independiente (se acepta/
+  // rechaza/reagenda por separado, mismo criterio que el resto de la serie),
+  // pero el aviso de abajo se manda una sola vez por invitado para no saturar
+  // su campana con N notificaciones idénticas.
+  if (invitadosValidos.length) {
+    await prisma.citaInvitado.createMany({
+      data: creadas.flatMap((c) => invitadosValidos.map((u) => ({ citaId: c.id, usuarioId: u.id, invitadoPorId: req.user.id }))),
+    });
+  }
+
   // Los eventos personales no dejan huella en la bitácora de trabajo. Una
   // serie repetida registra una sola entrada (la primera cita) para no
   // saturar la bitácora con N eventos idénticos.
@@ -404,7 +482,41 @@ router.post('/', asyncHandler(async (req, res) => {
     }
   }
 
-  res.status(201).json({ cita: primera, citas: creadas, omitidas: omitidas.length ? omitidas : undefined });
+  // Aviso a cada invitado adicional (2026-09-25): mismo criterio de "mejor
+  // esfuerzo" que el promotor — si el push falla la invitación ya quedó
+  // registrada, se avisa por separado a cada persona de la lista.
+  for (const u of invitadosValidos) {
+    const quien = `${req.user.nombre} ${req.user.apellidoP || ''}`.trim();
+    const tituloAviso = 'Nueva invitación a una cita';
+    const cuerpo = creadas.length > 1
+      ? `${quien} te invitó a ${creadas.length} citas: "${titulo}". Ábrelas para aceptar o rechazar.`
+      : `${quien} te invitó a "${titulo}" el ${primera.fechaHoraInicio.toLocaleString('es-MX')}. Ábrela para aceptar o rechazar.`;
+    try {
+      await notificar(u.id, 'CITA_INVITACION', {
+        titulo: tituloAviso,
+        cuerpo,
+        datos: { url: '/citas', citaId: primera.id },
+        pushPayload: {
+          title: tituloAviso,
+          body: cuerpo,
+          tag: `invitacion-cita-${primera.id}-${u.id}`,
+          data: { url: '/citas' },
+        },
+      });
+    } catch (err) {
+      console.error(`No se pudo notificar la invitación a ${u.id}:`, err.message);
+    }
+  }
+
+  const primeraConInvitados = invitadosValidos.length
+    ? await prisma.cita.findUnique({ where: { id: primera.id }, include: { invitados: INCLUDE_INVITADOS.invitados } })
+    : null;
+
+  res.status(201).json({
+    cita: primeraConInvitados ? { ...primera, invitados: primeraConInvitados.invitados } : primera,
+    citas: creadas,
+    omitidas: omitidas.length ? omitidas : undefined,
+  });
 }));
 
 // Respuesta del promotor a una invitación de acompañamiento. Solo el promotor
@@ -621,6 +733,159 @@ router.patch('/:id/invitacion/sugerencia', asyncHandler(async (req, res) => {
   res.json(actualizada);
 }));
 
+// --- Invitados adicionales (2026-09-25) ---
+// Mismo ciclo ACEPTAR/RECHAZAR/SUGERIR que ya existía para promotorId, pero
+// por invitado en vez de uno solo por cita — ver modelo CitaInvitado.
+// Deliberadamente SIN espejo en Google Calendar (ese mecanismo es propio del
+// promotorId original, un evento por cita; generalizarlo a N invitados
+// pediría N eventos por cita, fuera de alcance de este cambio) y sin bloqueo
+// duro por choque de horario al invitar (a diferencia de promotorId +
+// ACOMPANAMIENTO): aquí se advierte con el empalme normal, ignorable, porque
+// el invitado ni siquiera ha respondido todavía.
+
+async function obtenerInvitado(citaId, invitadoId) {
+  return prisma.citaInvitado.findUnique({
+    where: { id: invitadoId },
+    include: { cita: true },
+  });
+}
+
+router.patch('/:id/invitados/:invitadoId', asyncHandler(async (req, res) => {
+  const { id, invitadoId } = req.params;
+  const { respuesta, ignorarEmpalme, sugerenciaInicio, sugerenciaFin, sugerenciaNota } = req.body || {};
+  if (!['ACEPTADA', 'RECHAZADA', 'SUGERIDA'].includes(respuesta)) {
+    return res.status(400).json({ error: 'respuesta debe ser ACEPTADA, RECHAZADA o SUGERIDA' });
+  }
+  if (respuesta === 'SUGERIDA') {
+    if (!sugerenciaInicio || !sugerenciaFin) return res.status(400).json({ error: 'sugerenciaInicio y sugerenciaFin son requeridos' });
+    if (new Date(sugerenciaFin) <= new Date(sugerenciaInicio)) return res.status(400).json({ error: 'sugerenciaFin debe ser posterior a sugerenciaInicio' });
+  }
+  const invitado = await obtenerInvitado(id, invitadoId);
+  if (!invitado || invitado.citaId !== id) return res.status(404).json({ error: 'Invitación no encontrada' });
+  if (invitado.usuarioId !== req.user.id) return res.status(403).json({ error: 'Solo la persona invitada puede responder' });
+  const cita = invitado.cita;
+
+  // Al aceptar, la cita pasa a ocupar la agenda del invitado: se advierte si
+  // ya tiene algo a esa hora (se puede aceptar de todos modos, igual que el
+  // alta) — mismo criterio que buscarEmpalme, ignorable con ignorarEmpalme.
+  if (respuesta === 'ACEPTADA' && ignorarEmpalme !== true) {
+    const solapada = await buscarEmpalme(req.user.id, cita.fechaHoraInicio, cita.fechaHoraFin, cita.id);
+    if (solapada) return res.status(409).json({ error: 'Ya tienes una cita a esa hora', empalme: solapada });
+  }
+
+  const actualizado = await prisma.citaInvitado.update({
+    where: { id: invitadoId },
+    data: {
+      estado: respuesta,
+      respondidaEn: respuesta === 'SUGERIDA' ? null : new Date(),
+      ...(respuesta === 'SUGERIDA'
+        ? { sugerenciaInicio: new Date(sugerenciaInicio), sugerenciaFin: new Date(sugerenciaFin), sugerenciaNota: sugerenciaNota || null }
+        : { sugerenciaInicio: null, sugerenciaFin: null, sugerenciaNota: null }),
+    },
+  });
+
+  // Avisar al dueño de la cita: campana + push, mismo patrón que la
+  // respuesta del promotor.
+  try {
+    const quien = `${req.user.nombre} ${req.user.apellidoP || ''}`.trim();
+    const titulos = {
+      ACEPTADA: 'Invitación aceptada',
+      RECHAZADA: 'Invitación rechazada',
+      SUGERIDA: `${quien} propuso otro horario`,
+    };
+    const cuerpos = {
+      ACEPTADA: `${quien} aceptó tu invitación a "${cita.titulo}".`,
+      RECHAZADA: `${quien} no podrá asistir a "${cita.titulo}".`,
+      SUGERIDA: `${quien} propuso otro horario para "${cita.titulo}": ${new Date(sugerenciaInicio).toLocaleString('es-MX')}. Revisa y responde.`,
+    };
+    await notificar(cita.asesorId, 'CITA_INVITACION_RESPUESTA', {
+      titulo: titulos[respuesta],
+      cuerpo: cuerpos[respuesta],
+      datos: { url: '/citas', citaId: cita.id, respuesta },
+      pushPayload: {
+        title: titulos[respuesta],
+        body: cuerpos[respuesta],
+        tag: `respuesta-invitado-${invitadoId}`,
+        data: { url: '/citas' },
+      },
+    });
+  } catch (err) {
+    console.error('No se pudo notificar la respuesta al dueño de la cita:', err.message);
+  }
+
+  res.json(actualizado);
+}));
+
+// Respuesta del dueño de la cita a la sugerencia de horario de ESE invitado.
+// Aceptar mueve la cita COMPLETA a ese horario (es un solo horario compartido
+// por todos los que asisten) y deja a este invitado ACEPTADA — no toca el
+// estado de otros invitados que ya hubieran respondido a un horario distinto,
+// caso raro que se resuelve a mano si llega a pasar.
+router.patch('/:id/invitados/:invitadoId/sugerencia', asyncHandler(async (req, res) => {
+  const { id, invitadoId } = req.params;
+  const { aceptar, ignorarEmpalme } = req.body || {};
+  if (typeof aceptar !== 'boolean') return res.status(400).json({ error: 'aceptar (boolean) es requerido' });
+  const invitado = await obtenerInvitado(id, invitadoId);
+  if (!invitado || invitado.citaId !== id) return res.status(404).json({ error: 'Invitación no encontrada' });
+  const cita = invitado.cita;
+  if (cita.asesorId !== req.user.id) return res.status(403).json({ error: 'Solo el dueño de la cita puede responder' });
+  if (invitado.estado !== 'SUGERIDA' || !invitado.sugerenciaInicio || !invitado.sugerenciaFin) {
+    return res.status(400).json({ error: 'Este invitado no tiene una sugerencia de horario pendiente' });
+  }
+
+  if (aceptar && ignorarEmpalme !== true) {
+    const solapada = await buscarEmpalme(cita.asesorId, invitado.sugerenciaInicio, invitado.sugerenciaFin, cita.id);
+    if (solapada) return res.status(409).json({ error: 'Ya tienes una cita a esa hora', empalme: solapada });
+  }
+
+  const [actualizada] = await prisma.$transaction([
+    aceptar
+      ? prisma.cita.update({ where: { id }, data: { fechaHoraInicio: invitado.sugerenciaInicio, fechaHoraFin: invitado.sugerenciaFin } })
+      : prisma.cita.findUnique({ where: { id } }),
+    prisma.citaInvitado.update({
+      where: { id: invitadoId },
+      data: aceptar
+        ? { estado: 'ACEPTADA', respondidaEn: new Date(), sugerenciaInicio: null, sugerenciaFin: null, sugerenciaNota: null }
+        : { estado: 'PENDIENTE', sugerenciaInicio: null, sugerenciaFin: null, sugerenciaNota: null },
+    }),
+  ]);
+
+  try {
+    const quien = `${req.user.nombre} ${req.user.apellidoP || ''}`.trim();
+    const tituloAviso = aceptar ? 'Nuevo horario confirmado' : 'Sugerencia no aceptada';
+    const cuerpo = aceptar
+      ? `${quien} aceptó tu propuesta de horario para "${cita.titulo}".`
+      : `${quien} no aceptó tu propuesta de horario para "${cita.titulo}". Vuelve a proponer o responde la invitación.`;
+    await notificar(invitado.usuarioId, 'CITA_SUGERENCIA_RESPUESTA', {
+      titulo: tituloAviso,
+      cuerpo,
+      datos: { url: '/citas', citaId: cita.id, aceptada: aceptar },
+      pushPayload: {
+        title: tituloAviso,
+        body: cuerpo,
+        tag: `sugerencia-invitado-${invitadoId}`,
+        data: { url: '/citas' },
+      },
+    });
+  } catch (err) {
+    console.error('No se pudo notificar la respuesta a la sugerencia:', err.message);
+  }
+
+  res.json(actualizada);
+}));
+
+// Cancelar/quitar un invitado (dueño de la cita): limpieza de una invitación
+// de más, antes o después de que responda — nunca lo hace el propio
+// invitado (para eso ya está RECHAZADA).
+router.delete('/:id/invitados/:invitadoId', asyncHandler(async (req, res) => {
+  const { id, invitadoId } = req.params;
+  const invitado = await obtenerInvitado(id, invitadoId);
+  if (!invitado || invitado.citaId !== id) return res.status(404).json({ error: 'Invitación no encontrada' });
+  if (invitado.cita.asesorId !== req.user.id) return res.status(403).json({ error: 'Solo el dueño de la cita puede quitar invitados' });
+  await prisma.citaInvitado.delete({ where: { id: invitadoId } });
+  res.status(204).end();
+}));
+
 router.patch('/:id', asyncHandler(async (req, res) => {
   const { id } = req.params;
   const existente = await prisma.cita.findUnique({ where: { id } });
@@ -722,6 +987,7 @@ router.patch('/:id', asyncHandler(async (req, res) => {
       candidato: { select: { id: true, nombre: true, apellidoP: true, telefono: true } },
       asesor: { select: { id: true, nombre: true, apellidoP: true } },
       promotor: { select: { id: true, nombre: true, apellidoP: true } },
+      ...INCLUDE_INVITADOS,
     },
   });
   res.json(cita);

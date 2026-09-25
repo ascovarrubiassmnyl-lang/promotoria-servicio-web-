@@ -231,6 +231,8 @@ model Usuario {
   clientes              Cliente[]
   citas                 Cita[]
   citasPromotor         Cita[]                @relation("citasPromotor")
+  citasInvitado         CitaInvitado[]
+  citaInvitadosCreados  CitaInvitado[]        @relation("citaInvitadosCreados")
   ventasAsesor          Venta[]               @relation("ventasAsesor")
   ventasValidador       Venta[]               @relation("ventasValidador")
   pagosRegistrados      PagoPoliza[]          @relation("pagosRegistrados")
@@ -477,11 +479,49 @@ model Cita {
   creadoEn               DateTime              @default(now())
   actualizadoEn          DateTime              @updatedAt
 
+  // Invitados adicionales (2026-09-25): a diferencia de promotorId (single,
+  // solo para ACOMPANAMIENTO, con su propio ciclo de vida más arriba), esto
+  // es una lista de CUALQUIER usuario (asesor o promotora) invitado a
+  // CUALQUIER cita, sin importar la modalidad. Ver modelo CitaInvitado.
+  invitados              CitaInvitado[]
+
   @@index([asesorId, fechaHoraInicio])
   @@index([clienteId])
   @@index([candidatoId])
   @@index([promotorId])
   @@index([serieId])
+}
+
+// Invitados a una cita, más allá del dueño (asesorId) y del promotor de
+// acompañamiento (Cita.promotorId, que es un mecanismo aparte con su propio
+// espejo en Google Calendar — no se tocó). Pedido del usuario 2026-09-25:
+// "en todas las cuentas del crm a la hora de crear citas haya una opción
+// para invitar a más personas del crm como asesores, clientes o
+// promotorías" — un cliente no tiene cuenta ni canal de notificación (ver
+// nota en Sección Notas del CLAUDE.md), así que "invitar" aquí es siempre a
+// un Usuario (asesor/promotora), nunca a un Cliente.
+// Mismo ciclo de vida ACEPTAR/RECHAZAR/SUGERIR que ya existía para
+// promotorId, ahora por invitado en vez de uno solo por cita.
+model CitaInvitado {
+  id                String                @id @default(cuid())
+  citaId            String
+  cita              Cita                  @relation(fields: [citaId], references: [id], onDelete: Cascade)
+  usuarioId         String
+  usuario           Usuario               @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  invitadoPorId     String
+  invitadoPor       Usuario               @relation("citaInvitadosCreados", fields: [invitadoPorId], references: [id], onDelete: Cascade)
+  estado            EstadoInvitacionCita  @default(PENDIENTE)
+  respondidaEn      DateTime?
+  // Mismo criterio que Cita.sugerenciaInicio/Fin/Nota: solo tienen sentido
+  // mientras estado = SUGERIDA; la cita conserva su horario hasta que el
+  // dueño acepta la propuesta de ESTE invitado (mueve la cita completa).
+  sugerenciaInicio  DateTime?
+  sugerenciaFin     DateTime?
+  sugerenciaNota    String?
+  creadoEn          DateTime              @default(now())
+
+  @@unique([citaId, usuarioId])
+  @@index([usuarioId, estado])
 }
 
 // ——— Módulo de Candidatos (reclutamiento) ———

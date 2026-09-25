@@ -88,6 +88,10 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
         recurrenciaTipo: 'NO_REPITE',
         recurrenciaHasta: '',
         recurrenciaDias: [base.getDay()],
+        // Invitados adicionales (2026-09-25): solo al crear — editar la
+        // lista de una cita ya agendada se hace desde su ficha en el
+        // calendario (ahí también se responde/cancela cada invitación).
+        invitadosIds: [],
       });
     }
     setErr('');
@@ -97,10 +101,13 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
   // de agenda propia del promotor (PRP, entrevistas) nunca lo requieren: son
   // eventos del propio promotor, no de un asesor.
   const necesitaAsesor = esAdmin() && !editando && !clienteId && !asesorId && !MODALIDADES_PROMOTOR.includes(form?.modalidad);
+  // También se necesita la lista de asesores para "Invitar a más personas"
+  // (ver selector más abajo), disponible para CUALQUIER rol al crear
+  // cualquier cita no personal — no solo cuando un admin elige dueño.
   const { data: asesores } = useQuery({
     queryKey: ['asesores-list'],
     queryFn: async () => (await api.get('/usuarios/asesores')).data,
-    enabled: open && necesitaAsesor,
+    enabled: open && (necesitaAsesor || (!editando && !form?.esPersonal)),
   });
 
   const { data: clientes } = useQuery({
@@ -128,6 +135,23 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
     queryFn: async () => (await api.get('/candidatos/opciones')).data,
     enabled: open && !candidatoId && !form?.esPersonal && (MODALIDADES_PROMOTOR.includes(form?.modalidad) || (!editando && !clienteId)),
   });
+
+  // Opciones para "Invitar a más personas" (2026-09-25): cualquier asesor o
+  // promotora del sistema, salvo yo mismo, quien ya sea el dueño de esta
+  // cita, el promotor de acompañamiento (ya tiene su propio mecanismo de
+  // invitación) y quien ya esté en la lista.
+  const invitablesTodos = useMemo(() => [
+    ...(promotores || []).map((p) => ({ ...p, esPromotor: true })),
+    ...(asesores || []).map((p) => ({ ...p, esPromotor: false })),
+  ], [promotores, asesores]);
+  const invitadosOpciones = useMemo(() => {
+    const excluidos = new Set([user?.id, form?.asesorId, form?.promotorId, ...(form?.invitadosIds || [])].filter(Boolean));
+    return invitablesTodos.filter((p) => !excluidos.has(p.id));
+  }, [invitablesTodos, user?.id, form?.asesorId, form?.promotorId, form?.invitadosIds]);
+  const invitadosElegidos = useMemo(
+    () => (form?.invitadosIds || []).map((iid) => invitablesTodos.find((p) => p.id === iid)).filter(Boolean),
+    [invitablesTodos, form?.invitadosIds]
+  );
 
   // Detección de empalme en vivo: citas vivas del mismo asesor alrededor del inicio.
   const inicioValido = form?.fechaHoraInicio && !Number.isNaN(new Date(form.fechaHoraInicio).getTime());
@@ -273,6 +297,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
         if (!esPersonal && !modalidadPropia && !payload.candidatoId) payload.clienteId = form.clienteId;
         if (esAdmin() && form.asesorId) payload.asesorId = form.asesorId;
         if (payload.promotorId === null) delete payload.promotorId;
+        if (form.invitadosIds?.length) payload.invitadosIds = form.invitadosIds;
         if (form.recurrenciaTipo !== 'NO_REPITE') {
           payload.recurrencia = {
             tipo: form.recurrenciaTipo,
@@ -452,6 +477,58 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
                   {candidatos?.map((c) => <option key={c.id} value={c.id}>{c.nombre} {c.apellidoP} {c.apellidoM || ''}</option>)}
                 </select>
                 <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">La cita quedará ligada al expediente del candidato.</p>
+              </Field>
+            )}
+            {/* Invitar a más personas (2026-09-25, pedido del usuario: "en
+                todas las cuentas del crm a la hora de crear citas haya una
+                opción para invitar a más personas del crm como asesores...
+                o promotorías"). Disponible para CUALQUIER rol, en cualquier
+                cita no personal, además del dueño y del promotor de
+                acompañamiento (que ya tienen sus propios campos). Un cliente
+                no se puede "invitar" — no tiene cuenta ni forma de
+                notificarlo, ver CLAUDE.md — así que esto solo ofrece
+                usuarios del sistema. Un invitado recibe la misma invitación
+                para aceptar/rechazar/sugerir otro horario que ya existía
+                para el promotor de acompañamiento, ahora generalizada. Solo
+                al crear: agregar o quitar invitados de una cita ya agendada
+                se hace desde su ficha en el calendario. */}
+            {!editando && (
+              <Field label="Invitar a más personas (opcional)">
+                <select
+                  className="input"
+                  value=""
+                  onChange={(e) => {
+                    const iid = e.target.value;
+                    if (!iid) return;
+                    setForm((f) => ({ ...f, invitadosIds: [...(f.invitadosIds || []), iid] }));
+                  }}
+                >
+                  <option value="">Agregar invitado…</option>
+                  {invitadosOpciones.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nombre} {p.apellidoP}{p.esPromotor ? ' (promotora)' : ''}
+                    </option>
+                  ))}
+                </select>
+                {invitadosElegidos.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {invitadosElegidos.map((p) => (
+                      <li key={p.id} className="flex items-center justify-between rounded-lg bg-slate-50 dark:bg-slate-700/40 px-2.5 py-1.5 text-sm text-slate-600 dark:text-slate-300">
+                        <span>{p.nombre} {p.apellidoP}</span>
+                        <button
+                          type="button"
+                          onClick={() => setForm((f) => ({ ...f, invitadosIds: f.invitadosIds.filter((iid) => iid !== p.id) }))}
+                          className="text-xs font-semibold text-slate-400 hover:text-red-600 dark:text-slate-500 dark:hover:text-red-400"
+                        >
+                          Quitar
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                  Cada invitado recibe un aviso para aceptar, rechazar o proponer otro horario.
+                </p>
               </Field>
             )}
 

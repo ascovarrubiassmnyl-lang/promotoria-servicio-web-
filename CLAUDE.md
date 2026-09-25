@@ -1246,6 +1246,85 @@ conservan sus nombres históricos; la traducción a UI vive en el **mapa único*
   responda de nuevo. Ambas respuestas notifican por push a la otra parte
   (mejor esfuerzo). Solo el promotor invitado sugiere; solo el asesor dueño
   de la cita responde la sugerencia — nadie más.
+- **Invitados adicionales a CUALQUIER cita (2026-09-25)**: pedido del usuario
+  — "en todas las cuentas del crm a la hora de crear citas haya una opción
+  para invitar a más personas del crm como asesores, clientes o
+  promotorías". Generaliza el mecanismo de arriba (que sigue existiendo tal
+  cual, sin tocarse: es específico de `Cita.promotorId` + `ACOMPANAMIENTO`,
+  con su propio espejo en Google Calendar) a **cualquier número de personas,
+  en cualquier modalidad de cita**, para **cualquier rol** (no solo
+  admin/asistente). Un cliente **nunca** es invitable así: no tiene cuenta ni
+  canal de notificación (ver "el CRM no tiene canal hacia el asegurado" en
+  Recordatorios) — "invitar" siempre es a un `Usuario` del sistema (asesor o
+  promotora), nunca `SUPERADMIN` (cuenta de quien desarrolla el servicio).
+  - **Modelo `CitaInvitado`** (`citaId`, `usuarioId`, `invitadoPorId`,
+    `estado EstadoInvitacionCita` — mismo enum que ya usaba `promotorId`,
+    reusado —, `respondidaEn`, `sugerenciaInicio/Fin/Nota`,
+    `@@unique([citaId, usuarioId])`, migración `20260925201308_cita_invitados`):
+    una fila por invitado, así que cada uno acepta/rechaza/sugiere por
+    separado (a diferencia de `promotorId`, que es un solo invitado por cita).
+  - **Al crear** (`POST /api/citas`, campo `invitadosIds: string[]`): se
+    valida que cada id sea un `Usuario` `activo` con rol `ADMIN`/`ASISTENTE`/
+    `ASESOR` (nunca `SUPERADMIN`) **antes** de crear nada — si alguno es
+    inválido, 400 y no se crea la cita. Se excluyen automáticamente el propio
+    dueño (`asesorId`) y duplicados. En una serie repetida, cada instancia
+    generada lleva su propia fila `CitaInvitado` independiente (se acepta/
+    reagenda por separado, igual que el resto de la serie), pero el aviso
+    (`notificar()`, tipo `CITA_INVITACION`) se manda **una sola vez** por
+    invitado, no una por instancia.
+  - **Responder**: `PATCH /api/citas/:id/invitados/:invitadoId`
+    (`{respuesta: 'ACEPTADA'|'RECHAZADA'|'SUGERIDA', sugerenciaInicio?,
+    sugerenciaFin?, sugerenciaNota?}`, solo el propio invitado) y
+    `PATCH /api/citas/:id/invitados/:invitadoId/sugerencia`
+    (`{aceptar: boolean}`, solo el dueño de la cita) — mismos endpoints y
+    misma semántica que `/invitacion` y `/invitacion/sugerencia`, ahora por
+    invitado. Aceptar una sugerencia mueve la cita **completa** a ese horario
+    (es un solo horario compartido por todos los que asisten); no toca el
+    estado de otros invitados que ya hubieran respondido — caso raro, se
+    resuelve a mano si llega a pasar. `DELETE
+    /api/citas/:id/invitados/:invitadoId` (solo el dueño) quita una
+    invitación de más, antes o después de que responda.
+  - **Ocupa agenda solo al ACEPTAR**, igual criterio que `promotorId`:
+    `buscarEmpalme()`, `buscarChoquePromotor()` y `GET /citas/disponibilidad`
+    ahora también cuentan `CitaInvitado` con `estado: 'ACEPTADA'` como tiempo
+    ocupado de ese usuario — así un invitado que aceptó no puede terminar con
+    dos citas encimadas sin aviso, sea como dueño, como promotor invitado o
+    como invitado genérico. El empalme se **advierte, no bloquea**
+    (`ignorarEmpalme`), igual que el resto del sistema — a diferencia del
+    choque duro que sigue existiendo solo para `promotorId` + `ACOMPANAMIENTO`.
+  - **Deliberadamente SIN espejo en Google Calendar**: ese mecanismo es propio
+    de `promotorId` (un evento, un usuario); generalizarlo a N invitados
+    pediría N eventos por cita, fuera de alcance de este cambio.
+  - **`GET /api/citas` incluye las citas donde SOY invitado, no solo las que
+    poseo**: el alcance "yo mismo" (forzado para `ASESOR`, o un admin
+    consultando su propia agenda con "Mi agenda") ahora es
+    `asesorId = yo OR invitados.some(usuarioId = yo)` — con el `asesorId` de
+    otra persona el filtro se queda exacto (un admin no ve ahí las citas
+    ajenas donde alguien más solo fue invitado). Se muestra **aunque la
+    invitación siga PENDIENTE**: a diferencia de `promotorId` (que solo se ve
+    cambiando al filtro "Mis acompañamientos"), un asesor no tiene ningún
+    filtro alterno — así que si no se mostrara de entrada, nunca se enteraría
+    de que lo invitaron. `GET /api/citas/:id` aplica el mismo criterio de
+    acceso para `ASESOR` (dueño o invitado, si no 403).
+  - **`GET /candidatos/opciones` es la selección liviana para citas de
+    candidatos**, no de esto — no confundir: los invitados de esta sección
+    son siempre `Usuario` (asesores/promotoras), nunca `Candidato` ni
+    `Cliente`.
+  - **UI**: `CitaFormModal.jsx` — campo "Invitar a más personas (opcional)"
+    (patrón "agregar de uno en uno + lista con Quitar", igual que "Agregar
+    cobertura del catálogo…" en `PolizaFormModal`), visible para **cualquier
+    rol**, en cualquier cita no personal, **solo al crear** (agregar/quitar
+    invitados de una cita ya agendada se hace desde su ficha, no reabriendo
+    este modal — mismo criterio que "Cliente o candidato" y el selector de
+    dueño, que tampoco se editan ahí). `FichaCita` en `CalendarioView.jsx`
+    (escritorio) y el sheet de detalle en `CalendarioMovil.jsx` (dos árboles
+    separados, se actualizaron los dos) muestran, por cada invitado: si soy
+    yo y sigue PENDIENTE → Aceptar/Rechazar/Sugerir; si soy el dueño y ese
+    invitado sugirió horario → Aceptar/No me sirve; si no, una fila de solo
+    lectura con su estado (y botón "quitar" si soy el dueño). El mapa
+    `INVITACIONES` (`components/citas/tipos.js`) es compartido con
+    `promotorId` — su label de `ACEPTADA` se generalizó de "Acompañamiento
+    confirmado" a "Invitación aceptada" porque ya no es solo del promotor.
 - **Bloquear un horario recurrente** (ej. "hora de comida"): no es un modelo
   aparte — se resuelve combinando el checkbox "Evento personal" con
   "Repetir" al agendar (ambos ya existían). El copy de `CitaFormModal` lo
@@ -1729,35 +1808,38 @@ push sobre esa fila ya guardada.
   notificaciones de sus asesores (403 si lo intenta). Los `conteos` de los
   chips se calculan sobre **toda** la bandeja, no sobre la página actual, para
   que el número del chip no cambie al paginar.
-- **Ya NO hay sección/página propia** (2026-08-25, a pedido del usuario):
-  `pages/Notificaciones.jsx` (`/notificaciones`), el enlace de nav
-  `components/notificaciones/CampanaNotificaciones.jsx` (footer del sidebar,
-  barra superior móvil, hoja "Más") y su badge de no leídas se **eliminaron**.
-  El motivo: para el usuario, "Requiere tu atención" del Dashboard (ver esa
-  sección) **es** la bandeja de notificaciones — mantener las dos era
-  redundante. `useNoLeidas()` se borró de `hooks/useNotificaciones.js` por no
-  tener ya consumidor. **El backend no cambió nada**: modelo, rutas
-  (`GET /`, `/no-leidas`, `PATCH /leer-todas`, `PATCH /:id`, `DELETE /:id`) y
-  el disparo de push siguen igual — solo se movió qué parte del frontend los
-  consume.
-- **Ahora vive dentro de `Atencion` en `pages/Dashboard.jsx`**: ese bloque
-  combina las notificaciones sin leer (`useListaNotificaciones({estado:
-  'no-leidas'})`, con polling de 30s, mismo criterio que tenía el badge) con
-  los pendientes que ya calculaba el servidor (pagos, citas de hoy,
-  seguimiento, bonos), en una sola lista — las notificaciones van primero.
-  Cada fila usa `infoTipoNotificacion()` (`components/notificaciones/
-  tipos.jsx`, sin cambios) para el color del punto; al hacer clic se marca
-  leída (`useMarcarLeida`) y navega a `datos.url` si trae una, igual que
-  hacía la página eliminada. "Marcar todas como leídas" aparece junto al
-  título solo si hay notificaciones sin leer. **No hay bandeja histórica
-  navegable**: al no existir ya una página con paginación/filtros por tipo,
-  "marcar como leída" aquí es "ya lo atendí, quítalo de la lista", no un
-  archivo consultable después — el registro completo sigue en la tabla
-  `Notificacion`, solo que el frontend no lo expone.
+- **Sección/página propia RESTAURADA** (2026-09-25, a pedido del usuario —
+  revierte la decisión de 2026-08-25 descrita abajo). `pages/Notificaciones.jsx`
+  (`/notificaciones`) y el enlace de nav `components/notificaciones/
+  CampanaNotificaciones.jsx` (footer del sidebar, barra superior móvil, hoja
+  "Más", con badge de no leídas) volvieron **tal cual estaban** (recuperados
+  del historial de git, commit anterior a su eliminación) — mismo diseño,
+  mismos hooks. Motivo del cambio de opinión: con el sistema de **invitados a
+  citas** (ver Sección Citas / Calendario) el volumen de invitaciones creció y
+  el usuario extrañó tener una bandeja propia navegable, no solo la lista
+  corta de "Requiere tu atención" del Dashboard. `useNoLeidas()` volvió a
+  `hooks/useNotificaciones.js` (solo el conteo, para el badge de la campana).
+  **El backend nunca cambió**: modelo, rutas (`GET /`, `/no-leidas`,
+  `PATCH /leer-todas`, `PATCH /:id`, `DELETE /:id`) y el disparo de push
+  siguieron iguales durante todo este ir y venir — la única diferencia es qué
+  parte del frontend los consume. Si se vuelve a pedir quitarla, el bloque de
+  abajo ("Ahora vive dentro de Atencion…") sigue siendo válido como plan B.
+- **También vive dentro de `Atencion` en `pages/Dashboard.jsx`** (no se quitó
+  al restaurar la página — ahora **conviven las dos**, no son excluyentes):
+  ese bloque combina las notificaciones sin leer (`useListaNotificaciones({estado:
+  'no-leidas'})`, con polling de 30s) con los pendientes que ya calculaba el
+  servidor (pagos, citas de hoy, seguimiento, bonos), en una sola lista — las
+  notificaciones van primero. Cada fila usa `infoTipoNotificacion()`
+  (`components/notificaciones/tipos.jsx`) para el color del punto; al hacer
+  clic se marca leída (`useMarcarLeida`) y navega a `datos.url` si trae una.
+  "Marcar todas como leídas" aparece junto al título solo si hay
+  notificaciones sin leer. La página `/notificaciones` es la que tiene
+  paginación, filtro por estado/tipo y borrado — el Dashboard sigue siendo
+  solo el resumen corto de lo urgente.
 - **Borrado de una notificación es físico**, no lógico (a diferencia de
   Cliente/Candidato): es un aviso ya entregado, no dato de negocio — la cita o
-  el recordatorio que lo originó queda intacto. (La acción de eliminar ya no
-  tiene UI propia tras quitar la página; sigue disponible en la API.)
+  el recordatorio que lo originó queda intacto. Vive en el menú ⋯ de cada fila
+  de `/notificaciones`.
 
 ### Recordatorios segmentados y doble aviso (2026-08-13)
 
