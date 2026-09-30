@@ -1949,6 +1949,18 @@ de dónde vino cada lead.
 - Al entrar: actividad `LEAD_RECIBIDO` y notificación `LEAD_RECIBIDO` (tipos
   canónicos nuevos, color sky), y entra solo a la Clínica telefónica si su
   etapa aplica. La ficha muestra la tarjeta **"Datos del formulario"**.
+- **Reserva en Cal.com → Cita en el CRM** (2026-09-30): la landing de tarjeta
+  manda DOS envíos — el formulario (sin horario: aviso "Un prospecto dejó sus
+  datos") y, cuando el embed de Cal.com emite `bookingSuccessfulV2`, otro con
+  `citaInicio`/`citaFin`/`citaUid`/`citaTitulo`/`citaLink`. Ese segundo
+  (`parsearCita()`, fechas acotadas: no más de 24 h atrás ni 1 año adelante)
+  crea una `Cita` PROGRAMADA/PRODUCTIVA/CITA_UNICA en la agenda del dueño
+  (canal por modalidad: Presencial → PRESENCIAL, Virtual → VIDEO), sube al
+  cliente a `CITA` (nunca lo retrocede), cierra la clínica y notifica **"Un
+  prospecto agendó una cita y dejó sus datos"** con día y hora. Captura con
+  resultado `CITA_AGENDADA` + `citaId`. Idempotente por cliente + inicio. Si la
+  persona agenda por el link directo de cal.com (fuera del embed) no llega
+  aviso: eso requeriría el webhook de Cal.com, no implementado.
 - **Autoservicio** `/api/fuentes-captura` (solo `authenticate`, como `/push`):
   crear/editar/pausar/regenerar/borrar **solo el dueño**, sin excepción de
   admin; un promotor puede consultar todo con `?todos=1` (lectura). Borrar una

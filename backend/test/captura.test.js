@@ -255,3 +255,58 @@ test('abrir la ficha como dueño apaga la marca Nuevo', async () => {
   const despues = await (await api('/api/fuentes-captura/sin-ver', { token: tokenA })).json();
   assert.equal(despues.total, antes.total - 1);
 });
+
+test('reserva en Cal.com: crea la cita en el calendario, sube a CITA y notifica con fecha y hora', async () => {
+  const fuente = await crearFuente(tokenA, 'Landing con calendario');
+  const tel = telefonoUnico();
+  const datos = { nombre: 'Rosa Díaz', telefono: tel, modalidad: 'Presencial', origen: 'tarjeta_qr' };
+  // 1) Formulario: lead sin horario.
+  await api(`/api/captura/${fuente.clave}`, textoPlano({ ...datos, etapa: 'formulario_agenda' }));
+  let n = await prisma.notificacion.findFirst({ where: { destinatarioId: asesorA.id, cuerpo: { contains: 'Rosa' } }, orderBy: { creadoEn: 'desc' } });
+  assert.equal(n.titulo, 'Un prospecto dejó sus datos');
+
+  // 2) Reserva confirmada en el calendario.
+  const inicio = new Date(Date.now() + 2 * 24 * 3600_000);
+  inicio.setUTCMinutes(0, 0, 0);
+  const fin = new Date(inicio.getTime() + 30 * 60000);
+  const reserva = {
+    ...datos, etapa: 'cita_agendada', citaInicio: inicio.toISOString(), citaFin: fin.toISOString(),
+    citaUid: 'abc123', citaLink: 'https://app.cal.com/video/abc123', citaTitulo: 'Diagnóstico gratuito',
+  };
+  const r = await api(`/api/captura/${fuente.clave}`, textoPlano(reserva));
+  assert.equal(r.status, 200);
+
+  const clientes = await prisma.cliente.findMany({ where: { fuenteCapturaId: fuente.id }, include: { citas: true, capturas: true } });
+  assert.equal(clientes.length, 1); // mismo prospecto, no uno nuevo
+  const c = clientes[0];
+  assert.equal(c.estado, 'CITA');
+  assert.equal(c.citas.length, 1);
+  assert.equal(c.citas[0].fechaHoraInicio.getTime(), inicio.getTime());
+  assert.equal(c.citas[0].fechaHoraFin.getTime(), fin.getTime());
+  assert.equal(c.citas[0].asesorId, asesorA.id);
+  assert.equal(c.citas[0].tipo, 'PRESENCIAL');
+  assert.equal(c.citas[0].estado, 'PROGRAMADA');
+  const cap = c.capturas.find((x) => x.resultado === 'CITA_AGENDADA');
+  assert.equal(cap.citaId, c.citas[0].id);
+  assert.equal(cap.datosExtra, null); // los campos de la cita no se duplican como "extra"
+
+  n = await prisma.notificacion.findFirst({ where: { destinatarioId: asesorA.id, tipo: 'LEAD_RECIBIDO' }, orderBy: { creadoEn: 'desc' } });
+  assert.equal(n.titulo, 'Un prospecto agendó una cita y dejó sus datos');
+  assert.match(n.cuerpo, /Rosa Díaz/);
+  assert.match(n.cuerpo, /p\. ?m\.|a\. ?m\./); // trae la hora
+
+  // 3) El embed avisa dos veces de la misma reserva: no se duplica la cita.
+  await api(`/api/captura/${fuente.clave}`, textoPlano(reserva));
+  assert.equal(await prisma.cita.count({ where: { clienteId: c.id } }), 1);
+});
+
+test('reserva con fechas fuera de rango se trata como formulario normal (no crea cita)', async () => {
+  const fuente = await crearFuente(tokenA, 'Landing rango');
+  const r = await api(`/api/captura/${fuente.clave}`, textoPlano({
+    nombre: 'Viejo Pasado', telefono: telefonoUnico(), citaInicio: '2020-01-01T10:00:00Z',
+  }));
+  assert.equal(r.status, 200);
+  const c = await prisma.cliente.findFirst({ where: { fuenteCapturaId: fuente.id }, include: { citas: true } });
+  assert.equal(c.citas.length, 0);
+  assert.equal(c.estado, 'PROSPECTO');
+});

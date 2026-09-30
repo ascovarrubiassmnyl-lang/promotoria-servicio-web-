@@ -100,6 +100,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
           id: true, resultado: true, nombre: true, telefono: true, email: true, modalidad: true,
           origen: true, etapaOriginal: true, fechaEnvio: true, datosExtra: true, recibidoEn: true,
           fuente: { select: { id: true, nombre: true } },
+          cita: { select: { id: true, fechaHoraInicio: true, estado: true } },
         },
       },
     },

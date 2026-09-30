@@ -20,7 +20,11 @@ export const MAX_LLAVE_EXTRA = 60;
 export const MAX_VALOR_EXTRA = 1000;
 
 // Campos con significado propio: todo lo demás va a datosExtra.
-export const CAMPOS_CONOCIDOS = ['nombre', 'telefono', 'email', 'modalidad', 'origen', 'etapa', 'fecha'];
+export const CAMPOS_CONOCIDOS = [
+  'nombre', 'telefono', 'email', 'modalidad', 'origen', 'etapa', 'fecha',
+  // Reserva confirmada en el calendario de la landing (Cal.com): ver parsearCita().
+  'citaInicio', 'citaFin', 'citaUid', 'citaLink', 'citaTitulo',
+];
 // Honeypot: campos ocultos que un humano nunca llena. Con contenido = bot.
 export const CAMPOS_HONEYPOT = ['website', '_gotcha'];
 
@@ -165,4 +169,47 @@ export function origenPermitido(origin, dominios = []) {
   const host = hostDeOrigen(origin);
   if (!host) return false;
   return dominios.some((d) => host === d || host.endsWith(`.${d}`));
+}
+
+// Reserva confirmada en el calendario de la landing (evento bookingSuccessfulV2
+// del embed de Cal.com). Devuelve null si el cuerpo no trae una cita válida:
+// el envío se trata entonces como un lead normal. El endpoint es público, así
+// que se acotan las fechas — nadie debe poder sembrar citas en el pasado lejano
+// ni a años de distancia en el calendario del asesor.
+const DURACION_DEFECTO_MIN = 30;
+const DURACION_MAX_MIN = 4 * 60;
+export function parsearCita(body, ahora = new Date()) {
+  const inicio = parsearFecha(body?.citaInicio);
+  if (!inicio) return null;
+  if (inicio.getTime() < ahora.getTime() - 24 * 3600_000) return null;
+  if (inicio.getTime() > ahora.getTime() + 366 * 24 * 3600_000) return null;
+  let fin = parsearFecha(body?.citaFin);
+  const duracion = fin ? (fin - inicio) / 60000 : 0;
+  if (!fin || duracion <= 0 || duracion > DURACION_MAX_MIN) {
+    fin = new Date(inicio.getTime() + DURACION_DEFECTO_MIN * 60000);
+  }
+  const link = recortar(body?.citaLink, 500);
+  return {
+    inicio,
+    fin,
+    uid: recortar(body?.citaUid, 100),
+    titulo: recortar(body?.citaTitulo, 150),
+    link: link && /^https:\/\//i.test(link) ? link : null,
+  };
+}
+
+// Canal de la cita según lo que la persona eligió en el formulario.
+export function tipoCitaDesdeModalidad(modalidad) {
+  const m = String(modalidad || '').toLowerCase();
+  if (m.includes('presencial')) return 'PRESENCIAL';
+  if (m.includes('virtual') || m.includes('video') || m.includes('meet') || m.includes('zoom')) return 'VIDEO';
+  return 'TELEFONICA';
+}
+
+// "jue 2 oct, 3:00 p.m." en hora de México, para notificaciones.
+export function fechaCitaLegible(fecha) {
+  return new Intl.DateTimeFormat('es-MX', {
+    timeZone: 'America/Mexico_City', weekday: 'short', day: 'numeric', month: 'short',
+    hour: 'numeric', minute: '2-digit',
+  }).format(fecha);
 }

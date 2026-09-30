@@ -464,6 +464,7 @@ enum ResultadoCaptura {
   CREADO // nació un Cliente nuevo
   DUPLICADO // el teléfono ya existía en la cartera del asesor: se anexó al existente
   SPAM // honeypot lleno: se descartó en silencio
+  CITA_AGENDADA // la persona reservó en el calendario de la landing (Cal.com): se creó la Cita
 }
 
 // Un registro por cada envío recibido (incluye reenvíos y spam) — bitácora de
@@ -475,6 +476,9 @@ model CapturaLead {
   fuente        FuenteCaptura?   @relation(fields: [fuenteId], references: [id], onDelete: SetNull)
   clienteId     String?
   cliente       Cliente?         @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  // Solo resultado CITA_AGENDADA: la cita que nació de la reserva en Cal.com.
+  citaId        String?
+  cita          Cita?            @relation(fields: [citaId], references: [id], onDelete: SetNull)
   resultado     ResultadoCaptura
   nombre        String?
   telefono      String?
@@ -490,6 +494,7 @@ model CapturaLead {
 
   @@index([fuenteId, recibidoEn])
   @@index([clienteId])
+  @@index([citaId])
 }
 
 model Cita {
@@ -550,6 +555,8 @@ model Cita {
   // es una lista de CUALQUIER usuario (asesor o promotora) invitado a
   // CUALQUIER cita, sin importar la modalidad. Ver modelo CitaInvitado.
   invitados CitaInvitado[]
+  // Reservas hechas desde una landing (Cal.com) que originaron esta cita.
+  capturas  CapturaLead[]
 
   @@index([asesorId, fechaHoraInicio])
   @@index([clienteId])

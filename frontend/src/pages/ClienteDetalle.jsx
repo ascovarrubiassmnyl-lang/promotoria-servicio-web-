@@ -808,7 +808,7 @@ export default function ClienteDetalle() {
 // bloque por envío: el más reciente arriba, reenvíos incluidos. `datosExtra`
 // son los campos propios de cada sitio (presupuesto, utm…) y se muestran como
 // texto plano — React escapa todo, nunca se interpreta como HTML.
-const RESULTADO_CAPTURA = { CREADO: 'Primer envío', DUPLICADO: 'Volvió a escribir' };
+const RESULTADO_CAPTURA = { CREADO: 'Primer envío', DUPLICADO: 'Volvió a escribir', CITA_AGENDADA: 'Agendó cita' };
 
 function FormularioLandingCard({ capturas, fuente }) {
   const [todas, setTodas] = useState(false);
@@ -821,6 +821,7 @@ function FormularioLandingCard({ capturas, fuente }) {
       <div className="space-y-4">
         {visibles.map((cap) => {
           const filas = [
+            ['Cita agendada', cap.cita && fechaHora(cap.cita.fechaHoraInicio)],
             ['Nombre', cap.nombre], ['Teléfono', cap.telefono], ['Correo', cap.email],
             ['Modalidad', cap.modalidad], ['Origen', cap.origen], ['Etapa enviada', cap.etapaOriginal],
             ...Object.entries(cap.datosExtra || {}).map(([k, v]) => [k.replace(/_/g, ' '), v]),

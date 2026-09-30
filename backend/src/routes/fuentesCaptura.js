@@ -74,13 +74,13 @@ router.patch('/sin-ver', asyncHandler(async (req, res) => {
 }));
 
 // GET /fuentes-captura/leads — bitácora de envíos recibidos, paginada.
-// Filtros: fuenteId, resultado (CREADO|DUPLICADO|SPAM; por defecto oculta SPAM).
+// Filtros: fuenteId, resultado (CREADO|DUPLICADO|CITA_AGENDADA|SPAM; por defecto oculta SPAM).
 router.get('/leads', asyncHandler(async (req, res) => {
   const porPagina = Math.min(Math.max(parseInt(req.query.porPagina, 10) || 25, 1), 100);
   const pagina = Math.max(parseInt(req.query.pagina, 10) || 1, 1);
   const where = verTodos(req) ? {} : { fuente: { usuarioId: req.user.id } };
   if (req.query.fuenteId) where.fuenteId = String(req.query.fuenteId);
-  if (['CREADO', 'DUPLICADO', 'SPAM'].includes(req.query.resultado)) where.resultado = req.query.resultado;
+  if (['CREADO', 'DUPLICADO', 'CITA_AGENDADA', 'SPAM'].includes(req.query.resultado)) where.resultado = req.query.resultado;
   else where.resultado = { not: 'SPAM' };
   // Un asesor nunca debe ver capturas de fuentes ajenas aunque mande el
   // fuenteId de otro: el `fuente.usuarioId` de arriba sigue aplicando.
@@ -97,6 +97,7 @@ router.get('/leads', asyncHandler(async (req, res) => {
         origen: true, etapaOriginal: true, fechaEnvio: true, datosExtra: true, recibidoEn: true,
         fuente: { select: { id: true, nombre: true, usuario: USUARIO_SELECT } },
         cliente: { select: { id: true, nombre: true, apellidoP: true, estado: true, leadSinVer: true, archivadoEn: true } },
+        cita: { select: { id: true, fechaHoraInicio: true, estado: true } },
       },
     }),
   ]);

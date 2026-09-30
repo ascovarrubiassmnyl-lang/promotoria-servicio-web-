@@ -2,11 +2,11 @@ import express, { Router } from 'express';
 import { prisma } from '../prisma.js';
 import { registrarActividad } from '../utils/actividad.js';
 import { notificar } from '../utils/notificaciones.js';
-import { agregarClienteAClinica, ETAPAS_CLINICA } from '../utils/clinica.js';
+import { agregarClienteAClinica, marcarCitaObtenidaEnClinica, ETAPAS_CLINICA } from '../utils/clinica.js';
 import {
   LIMITES, recortar, neutralizarCsv, normalizarTelefono, claveTelefono, partirNombre,
   emailValido, mapearEtapa, parsearCuerpo, honeypotLleno, extraerExtra, parsearFecha,
-  hashIp, origenPermitido,
+  hashIp, origenPermitido, parsearCita, tipoCitaDesdeModalidad, fechaCitaLegible,
 } from '../utils/captura.js';
 
 // Captura PÚBLICA de leads desde landing pages: POST /api/captura/:clave.
@@ -163,57 +163,120 @@ router.post('/:clave', (req, res, next) => {
     }
 
     const ahora = new Date();
-    let cliente;
-    if (existente) {
-      await prisma.$transaction([
-        prisma.capturaLead.create({ data: { ...datosCaptura, clienteId: existente.id, resultado: 'DUPLICADO' } }),
-        prisma.cliente.update({ where: { id: existente.id }, data: { leadSinVer: true } }),
-        prisma.fuenteCaptura.update({ where: { id: fuente.id }, data: { ultimoUsoEn: ahora, totalRecibidos: { increment: 1 } } }),
-      ]);
-      cliente = existente;
-    } else {
-      const { nombre, apellidoP } = partirNombre(nombreCompleto);
-      const estado = mapearEtapa(etapaOriginal) || fuente.etapaInicial;
-      cliente = await prisma.$transaction(async (tx) => {
-        const c = await tx.cliente.create({
+    // Segundo envío de la landing: la persona ya reservó en el calendario
+    // (Cal.com). Trae fecha y hora → se crea la Cita en el CRM.
+    const reserva = parsearCita(body, ahora);
+    if (reserva && existente) {
+      // El embed puede avisar dos veces de la misma reserva: no se duplica.
+      const yaExiste = await prisma.cita.findFirst({
+        where: { clienteId: existente.id, fechaHoraInicio: reserva.inicio, estado: { not: 'CANCELADA' } },
+        select: { id: true },
+      });
+      if (yaExiste) return res.json({ ok: true });
+    }
+
+    const resultado = reserva ? 'CITA_AGENDADA' : existente ? 'DUPLICADO' : 'CREADO';
+    const { cliente, cita } = await prisma.$transaction(async (tx) => {
+      let c = existente;
+      if (!c) {
+        const { nombre, apellidoP } = partirNombre(nombreCompleto);
+        c = await tx.cliente.create({
           data: {
             asesorId: fuente.usuarioId,
             nombre: neutralizarCsv(nombre || 'Sin nombre'),
             apellidoP: neutralizarCsv(apellidoP),
             telefono,
             email,
-            estado,
+            estado: mapearEtapa(etapaOriginal) || fuente.etapaInicial,
             fuente: neutralizarCsv(origen || fuente.nombre),
             fuenteCapturaId: fuente.id,
             leadSinVer: true,
           },
         });
-        await tx.capturaLead.create({ data: { ...datosCaptura, clienteId: c.id, resultado: 'CREADO' } });
-        await tx.fuenteCaptura.update({ where: { id: fuente.id }, data: { ultimoUsoEn: ahora, totalRecibidos: { increment: 1 } } });
-        return c;
+      }
+      let nuevaCita = null;
+      if (reserva) {
+        nuevaCita = await tx.cita.create({
+          data: {
+            asesorId: fuente.usuarioId,
+            clienteId: c.id,
+            titulo: neutralizarCsv(reserva.titulo || `Cita agendada desde ${fuente.nombre}`),
+            descripcion: [
+              `La agendó el prospecto desde ${fuente.nombre}.`,
+              datosCaptura.modalidad && `Modalidad elegida: ${datosCaptura.modalidad}.`,
+            ].filter(Boolean).join(' '),
+            tipo: tipoCitaDesdeModalidad(datosCaptura.modalidad),
+            modalidad: 'CITA_UNICA',
+            clasificacion: 'PRODUCTIVA',
+            fechaHoraInicio: reserva.inicio,
+            fechaHoraFin: reserva.fin,
+            ubicacion: reserva.link,
+          },
+        });
+        // Consiguió cita: sube a CITA si todavía estaba antes de ese paso (o
+        // fuera del embudo). Nunca retrocede a quien ya iba más adelante.
+        await tx.cliente.updateMany({
+          where: { id: c.id, estado: { in: ['PROSPECTO', 'CONTACTADO', 'STANDBY', 'RETARGETING', 'DESCARTADO'] } },
+          data: { estado: 'CITA' },
+        });
+        c = await tx.cliente.update({
+          where: { id: c.id },
+          data: { fechaUltimaCita: reserva.inicio, leadSinVer: true },
+        });
+      } else if (existente) {
+        await tx.cliente.update({ where: { id: c.id }, data: { leadSinVer: true } });
+      }
+      await tx.capturaLead.create({
+        data: { ...datosCaptura, clienteId: c.id, citaId: nuevaCita?.id, resultado },
       });
-    }
+      await tx.fuenteCaptura.update({
+        where: { id: fuente.id },
+        data: { ultimoUsoEn: ahora, ...(resultado === 'CITA_AGENDADA' ? {} : { totalRecibidos: { increment: 1 } }) },
+      });
+      return { cliente: c, cita: nuevaCita };
+    });
 
     // --- Efectos secundarios: mejor esfuerzo, el lead ya quedó guardado ----
     const nombreVisible = `${cliente.nombre} ${cliente.apellidoP || ''}`.trim();
-    await registrarActividad(fuente.usuarioId, 'LEAD_RECIBIDO', {
-      clienteId: cliente.id,
-      cliente: nombreVisible,
-      fuente: fuente.nombre,
-      fuenteId: fuente.id,
-      duplicado: Boolean(existente),
-      modalidad: datosCaptura.modalidad || undefined,
-    }).catch((e) => console.error(`[captura] actividad falló: ${e.message}`));
+    if (!cita || !existente) {
+      await registrarActividad(fuente.usuarioId, 'LEAD_RECIBIDO', {
+        clienteId: cliente.id,
+        cliente: nombreVisible,
+        fuente: fuente.nombre,
+        fuenteId: fuente.id,
+        duplicado: Boolean(existente),
+        modalidad: datosCaptura.modalidad || undefined,
+      }).catch((e) => console.error(`[captura] actividad falló: ${e.message}`));
+    }
+    if (cita) {
+      await registrarActividad(fuente.usuarioId, 'CITA_CREADA', {
+        citaId: cita.id,
+        clienteId: cliente.id,
+        cliente: nombreVisible,
+        titulo: cita.titulo,
+        modalidad: 'CITA_UNICA',
+      }).catch((e) => console.error(`[captura] actividad de cita falló: ${e.message}`));
+      marcarCitaObtenidaEnClinica(cliente.id)
+        .catch((e) => console.error(`[captura] clínica falló: ${e.message}`));
+    }
 
-    await notificar(fuente.usuarioId, 'LEAD_RECIBIDO', {
-      titulo: existente ? `${nombreVisible} volvió a escribir` : `Nuevo lead: ${nombreVisible}`,
-      cuerpo: existente
-        ? `Volvió a enviar el formulario desde ${fuente.nombre}.`
-        : `Llegó desde ${fuente.nombre}${datosCaptura.modalidad ? ` · ${datosCaptura.modalidad}` : ''}.`,
-      datos: { url: `/clientes/${cliente.id}`, clienteId: cliente.id },
-    }).catch((e) => console.error(`[captura] notificación falló: ${e.message}`));
+    // Aviso al celular y a la campana. Con reserva: el que pidió el usuario,
+    // con día y hora. Sin reserva: dejó sus datos pero aún no elige horario.
+    const partes = [nombreVisible, cliente.telefono, datosCaptura.modalidad];
+    await notificar(fuente.usuarioId, 'LEAD_RECIBIDO', cita
+      ? {
+          titulo: 'Un prospecto agendó una cita y dejó sus datos',
+          cuerpo: [...partes, fechaCitaLegible(cita.fechaHoraInicio)].filter(Boolean).join(' · '),
+          datos: { url: `/clientes/${cliente.id}`, clienteId: cliente.id, citaId: cita.id },
+        }
+      : {
+          titulo: existente ? `${nombreVisible} volvió a llenar el formulario` : 'Un prospecto dejó sus datos',
+          cuerpo: [...partes, 'aún no elige horario'].filter(Boolean).join(' · '),
+          datos: { url: `/clientes/${cliente.id}`, clienteId: cliente.id },
+        },
+    ).catch((e) => console.error(`[captura] notificación falló: ${e.message}`));
 
-    if (!existente && ETAPAS_CLINICA.includes(cliente.estado)) {
+    if (!existente && !cita && ETAPAS_CLINICA.includes(cliente.estado)) {
       await agregarClienteAClinica(cliente, { asesorId: fuente.usuarioId })
         .catch((e) => console.error(`[captura] clínica falló: ${e.message}`));
     }

@@ -220,6 +220,7 @@ function TarjetaFuente({ f, onEditar, onRegenerar, onEliminar, onVerLeads }) {
 // --- Tabla de leads recibidos --------------------------------------------
 const RESULTADOS = {
   CREADO: { label: 'Nuevo contacto', cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300' },
+  CITA_AGENDADA: { label: 'Agendó cita', cls: 'bg-violet-100 text-violet-700 dark:bg-violet-900/60 dark:text-violet-300' },
   DUPLICADO: { label: 'Volvió a escribir', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300' },
   SPAM: { label: 'Spam', cls: 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300' },
 };
@@ -246,6 +247,7 @@ function TablaLeads({ todos, fuentes, fuenteId, setFuenteId }) {
           <select className="input w-auto text-sm py-1.5" value={resultado} onChange={(e) => { setResultado(e.target.value); setPagina(1); }}>
             <option value="">Sin spam</option>
             <option value="CREADO">Nuevos contactos</option>
+            <option value="CITA_AGENDADA">Agendaron cita</option>
             <option value="DUPLICADO">Volvieron a escribir</option>
             <option value="SPAM">Spam descartado</option>
           </select>
@@ -297,7 +299,10 @@ function TablaLeads({ todos, fuentes, fuenteId, setFuenteId }) {
                     <td className="px-3 py-2.5">
                       {l.cliente ? <span className={`badge ${infoEtapa(l.cliente.estado).pill}`}>{infoEtapa(l.cliente.estado).label}</span> : '—'}
                     </td>
-                    <td className="px-5 py-2.5"><span className={`badge ${r?.cls || ''}`}>{r?.label || l.resultado}</span></td>
+                    <td className="px-5 py-2.5 whitespace-nowrap">
+                      <span className={`badge ${r?.cls || ''}`}>{r?.label || l.resultado}</span>
+                      {l.cita && <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums mt-0.5">{fechaHora(l.cita.fechaHoraInicio)}</p>}
+                    </td>
                   </tr>
                 );
               })}
