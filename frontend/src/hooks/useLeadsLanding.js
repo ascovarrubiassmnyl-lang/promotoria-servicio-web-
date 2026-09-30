@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
-// Datos de "Leads de landing pages" (backend: routes/fuentesCaptura.js).
+// Datos de "Agrega tu sitio web" (leads de landing pages) (backend: routes/fuentesCaptura.js).
 // Una "fuente" = una landing / formulario conectado, con el nombre que el
 // usuario le ponga. El alcance lo decide el servidor: cada quien lo suyo, y un
 // promotor puede pedir `todos` (solo lectura de lo ajeno).

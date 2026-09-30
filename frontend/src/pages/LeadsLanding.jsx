@@ -10,7 +10,7 @@ import {
   useRegenerarClave, useEliminarFuente, useMarcarLeadsVistos,
 } from '../hooks/useLeadsLanding.js';
 
-// "Leads de landing pages" (/leads): cada usuario conecta sus landings /
+// "Agrega tu sitio web" (/leads): cada usuario conecta sus landings /
 // formularios externos al CRM. Una landing = una "fuente" con el nombre que
 // el usuario elija ("Landing tarjeta QR", "Formulario Facebook"…) y su propia
 // URL; los leads que entran por ella quedan como clientes (prospectos) en su
@@ -346,9 +346,9 @@ export default function LeadsLanding() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Leads de landing pages</h1>
+          <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Agrega tu sitio web</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Conecta tus landings y formularios: cada lead entra solo a tu CRM, con el nombre de la landing de la que vino.
+            Conecta tu landing o formulario: cada persona que lo llene entra sola a tu CRM, con el nombre del sitio del que vino.
           </p>
         </div>
         <div className="flex items-center gap-2">

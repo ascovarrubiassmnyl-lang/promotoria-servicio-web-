@@ -1908,11 +1908,12 @@ requisito. Corre cada hora (nada de lo que vigila cambia por minuto).
   hacia el asegurado. Requiere decidir WhatsApp Business API o correo
   transaccional, con sus implicaciones de consentimiento.
 
-## Leads de landing pages (`/leads`, 2026-09-30)
+## Agrega tu sitio web — leads de landing pages (`/leads`, 2026-09-30)
 
 Captura de leads desde sitios externos (landings estáticas, formularios). Cada
-usuario conecta sus landings desde la pestaña **"Leads de landing"** (visible
-para todos los roles, cuelga de la sección RBAC `clientes`) y **les pone el
+usuario conecta sus landings desde la pestaña **"Agrega tu sitio web"**
+(`/leads`; visible para **todos** los usuarios, sin sección RBAC — ruta sin
+`SeccionRoute` y enlace sin `seccion`, igual que `/notificaciones`) y **les pone el
 nombre que quiera** ("Landing tarjeta QR"…): ese nombre es lo que identifica
 de dónde vino cada lead.
 

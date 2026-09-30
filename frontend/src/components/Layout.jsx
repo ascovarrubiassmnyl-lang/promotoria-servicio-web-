@@ -51,7 +51,7 @@ const PRIMARY_SECCIONES = ['dashboard', 'clientes', 'citas', 'ventas'];
 const NAV_CORTO = {
   dashboard: 'Panel', clientes: 'CRM', citas: 'Citas', ventas: 'Pólizas',
   actividad: 'Actividad', metas: 'Metas', asesores: 'Asesores', configuracion: 'Ajustes',
-  puntos: '25 puntos', clinica: 'Clínica', candidatos: 'Candidatos', leads: 'Leads',
+  puntos: '25 puntos', clinica: 'Clínica', candidatos: 'Candidatos', leads: 'Sitio web',
 };
 
 export default function Layout() {
@@ -86,9 +86,10 @@ export default function Layout() {
   const allLinks = [
     { to: '/', label: 'Dashboard', end: true, seccion: 'dashboard' },
     { to: '/clientes', label: 'CRM', seccion: 'clientes' },
-    // Leads de landing pages: los leads son clientes, así que cuelga de la
-    // sección `clientes`. Badge = leads propios que aún no se abren.
-    { to: '/leads', label: 'Leads de landing', seccion: 'clientes', id: 'leads', badge: leadsSinVer },
+    // "Agrega tu sitio web" (captura de leads desde landings): para TODOS los
+    // usuarios, sin sección RBAC — es autoservicio, como /notificaciones (la
+    // API solo exige sesión). Badge = leads propios que aún no se abren.
+    { to: '/leads', label: 'Agrega tu sitio web', id: 'leads', badge: leadsSinVer },
     { to: '/citas', label: 'Citas / Calendario', seccion: 'citas' },
     // Promotor (ADMIN/SUPERADMIN) entra a pólizas por el roster de Equipo;
     // el asesor va directo a su propia cartera. El ítem de Equipo solo se
@@ -111,7 +112,7 @@ export default function Layout() {
     { to: '/targets', label: 'Metas', seccion: 'metas' },
     { to: '/configuracion', label: 'Configuración', seccion: 'configuracion' },
   ];
-  const links = allLinks.filter((l) => puede(l.seccion));
+  const links = allLinks.filter((l) => !l.seccion || puede(l.seccion));
   const adminLinksFiltrados = esAdmin() ? adminLinks.filter((l) => puede(l.seccion)) : [];
 
   // Navegación móvil (misma fuente que el sidebar, sin re-derivar permisos):
@@ -120,8 +121,8 @@ export default function Layout() {
   const tabsPrimarios = PRIMARY_SECCIONES
     .map((s) => navMovil.find((l) => l.seccion === s))
     .filter(Boolean);
-  // `id` distingue destinos que comparten sección RBAC (Leads de landing vive
-  // bajo `clientes` pero no es la pestaña CRM).
+  // `id` marca destinos sin pestaña primaria propia ("Agrega tu sitio web"):
+  // siempre van a la hoja "Más".
   const tabsMas = navMovil.filter((l) => l.id || !PRIMARY_SECCIONES.includes(l.seccion));
 
   const wClase = colapsado ? 'w-[68px]' : 'w-64';

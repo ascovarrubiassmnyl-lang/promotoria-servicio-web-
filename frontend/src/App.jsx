@@ -32,7 +32,8 @@ export default function App() {
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route path="/" element={<SeccionRoute seccion="dashboard"><Dashboard /></SeccionRoute>} />
         <Route path="/clientes" element={<SeccionRoute seccion="clientes"><Clientes /></SeccionRoute>} />
-        <Route path="/leads" element={<SeccionRoute seccion="clientes"><LeadsLanding /></SeccionRoute>} />
+        {/* "Agrega tu sitio web": autoservicio para todos los usuarios, sin sección RBAC. */}
+        <Route path="/leads" element={<LeadsLanding />} />
         <Route path="/clientes/:id" element={<SeccionRoute seccion="clientes"><ClienteDetalle /></SeccionRoute>} />
         <Route path="/citas" element={<SeccionRoute seccion="citas"><Citas /></SeccionRoute>} />
         <Route path="/ventas" element={<SeccionRoute seccion="ventas"><Ventas /></SeccionRoute>} />
