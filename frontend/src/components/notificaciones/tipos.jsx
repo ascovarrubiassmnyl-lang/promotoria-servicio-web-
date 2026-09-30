@@ -14,6 +14,7 @@ const ICONO_CITA = ['M3 5h18v16H3z', 'M3 9h18', 'M8 3v4', 'M16 3v4'];
 const ICONO_CAMPANA = ['M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9', 'M10 21a2 2 0 004 0'];
 const ICONO_PAGO = ['M3 6h18v12H3z', 'M3 10h18', 'M7 15h4'];
 const ICONO_ALERTA = ['M12 9v4', 'M12 17h.01', 'M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z'];
+const ICONO_LEAD = ['M22 12h-6l-2 3h-4l-2-3H2', 'M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z'];
 const ICONO_META = ['M12 12m-9 0a9 9 0 1018 0a9 9 0 10-18 0', 'M12 12m-4 0a4 4 0 108 0a4 4 0 10-8 0', 'M12 12h.01'];
 
 export const TIPOS_NOTIFICACION = {
@@ -64,6 +65,13 @@ export const TIPOS_NOTIFICACION = {
     dot: 'bg-emerald-500',
     marker: 'bg-emerald-50 text-emerald-600 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/30',
     icon: <Icono d={ICONO_META} />,
+  },
+  // Mismo color (sky) que LEAD_RECIBIDO en Actividad.
+  LEAD_RECIBIDO: {
+    label: 'Lead de landing',
+    dot: 'bg-sky-500',
+    marker: 'bg-sky-50 text-sky-600 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-400 dark:ring-sky-500/30',
+    icon: <Icono d={ICONO_LEAD} />,
   },
 };
 

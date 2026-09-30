@@ -256,6 +256,7 @@ model Usuario {
   evaluacionesCandidato EvaluacionCandidato[]
   popPlantillas         PopPlantilla[]
   popEnvios             PopEnvio[]
+  fuentesCaptura        FuenteCaptura[]
 }
 
 // Invitación de un solo uso para activar una cuenta creada sin contraseña
@@ -422,8 +423,73 @@ model Cliente {
   documentos            DocumentoCliente[]
   prospectosClinica     ProspectoClinica[]
 
+  // Captura de leads desde landing pages (ver modelo FuenteCaptura).
+  // fuenteCapturaId = la landing por la que llegó; leadSinVer = marca "Nuevo"
+  // en la lista del CRM hasta que el asesor abre la ficha.
+  fuenteCapturaId String?
+  fuenteCaptura   FuenteCaptura? @relation(fields: [fuenteCapturaId], references: [id], onDelete: SetNull)
+  leadSinVer      Boolean        @default(false)
+  capturas        CapturaLead[]
+
   @@index([asesorId, estado])
   @@index([referidoPorId])
+  @@index([fuenteCapturaId])
+}
+
+// Landing page / formulario externo conectado al CRM. Cada asesor nombra sus
+// fuentes ("Landing tarjeta QR") y cada una tiene una clave pública aleatoria:
+// POST /api/captura/:clave crea el lead en el CRM de su dueño. La clave NO es
+// secreta (va en el código de la landing): solo permite CREAR leads, nunca
+// leer. Si se abusa de ella, se pausa o se regenera.
+model FuenteCaptura {
+  id                 String        @id @default(cuid())
+  usuarioId          String
+  usuario            Usuario       @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  nombre             String
+  clave              String        @unique
+  etapaInicial       EstadoCliente @default(PROSPECTO)
+  activa             Boolean       @default(true)
+  // Vacío = cualquier origen. Con valores, solo esos hosts (sin protocolo).
+  dominiosPermitidos String[]      @default([])
+  creadoEn           DateTime      @default(now())
+  ultimoUsoEn        DateTime?
+  totalRecibidos     Int           @default(0)
+  clientes           Cliente[]
+  capturas           CapturaLead[]
+
+  @@index([usuarioId])
+}
+
+enum ResultadoCaptura {
+  CREADO // nació un Cliente nuevo
+  DUPLICADO // el teléfono ya existía en la cartera del asesor: se anexó al existente
+  SPAM // honeypot lleno: se descartó en silencio
+}
+
+// Un registro por cada envío recibido (incluye reenvíos y spam) — bitácora de
+// la fuente y origen de la tarjeta "Datos del formulario" de la ficha.
+// Nunca guarda la IP en claro: solo un hash con sal.
+model CapturaLead {
+  id            String           @id @default(cuid())
+  fuenteId      String?
+  fuente        FuenteCaptura?   @relation(fields: [fuenteId], references: [id], onDelete: SetNull)
+  clienteId     String?
+  cliente       Cliente?         @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  resultado     ResultadoCaptura
+  nombre        String?
+  telefono      String?
+  email         String?
+  modalidad     String?
+  origen        String?
+  etapaOriginal String?
+  fechaEnvio    DateTime?
+  datosExtra    Json?
+  ipHash        String?
+  userAgent     String?
+  recibidoEn    DateTime         @default(now())
+
+  @@index([fuenteId, recibidoEn])
+  @@index([clienteId])
 }
 
 model Cita {
@@ -483,7 +549,7 @@ model Cita {
   // solo para ACOMPANAMIENTO, con su propio ciclo de vida más arriba), esto
   // es una lista de CUALQUIER usuario (asesor o promotora) invitado a
   // CUALQUIER cita, sin importar la modalidad. Ver modelo CitaInvitado.
-  invitados              CitaInvitado[]
+  invitados CitaInvitado[]
 
   @@index([asesorId, fechaHoraInicio])
   @@index([clienteId])
@@ -503,22 +569,22 @@ model Cita {
 // Mismo ciclo de vida ACEPTAR/RECHAZAR/SUGERIR que ya existía para
 // promotorId, ahora por invitado en vez de uno solo por cita.
 model CitaInvitado {
-  id                String                @id @default(cuid())
-  citaId            String
-  cita              Cita                  @relation(fields: [citaId], references: [id], onDelete: Cascade)
-  usuarioId         String
-  usuario           Usuario               @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  invitadoPorId     String
-  invitadoPor       Usuario               @relation("citaInvitadosCreados", fields: [invitadoPorId], references: [id], onDelete: Cascade)
-  estado            EstadoInvitacionCita  @default(PENDIENTE)
-  respondidaEn      DateTime?
+  id               String               @id @default(cuid())
+  citaId           String
+  cita             Cita                 @relation(fields: [citaId], references: [id], onDelete: Cascade)
+  usuarioId        String
+  usuario          Usuario              @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  invitadoPorId    String
+  invitadoPor      Usuario              @relation("citaInvitadosCreados", fields: [invitadoPorId], references: [id], onDelete: Cascade)
+  estado           EstadoInvitacionCita @default(PENDIENTE)
+  respondidaEn     DateTime?
   // Mismo criterio que Cita.sugerenciaInicio/Fin/Nota: solo tienen sentido
   // mientras estado = SUGERIDA; la cita conserva su horario hasta que el
   // dueño acepta la propuesta de ESTE invitado (mueve la cita completa).
-  sugerenciaInicio  DateTime?
-  sugerenciaFin     DateTime?
-  sugerenciaNota    String?
-  creadoEn          DateTime              @default(now())
+  sugerenciaInicio DateTime?
+  sugerenciaFin    DateTime?
+  sugerenciaNota   String?
+  creadoEn         DateTime             @default(now())
 
   @@unique([citaId, usuarioId])
   @@index([usuarioId, estado])
@@ -575,7 +641,7 @@ model Candidato {
   creadoEn      DateTime  @default(now())
   actualizadoEn DateTime  @updatedAt
 
-  citas     Cita[]
+  citas            Cita[]
   // Notas y recordatorios de seguimiento del reclutador. Se llama distinto del
   // campo `notas` de arriba, que es el texto libre del formulario SMNYL.
   notasSeguimiento Nota[]     @relation("notasSeguimiento")
@@ -594,9 +660,9 @@ model Candidato {
 // que el puntaje es transparente y auditable, no una caja negra.
 
 enum EstadoPopEnvio {
-  PENDIENTE  // enviado, el candidato aún no lo abre/termina
+  PENDIENTE // enviado, el candidato aún no lo abre/termina
   RESPONDIDO // el candidato contestó: ya hay puntaje
-  CANCELADO  // la promotora lo invalidó (link muerto)
+  CANCELADO // la promotora lo invalidó (link muerto)
 }
 
 // Recomendación derivada del puntaje, con los mismos 3 niveles y el mismo
@@ -608,31 +674,31 @@ enum RecomendacionPop {
 }
 
 model PopPlantilla {
-  id          String  @id @default(cuid())
+  id             String  @id @default(cuid())
   // Identificador estable del cuestionario que viene de fábrica (`estandar`),
   // para poder encontrarlo y actualizarlo sin depender del nombre, que la
   // promotora puede cambiar. Los cuestionarios que ella cree van con clave
   // null (unique lo permite en Postgres: varios NULL conviven).
-  clave       String? @unique
-  nombre      String
-  descripcion String?
+  clave          String? @unique
+  nombre         String
+  descripcion    String?
   // Preguntas embebidas como Json (no tabla por pregunta): una plantilla se
   // edita y versiona como un documento completo, y las respuestas guardan su
   // propia copia — cambiar la plantilla nunca debe alterar un POP ya contestado.
   // Shape: [{ id, texto, ayuda?, bloque?, tipo: 'OPCION'|'ESCALA'|'TEXTO',
   //           opciones: [{ id, texto, puntos }] }]
-  preguntas   Json    @default("[]")
+  preguntas      Json    @default("[]")
   // Umbrales del semáforo sobre el puntaje normalizado 0–100. Verde ≥
   // umbralVerde; amarillo ≥ umbralAmarillo; abajo, rojo.
-  umbralVerde    Int @default(70)
-  umbralAmarillo Int @default(40)
+  umbralVerde    Int     @default(70)
+  umbralAmarillo Int     @default(40)
 
   // Una plantilla archivada no se ofrece para enviar, pero sus envíos previos
   // siguen íntegros (mismo borrado lógico que Cliente/Candidato).
   archivadaEn DateTime?
 
   creadoPorId String
-  creadoPor   Usuario  @relation(fields: [creadoPorId], references: [id], onDelete: Cascade)
+  creadoPor   Usuario    @relation(fields: [creadoPorId], references: [id], onDelete: Cascade)
   envios      PopEnvio[]
 
   creadoEn      DateTime @default(now())
@@ -642,9 +708,9 @@ model PopPlantilla {
 }
 
 model PopEnvio {
-  id          String    @id @default(cuid())
+  id          String       @id @default(cuid())
   candidatoId String
-  candidato   Candidato @relation(fields: [candidatoId], references: [id], onDelete: Cascade)
+  candidato   Candidato    @relation(fields: [candidatoId], references: [id], onDelete: Cascade)
   plantillaId String
   plantilla   PopPlantilla @relation(fields: [plantillaId], references: [id], onDelete: Restrict)
 
@@ -657,24 +723,24 @@ model PopEnvio {
   // Copia congelada de las preguntas al momento de enviar: si la promotora
   // edita la plantilla después, este POP conserva lo que la persona realmente
   // vio (mismo criterio que Venta.coberturas, que es copia y no referencia).
-  preguntas Json @default("[]")
+  preguntas  Json @default("[]")
   // Respuestas del candidato: [{ preguntaId, opcionId?, texto?, puntos }]
   respuestas Json @default("[]")
 
   // Resultado calculado en servidor al contestar (nunca lo manda el cliente).
-  puntaje        Int?              // normalizado 0–100
-  puntosObtenidos Int?             // crudo, para poder mostrar "34 de 50"
+  puntaje         Int? // normalizado 0–100
+  puntosObtenidos Int? // crudo, para poder mostrar "34 de 50"
   puntosPosibles  Int?
-  recomendacion  RecomendacionPop?
+  recomendacion   RecomendacionPop?
   // Desglose por bloque: [{ bloque, puntos, posibles, porcentaje }] — es lo
   // que dibuja las barras tipo "ADN en Ventas" del reporte.
-  bloques        Json              @default("[]")
+  bloques         Json              @default("[]")
 
   respondidoEn DateTime?
   abiertoEn    DateTime?
 
   enviadoPorId String
-  enviadoPor   Usuario  @relation(fields: [enviadoPorId], references: [id], onDelete: Cascade)
+  enviadoPor   Usuario @relation(fields: [enviadoPorId], references: [id], onDelete: Cascade)
 
   creadoEn      DateTime @default(now())
   actualizadoEn DateTime @updatedAt
@@ -719,11 +785,11 @@ model EvaluacionCandidato {
 }
 
 model Venta {
-  id                   String            @id @default(cuid())
+  id                   String             @id @default(cuid())
   asesorId             String
-  asesor               Usuario           @relation("ventasAsesor", fields: [asesorId], references: [id])
+  asesor               Usuario            @relation("ventasAsesor", fields: [asesorId], references: [id])
   clienteId            String
-  cliente              Cliente           @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  cliente              Cliente            @relation(fields: [clienteId], references: [id], onDelete: Cascade)
   ramo                 RamoSeguro
   producto             String
   // Quién contrata la póliza. Por defecto es el propio cliente (la póliza solo
@@ -739,21 +805,21 @@ model Venta {
   situacion            SituacionPoliza?
   // Producto del catálogo NYL (opcional pero recomendado)
   productoCatalogoId   String?
-  productoCatalogo     ProductoCatalogo? @relation(fields: [productoCatalogoId], references: [id])
+  productoCatalogo     ProductoCatalogo?  @relation(fields: [productoCatalogoId], references: [id])
   // SIEMPRE en MXN — es el campo que suman métricas, comisiones, metas y
   // ranking. Si la póliza está en USD/UDI, aquí va ya convertido.
   primaAnual           Float
   // Denominación original de la póliza (lo que dice el contrato).
-  moneda               MonedaPoliza      @default(MXN)
+  moneda               MonedaPoliza       @default(MXN)
   // Monto en la moneda original y tipo de cambio usado. Solo informativos:
   // ningún cálculo de negocio los lee, para no duplicar definiciones.
   primaMoneda          Float?
   tipoCambio           Float?
-  comisionPct          Float             @default(10)
+  comisionPct          Float              @default(10)
   comisionMonto        Float?
-  estado               EstadoVenta       @default(PENDIENTE_PAGAR)
+  estado               EstadoVenta        @default(PENDIENTE_PAGAR)
   validadoPor          String?
-  validador            Usuario?          @relation("ventasValidador", fields: [validadoPor], references: [id])
+  validador            Usuario?           @relation("ventasValidador", fields: [validadoPor], references: [id])
   fechaValidacion      DateTime?
   // Pipeline financiero: fechas y flags
   fechaFirma           DateTime?
@@ -766,10 +832,10 @@ model Venta {
   montoCancelado       Float?
   motivoCancelacion    String?
   // Vigencia y pagos subsecuentes (recordatorios automáticos)
-  formaPago            FormaPago         @default(ANUAL)
+  formaPago            FormaPago          @default(ANUAL)
   // Cargo automático: si es true NO se generan recordatorios de cobro (el
   // dinero se retira solo; recordarlo sería ruido para el asesor).
-  domiciliada          Boolean           @default(false)
+  domiciliada          Boolean            @default(false)
   metodoPago           MetodoPagoPoliza?
   fechaInicioVigencia  DateTime?
   fechaFinVigencia     DateTime?
@@ -781,14 +847,14 @@ model Venta {
   // informativo para el asesor y el cliente: si la póliza se cobra en dólares,
   // el recibo dice dólares y se guarda tal cual, con su equivalente calculado
   // al vuelo para mostrar.
-  montoPagoMoneda      MonedaPoliza      @default(MXN)
+  montoPagoMoneda      MonedaPoliza       @default(MXN)
   // Detalle técnico de la póliza (ficha)
   sumaAsegurada        Float?
   // Moneda en que se capturó sumaAsegurada (sigue la moneda de la póliza,
   // igual que primaMoneda: es una copia informativa, no hay conversión
   // automática — si la póliza está en UDIS/USD, el número ya está en esa
   // denominación y no se convierte a MXN como sí pasa con la prima).
-  sumaAseguradaMoneda  MonedaPoliza      @default(MXN)
+  sumaAseguradaMoneda  MonedaPoliza       @default(MXN)
   // Tipo de cambio con el que se mostró el equivalente en pesos de la suma
   // asegurada al capturarla (Banxico del día). Es una FOTO informativa, igual
   // que `tipoCambio` para la prima: ningún cálculo de negocio lo lee — la suma
@@ -804,7 +870,7 @@ model Venta {
   deducible            Float? // GMM / Salud
   // Moneda del deducible: en GMM internacional (Alfa Medical Internacional) el
   // deducible viene en dólares, no en pesos.
-  deducibleMoneda      MonedaPoliza      @default(MXN)
+  deducibleMoneda      MonedaPoliza       @default(MXN)
   coaseguro            String? // GMM / Salud, ej. "10%"
   // PDF de la póliza escaneada/emitida por la compañía, subido desde "Nueva
   // póliza" → "Subir documento". Reusa DocumentoCliente (mismo /uploads,
@@ -812,8 +878,8 @@ model Venta {
   // póliza tiene a lo más un documento oficial adjunto (no un historial de
   // versiones). Documentos previos sin analizar (subidos antes de esta
   // función) simplemente no tienen este vínculo.
-  documentoPolizaId    String?           @unique
-  documentoPoliza      DocumentoCliente? @relation(fields: [documentoPolizaId], references: [id], onDelete: SetNull)
+  documentoPolizaId    String?            @unique
+  documentoPoliza      DocumentoCliente?  @relation(fields: [documentoPolizaId], references: [id], onDelete: SetNull)
   // TODOS los documentos analizados/adjuntos a esta póliza (2026-08-31): antes
   // solo se podía subir un PDF por póliza (`documentoPolizaId`, 1:1). Muchas
   // carátulas reales vienen repartidas en varios documentos (carátula + tabla
@@ -828,7 +894,7 @@ model Venta {
   // la pena reintentar una extracción fallida o floja.
   extraccionEn         DateTime?
   extraccionModelo     String?
-  extraccionConfirmada Boolean           @default(false)
+  extraccionConfirmada Boolean            @default(false)
   // [{ nombre, detalle?, monto?, costo?, costoMoneda? }] — `monto` es texto
   // libre de la suma asegurada de esa cobertura ("$800,000", "Incluida",
   // "10%"); `costo` es el costo extra numérico de contratarla (null/0 = va
@@ -842,8 +908,8 @@ model Venta {
   // [{ nombre, porcentaje? }]
   beneficiarios        Json?
   notas                String?
-  creadoEn             DateTime          @default(now())
-  actualizadoEn        DateTime          @updatedAt
+  creadoEn             DateTime           @default(now())
+  actualizadoEn        DateTime           @updatedAt
 
   recordatoriosPago Nota[]
   pagos             PagoPoliza[]

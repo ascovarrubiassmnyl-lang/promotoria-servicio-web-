@@ -7,6 +7,7 @@ import BannerActivarPush from './notificaciones/BannerActivarPush.jsx';
 import InvitarUsuarioModal from './usuarios/InvitarUsuarioModal.jsx';
 import CampanaNotificaciones from './notificaciones/CampanaNotificaciones.jsx';
 import { useNoLeidas } from '../hooks/useNotificaciones.js';
+import { useLeadsSinVer } from '../hooks/useLeadsLanding.js';
 
 // Fondo 3D decorativo del panel (solo modo oscuro): mismo patrón que el login
 // — lazy + Suspense (three no entra al bundle inicial), solo con WebGL y con
@@ -32,12 +33,13 @@ const IconClose = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="cu
 const IconSun = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>);
 const IconMoon = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>);
 const IconInvitar = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>);
+const IconLeads = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>);
 const IconCampanaNav = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>);
 
 const ICONS = {
   dashboard: IconDashboard, clientes: IconClientes, citas: IconCal, ventas: IconPoliza,
   actividad: IconAct, asesores: IconAsesores, metas: IconMetas, configuracion: IconConfig,
-  puntos: IconPuntos, clinica: IconClinica, candidatos: IconCandidatos,
+  puntos: IconPuntos, clinica: IconClinica, candidatos: IconCandidatos, leads: IconLeads,
 };
 
 const STORAGE_KEY = 'crm:sidebar:colapsado';
@@ -49,12 +51,13 @@ const PRIMARY_SECCIONES = ['dashboard', 'clientes', 'citas', 'ventas'];
 const NAV_CORTO = {
   dashboard: 'Panel', clientes: 'CRM', citas: 'Citas', ventas: 'Pólizas',
   actividad: 'Actividad', metas: 'Metas', asesores: 'Asesores', configuracion: 'Ajustes',
-  puntos: '25 puntos', clinica: 'Clínica', candidatos: 'Candidatos',
+  puntos: '25 puntos', clinica: 'Clínica', candidatos: 'Candidatos', leads: 'Leads',
 };
 
 export default function Layout() {
   const { user, logout, esAdmin, puede } = useAuth();
   const { data: noLeidas = 0 } = useNoLeidas();
+  const { data: leadsSinVer = 0 } = useLeadsSinVer();
   const { tema, alternar } = useTheme();
   const navigate = useNavigate();
 
@@ -83,6 +86,9 @@ export default function Layout() {
   const allLinks = [
     { to: '/', label: 'Dashboard', end: true, seccion: 'dashboard' },
     { to: '/clientes', label: 'CRM', seccion: 'clientes' },
+    // Leads de landing pages: los leads son clientes, así que cuelga de la
+    // sección `clientes`. Badge = leads propios que aún no se abren.
+    { to: '/leads', label: 'Leads de landing', seccion: 'clientes', id: 'leads', badge: leadsSinVer },
     { to: '/citas', label: 'Citas / Calendario', seccion: 'citas' },
     // Promotor (ADMIN/SUPERADMIN) entra a pólizas por el roster de Equipo;
     // el asesor va directo a su propia cartera. El ítem de Equipo solo se
@@ -114,7 +120,9 @@ export default function Layout() {
   const tabsPrimarios = PRIMARY_SECCIONES
     .map((s) => navMovil.find((l) => l.seccion === s))
     .filter(Boolean);
-  const tabsMas = navMovil.filter((l) => !PRIMARY_SECCIONES.includes(l.seccion));
+  // `id` distingue destinos que comparten sección RBAC (Leads de landing vive
+  // bajo `clientes` pero no es la pestaña CRM).
+  const tabsMas = navMovil.filter((l) => l.id || !PRIMARY_SECCIONES.includes(l.seccion));
 
   const wClase = colapsado ? 'w-[68px]' : 'w-64';
   const linkClase = (isActive) =>
@@ -159,7 +167,7 @@ export default function Layout() {
         {/* Nav */}
         <nav className="flex-1 p-2 overflow-y-auto overflow-x-hidden">
           {links.map((l) => {
-            const Icon = ICONS[l.seccion] || IconDashboard;
+            const Icon = ICONS[l.id || l.seccion] || IconDashboard;
             return (
               <NavLink
                 key={l.to}
@@ -171,6 +179,13 @@ export default function Layout() {
               >
                 <Icon className="w-5 h-5 shrink-0" />
                 {!colapsado && <span className="truncate">{l.label}</span>}
+                {l.badge > 0 && (
+                  <span className={colapsado
+                    ? 'absolute top-1 right-1 h-2 w-2 rounded-full bg-brand-500'
+                    : 'ml-auto min-w-[20px] rounded-full bg-brand-600 px-1.5 text-center text-[11px] font-semibold leading-5 text-white tabular-nums'}>
+                    {colapsado ? '' : (l.badge > 99 ? '99+' : l.badge)}
+                  </span>
+                )}
                 {colapsado && (
                   <span className="pointer-events-none absolute left-[calc(100%+8px)] z-50 whitespace-nowrap rounded-md bg-slate-800 dark:bg-slate-700 px-2 py-1 text-xs text-white opacity-0 group-hover:opacity-100 transition-opacity">
                     {l.label}
@@ -184,7 +199,7 @@ export default function Layout() {
               {!colapsado && <p className="px-3 pt-4 pb-1 text-xs font-semibold uppercase text-slate-400 dark:text-slate-500">Admin</p>}
               {colapsado && <div className="my-2 mx-3 border-t border-slate-100 dark:border-slate-700" />}
               {adminLinksFiltrados.map((l) => {
-                const Icon = ICONS[l.seccion] || IconDashboard;
+                const Icon = ICONS[l.id || l.seccion] || IconDashboard;
                 return (
                   <NavLink
                     key={l.to}
@@ -297,7 +312,7 @@ export default function Layout() {
           aria-label="Navegación principal"
         >
           {tabsPrimarios.map((l) => {
-            const Icon = ICONS[l.seccion] || IconDashboard;
+            const Icon = ICONS[l.id || l.seccion] || IconDashboard;
             return (
               <NavLink
                 key={l.to}
@@ -312,7 +327,7 @@ export default function Layout() {
                 }
               >
                 <Icon className="w-6 h-6" />
-                <span>{NAV_CORTO[l.seccion] || l.label}</span>
+                <span>{NAV_CORTO[l.id || l.seccion] || l.label}</span>
               </NavLink>
             );
           })}
@@ -351,7 +366,7 @@ export default function Layout() {
 
             <div className="p-2">
               {tabsMas.map((l) => {
-                const Icon = ICONS[l.seccion] || IconDashboard;
+                const Icon = ICONS[l.id || l.seccion] || IconDashboard;
                 return (
                   <NavLink
                     key={l.to}
@@ -367,6 +382,11 @@ export default function Layout() {
                   >
                     <Icon className="w-5 h-5 shrink-0" />
                     <span>{l.label}</span>
+                    {l.badge > 0 && (
+                      <span className="ml-auto min-w-[20px] rounded-full bg-brand-600 px-1.5 text-center text-[11px] font-semibold leading-5 text-white tabular-nums">
+                        {l.badge > 99 ? '99+' : l.badge}
+                      </span>
+                    )}
                   </NavLink>
                 );
               })}

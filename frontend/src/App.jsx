@@ -19,6 +19,7 @@ import Clinica from './pages/Clinica.jsx';
 import Candidatos from './pages/Candidatos.jsx';
 import CandidatoDetalle from './pages/CandidatoDetalle.jsx';
 import Notificaciones from './pages/Notificaciones.jsx';
+import LeadsLanding from './pages/LeadsLanding.jsx';
 
 export default function App() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route path="/" element={<SeccionRoute seccion="dashboard"><Dashboard /></SeccionRoute>} />
         <Route path="/clientes" element={<SeccionRoute seccion="clientes"><Clientes /></SeccionRoute>} />
+        <Route path="/leads" element={<SeccionRoute seccion="clientes"><LeadsLanding /></SeccionRoute>} />
         <Route path="/clientes/:id" element={<SeccionRoute seccion="clientes"><ClienteDetalle /></SeccionRoute>} />
         <Route path="/citas" element={<SeccionRoute seccion="citas"><Citas /></SeccionRoute>} />
         <Route path="/ventas" element={<SeccionRoute seccion="ventas"><Ventas /></SeccionRoute>} />

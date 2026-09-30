@@ -14,6 +14,7 @@ export const TIPOS_NOTIFICACION = [
   'PROSPECTO_ESTANCADO',         // prospecto sin avance ni contacto en 15 días
   'META_AVANCE',                 // avance de la meta mensual de pólizas
   'POP_RESPONDIDO',              // un candidato contestó el POP que se le envió
+  'LEAD_RECIBIDO',               // entró un lead desde una landing page (routes/captura.js)
 ];
 
 // Punto de entrada ÚNICO para avisar a un usuario. Persiste la notificación

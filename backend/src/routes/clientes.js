@@ -89,10 +89,28 @@ router.get('/:id', asyncHandler(async (req, res) => {
       referidoPor: { select: { id: true, nombre: true, apellidoP: true } },
       referidos: { select: { id: true, nombre: true, apellidoP: true, estado: true } },
       documentos: { orderBy: { creadoEn: 'desc' }, include: { asesor: { select: { id: true, nombre: true, apellidoP: true } } } },
+      // Lead de landing page: de qué fuente llegó y lo que mandó cada envío
+      // del formulario (tarjeta "Datos del formulario"). Sin ip/userAgent.
+      fuenteCaptura: { select: { id: true, nombre: true } },
+      capturas: {
+        where: { resultado: { not: 'SPAM' } },
+        orderBy: { recibidoEn: 'desc' },
+        take: 10,
+        select: {
+          id: true, resultado: true, nombre: true, telefono: true, email: true, modalidad: true,
+          origen: true, etapaOriginal: true, fechaEnvio: true, datosExtra: true, recibidoEn: true,
+          fuente: { select: { id: true, nombre: true } },
+        },
+      },
     },
   });
   if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
   if (req.user.rol === 'ASESOR' && cliente.asesorId !== req.user.id) return res.status(403).json({ error: 'Sin acceso a este cliente' });
+  // Abrir la ficha = el dueño ya vio el lead: se apaga la marca "Nuevo".
+  // Solo el dueño; que un promotor lo consulte no cuenta como visto.
+  if (cliente.leadSinVer && cliente.asesorId === req.user.id) {
+    await prisma.cliente.update({ where: { id }, data: { leadSinVer: false } }).catch(() => {});
+  }
   res.json(cliente);
 }));
 

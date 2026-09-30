@@ -16,6 +16,7 @@ export const TIPOS_ACTIVIDAD = [
   'REFERIDO_CREADO',
   'CANDIDATO_CREADO',
   'CANDIDATO_ETAPA',
+  'LEAD_RECIBIDO',               // entró (o volvió a entrar) un lead desde una landing page
 ];
 
 // Registra un evento estructurado: tipo canónico + payload con los datos

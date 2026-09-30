@@ -120,6 +120,20 @@ export const TIPOS_EVENTO = {
     icon: <Icono d={['M4 17l6-6 4 4 6-6', 'M14 9h6v6']} />,
     titulo: (m) => (m.candidato ? `${m.candidato} cambió de etapa` : 'Candidato cambió de etapa'),
   },
+  // Lead que entró por una landing page (backend: routes/captura.js).
+  // `duplicado` = el teléfono ya existía y la persona volvió a escribir.
+  LEAD_RECIBIDO: {
+    label: 'Lead de landing',
+    dot: 'bg-sky-500',
+    text: 'text-sky-600 dark:text-sky-400',
+    marker: 'bg-sky-50 text-sky-600 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-400 dark:ring-sky-500/30',
+    chipOn: 'ring-sky-500 dark:ring-sky-400',
+    badgeOn: 'bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300',
+    icon: <Icono d={['M22 12h-6l-2 3h-4l-2-3H2', 'M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z']} />,
+    titulo: (m) => (m.duplicado
+      ? `Volvió a enviar formulario desde ${m.fuente || 'una landing'}`
+      : `Lead recibido desde ${m.fuente || 'una landing'}`),
+  },
 };
 
 // Orden estable de los chips de filtro.

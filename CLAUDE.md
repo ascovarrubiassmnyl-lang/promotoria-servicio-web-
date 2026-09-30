@@ -1908,6 +1908,58 @@ requisito. Corre cada hora (nada de lo que vigila cambia por minuto).
   hacia el asegurado. Requiere decidir WhatsApp Business API o correo
   transaccional, con sus implicaciones de consentimiento.
 
+## Leads de landing pages (`/leads`, 2026-09-30)
+
+Captura de leads desde sitios externos (landings estáticas, formularios). Cada
+usuario conecta sus landings desde la pestaña **"Leads de landing"** (visible
+para todos los roles, cuelga de la sección RBAC `clientes`) y **les pone el
+nombre que quiera** ("Landing tarjeta QR"…): ese nombre es lo que identifica
+de dónde vino cada lead.
+
+- **`FuenteCaptura`** (una por landing): dueño, nombre, `clave` pública
+  aleatoria (32 bytes base64url, nunca secuencial), `etapaInicial`, `activa`,
+  `dominiosPermitidos` (hosts, admite puerto; vacío = cualquiera; subdominios
+  entran), `ultimoUsoEn`, `totalRecibidos`. **`CapturaLead`** = un registro por
+  envío (CREADO / DUPLICADO / SPAM) con `modalidad`, `origen`, `etapaOriginal`,
+  `datosExtra` (Json con todo campo desconocido), `ipHash` (nunca la IP en
+  claro) y `userAgent`. En `Cliente`: `fuenteCapturaId` + `leadSinVer` (marca
+  "Nuevo", se apaga cuando **el dueño** abre la ficha). **No hay tabla de leads
+  aparte: un lead ES un `Cliente`.**
+- **`POST /api/captura/:clave`** (`routes/captura.js`, público, sin sesión):
+  montado en `app.js` **antes** del CORS y del `express.json` globales porque
+  necesita los suyos — acepta `text/plain` con JSON adentro (lo único que
+  puede mandar un `fetch` `mode:"no-cors"`), JSON y urlencoded, tope 10 KB.
+  La clave **solo crea**: el router no tiene GET. Respuestas: 200 `{ok:true}`
+  también para spam (honeypot `website`/`_gotcha`) y duplicados, 404 clave
+  inexistente/pausada, 403 origen fuera de `dominiosPermitidos`, 400 sin
+  nombre ni teléfono, 413, 429 (10/min por IP en memoria — un solo servicio en
+  Railway —, 200/24 h por clave contando `CapturaLead`). Nunca loggea el cuerpo.
+- **Mapeo**: `nombre` se parte en nombre + apellido paterno (última palabra);
+  teléfono → solo dígitos, 10 dígitos → `+52…`; una `etapa` que no es del
+  embudo (p. ej. `formulario_agenda`) entra en la `etapaInicial` de la fuente
+  (PROSPECTO por defecto) y el valor original queda en la captura; `origen` →
+  `Cliente.fuente` (si no viene, el nombre de la landing); la fecha del lead en
+  el CRM siempre es la del servidor. Valores que empiezan con `= + - @` se
+  neutralizan (CSV).
+- **Deduplicación por teléfono dentro de la cartera del dueño** (últimos 10
+  dígitos, así empata con teléfonos capturados a mano con otro formato): no
+  crea cliente, agrega captura DUPLICADO + actividad "Volvió a enviar
+  formulario" y lo vuelve a marcar Nuevo.
+- Al entrar: actividad `LEAD_RECIBIDO` y notificación `LEAD_RECIBIDO` (tipos
+  canónicos nuevos, color sky), y entra solo a la Clínica telefónica si su
+  etapa aplica. La ficha muestra la tarjeta **"Datos del formulario"**.
+- **Autoservicio** `/api/fuentes-captura` (solo `authenticate`, como `/push`):
+  crear/editar/pausar/regenerar/borrar **solo el dueño**, sin excepción de
+  admin; un promotor puede consultar todo con `?todos=1` (lectura). Borrar una
+  fuente conserva los clientes y borra sus capturas SPAM.
+- Tests: `cd backend && npm test` (`node:test`, contra la base de desarrollo;
+  crean y borran sus propios usuarios `@captura-test.local`). La app vive en
+  `src/app.js` (sin listen ni jobs) para poder levantarla en tests.
+- **Ojo al generar migraciones con `prisma migrate diff --shadow-database-url`**:
+  la shadow se BORRA completa. Nunca armar su URL con un `sed` que pueda dejarla
+  igual a `DATABASE_URL` (el `\|` de BSD sed no funciona en macOS): así se vació
+  la base local el 2026-09-30.
+
 ## Sección Configuración (rediseño 2026-07)
 
 `pages/Configuracion.jsx` (`/configuracion`) es el **plano de control de

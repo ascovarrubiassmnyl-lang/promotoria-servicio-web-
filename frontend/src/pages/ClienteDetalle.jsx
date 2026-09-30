@@ -442,6 +442,8 @@ export default function ClienteDetalle() {
             </div>
           </Card>
 
+          {c.capturas?.length > 0 && <FormularioLandingCard capturas={c.capturas} fuente={c.fuenteCaptura} />}
+
           <Card title="Resumen">
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-lg bg-slate-50 dark:bg-slate-700/40 px-3 py-2.5">
@@ -799,6 +801,54 @@ export default function ClienteDetalle() {
       </Modal>
 
     </div>
+  );
+}
+
+// Lo que mandó el formulario de la landing page (routes/captura.js), un
+// bloque por envío: el más reciente arriba, reenvíos incluidos. `datosExtra`
+// son los campos propios de cada sitio (presupuesto, utm…) y se muestran como
+// texto plano — React escapa todo, nunca se interpreta como HTML.
+const RESULTADO_CAPTURA = { CREADO: 'Primer envío', DUPLICADO: 'Volvió a escribir' };
+
+function FormularioLandingCard({ capturas, fuente }) {
+  const [todas, setTodas] = useState(false);
+  const visibles = todas ? capturas : capturas.slice(0, 1);
+  return (
+    <Card
+      title="Datos del formulario"
+      subtitle={fuente ? `Llegó desde ${fuente.nombre}` : 'Lead de landing page'}
+    >
+      <div className="space-y-4">
+        {visibles.map((cap) => {
+          const filas = [
+            ['Nombre', cap.nombre], ['Teléfono', cap.telefono], ['Correo', cap.email],
+            ['Modalidad', cap.modalidad], ['Origen', cap.origen], ['Etapa enviada', cap.etapaOriginal],
+            ...Object.entries(cap.datosExtra || {}).map(([k, v]) => [k.replace(/_/g, ' '), v]),
+          ].filter(([, v]) => v !== null && v !== undefined && v !== '');
+          return (
+            <div key={cap.id}>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mb-1.5">
+                {RESULTADO_CAPTURA[cap.resultado] || cap.resultado} · {fechaHora(cap.recibidoEn)}
+                {cap.fuente && fuente && cap.fuente.id !== fuente.id ? ` · ${cap.fuente.nombre}` : ''}
+              </p>
+              <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-sm">
+                {filas.map(([k, v]) => (
+                  <div key={k} className="contents">
+                    <dt className="kv-k capitalize">{k}</dt>
+                    <dd className="kv-v break-words whitespace-pre-wrap">{String(v)}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          );
+        })}
+        {capturas.length > 1 && (
+          <button type="button" onClick={() => setTodas((t) => !t)} className="text-xs font-medium text-brand-600 dark:text-brand-400 hover:underline">
+            {todas ? 'Ver solo el más reciente' : `Ver los ${capturas.length} envíos`}
+          </button>
+        )}
+      </div>
+    </Card>
   );
 }
 

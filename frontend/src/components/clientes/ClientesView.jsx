@@ -509,6 +509,10 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
                       <Link to={`/clientes/${c.id}`} className="font-semibold text-brand-600 dark:text-brand-400 hover:underline">
                         {c.nombre} {c.apellidoP} {c.apellidoM || ''}
                       </Link>
+                      {/* Lead de landing que el dueño aún no abre (se apaga al abrir la ficha). */}
+                      {c.leadSinVer && (
+                        <span className="badge ml-2 align-middle bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300">Nuevo</span>
+                      )}
                       {c.fuente && <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Fuente: {infoFuente(c.fuente).label}</p>}
                     </td>
                     <td className="py-2.5 pr-4 text-slate-600 dark:text-slate-300">
