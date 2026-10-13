@@ -1,14 +1,16 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Card, Modal, Field, EmptyState, MenuAcciones } from '../ui.jsx';
 import CandidatoFormModal from '../candidatos/CandidatoFormModal.jsx';
 import NotaFormModal from '../notas/NotaFormModal.jsx';
-import { ETAPAS, ETAPAS_FUERA_EMBUDO, ETAPAS_SELECCIONABLES, infoEtapa, FLAG_SEGUIMIENTO } from './etapas.js';
+import RegistrarLlamadaModal from './RegistrarLlamadaModal.jsx';
+import { ETAPAS, ETAPAS_FUERA_EMBUDO, ETAPAS_SELECCIONABLES, infoEtapa, FLAG_SEGUIMIENTO, confirmacionCambioEtapa } from './etapas.js';
 import { infoFuente, opcionesFuente } from './fuentes.js';
 import { RAMOS_LABEL, fechaCorta, hora } from '../../lib/format.js';
+import { avisar } from '../../lib/toast.js';
 
 // Vista de clientes compartida por ambos roles (mismo patrón que PolizasView):
 //  - asesorId=null → cartera propia (asesor) o del equipo con filtro (promotor).
@@ -125,9 +127,22 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
   const qc = useQueryClient();
   const navigate = useNavigate();
   const scoped = !!asesorId; // cartera de un asesor concreto (vista de promotor)
-  const [q, setQ] = useState('');
+  // Los filtros viven en la URL (2026-10-13, auditoría F11): antes eran
+  // useState y se perdían al entrar a una ficha y regresar ("Ver archivados"
+  // se desmarcaba). En la URL sobreviven al "atrás" y se pueden enlazar.
+  const [params, setParams] = useSearchParams();
+  const ponerFiltros = (cambios) => setParams((prev) => {
+    const p = new URLSearchParams(prev);
+    for (const [k, v] of Object.entries(cambios)) {
+      if (v === null || v === undefined || v === '' || v === false) p.delete(k); else p.set(k, v === true ? '1' : v);
+    }
+    return p;
+  }, { replace: true });
+  const q = params.get('q') || '';
+  const setQ = (v) => ponerFiltros({ q: v });
   const [asesorFiltro, setAsesorFiltro] = useState('');
-  const [etapaActiva, setEtapaActiva] = useState(null); // valor de etapa o '__flag'
+  const etapaActiva = params.get('etapa') || null; // valor de etapa o '__flag'
+  const setEtapaActiva = (v) => ponerFiltros({ etapa: v });
   const [filtroEtapaAbierto, setFiltroEtapaAbierto] = useState(false);
   const filtroEtapaRef = useRef(null);
   useEffect(() => {
@@ -136,10 +151,11 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
     document.addEventListener('click', cerrar);
     return () => document.removeEventListener('click', cerrar);
   }, [filtroEtapaAbierto]);
-  const [verArchivados, setVerArchivados] = useState(false);
+  const verArchivados = params.get('archivados') === '1';
+  const setVerArchivados = (v) => ponerFiltros({ archivados: v });
   // Segmento: 'todos' | 'prospectos' | 'clientes'. Se DERIVA del flag esCliente
   // que calcula el servidor (tiene póliza viva), no de un campo capturado.
-  const [segmento, setSegmento] = useState('todos');
+  const segmento = params.get('segmento') || 'todos';
 
   // Modal crear/editar (mismo formulario; editId define el modo)
   const [open, setOpen] = useState(false);
@@ -154,6 +170,8 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
 
   // Recordatorio desde el menú ⋯ ({cliente, destinatario} o null).
   const [recordatorio, setRecordatorio] = useState(null);
+  // Registrar llamada desde la fila: la acción que el asesor repite más.
+  const [llamada, setLlamada] = useState(null);
 
   // Captura de candidato a asesor (reclutamiento): mismo botón de alta, el
   // selector "Cliente | Candidato" del modal rutea al formulario correcto.
@@ -186,14 +204,18 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
   });
 
   // Conteos del segmento (prospecto = sin póliza viva, cliente = con póliza).
+  // Respetan el filtro de etapa activo (auditoría F13: con una etapa elegida
+  // la cabecera decía "4" y el chip "Todos 61"): filtros cruzados, cada uno
+  // cuenta sobre lo que deja el otro.
   const conteoSegmento = useMemo(() => {
     const m = { todos: 0, prospectos: 0, clientes: 0 };
-    for (const c of clientes || []) {
+    const enEtapa = (c) => (etapaActiva === '__flag' ? c.necesitaSeguimiento : !etapaActiva || c.estado === etapaActiva);
+    for (const c of (clientes || []).filter(enEtapa)) {
       m.todos += 1;
       if (c.esCliente) m.clientes += 1; else m.prospectos += 1;
     }
     return m;
-  }, [clientes]);
+  }, [clientes, etapaActiva]);
 
   // El segmento se aplica ANTES que los chips de etapa: los conteos de etapa
   // deben reflejar lo que el usuario está viendo, no toda la cartera.
@@ -262,6 +284,7 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
           asesorId: asesorId || formAsesorId || undefined,
         });
       }
+      avisar(editId ? 'Datos guardados' : `${form.nombre.trim()} quedó registrado`);
       setOpen(false);
       setForm(FORM_VACIO);
       refetch();
@@ -276,10 +299,11 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
     setArchiving(true);
     try {
       await api.delete(`/clientes/${toArchive.id}`);
+      avisar(`${toArchive.nombre} se archivó`);
       setToArchive(null);
       qc.invalidateQueries(['clientes']);
     } catch (e) {
-      alert(handleError(e));
+      avisar(handleError(e), 'error');
     } finally {
       setArchiving(false);
     }
@@ -288,9 +312,10 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
   const restaurar = async (c) => {
     try {
       await api.patch(`/clientes/${c.id}`, { archivado: false });
+      avisar(`${c.nombre} se restauró`);
       qc.invalidateQueries(['clientes']);
     } catch (e) {
-      alert(handleError(e));
+      avisar(handleError(e), 'error');
     }
   };
 
@@ -301,12 +326,15 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
 
   // Cambio de etapa desde la lista (mismo endpoint que la ficha).
   const cambiarEtapa = async (c, estado) => {
+    const pregunta = confirmacionCambioEtapa(c.estado, estado, c.nombre);
+    if (pregunta && !window.confirm(pregunta)) return;
     try {
       await api.patch(`/clientes/${c.id}`, { estado });
+      avisar(`${c.nombre}: ${infoEtapa(estado).label}`);
       qc.invalidateQueries(['clientes']);
       qc.invalidateQueries(['cliente', c.id]);
     } catch (e) {
-      alert(handleError(e));
+      avisar(handleError(e), 'error');
     }
   };
 
@@ -316,7 +344,7 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
         <div>
           <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">{titulo}</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            {filas.length} cliente{filas.length === 1 ? '' : 's'} · {subtitulo || (esAdmin() ? 'cartera del equipo' : 'tu cartera')}
+            {filas.length !== (clientes?.length || 0) ? `${filas.length} de ${clientes?.length || 0}` : filas.length} contacto{(clientes?.length || 0) === 1 ? '' : 's'} · {subtitulo || (esAdmin() ? 'cartera del equipo' : 'tu cartera')}
             {verArchivados && ' · archivados'}
           </p>
         </div>
@@ -355,7 +383,7 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
           return (
             <button
               key={s.value}
-              onClick={() => { setSegmento(s.value); setEtapaActiva(null); }}
+              onClick={() => ponerFiltros({ segmento: s.value === 'todos' ? null : s.value, etapa: null })}
               className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition ${
                 on
                   ? 'bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300'
@@ -486,7 +514,12 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
         {isFetching ? (
           <div className="py-10 text-center text-slate-400 dark:text-slate-500">Cargando…</div>
         ) : filas.length === 0 ? (
-          <EmptyState message={etapaActiva ? 'No hay clientes con este filtro' : 'No hay clientes que mostrar'} />
+          <EmptyState
+            message={etapaActiva || q || segmento !== 'todos' ? 'Nadie coincide con estos filtros.' : verArchivados ? 'No hay contactos archivados.' : 'Aún no tienes contactos.'}
+            accion={etapaActiva || q || segmento !== 'todos'
+              ? { label: 'Quitar filtros', onClick: () => ponerFiltros({ etapa: null, q: null, segmento: null }) }
+              : verArchivados ? null : { label: '+ Nuevo cliente', onClick: abrirCrear }}
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -532,7 +565,18 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
                     <td className="py-2.5 pr-4"><ProximaAccion pa={c.proximaAccion} /></td>
                     <td className="py-2.5 pr-4 text-center tabular-nums text-slate-600 dark:text-slate-300">{c._count?.citas || 0}</td>
                     <td className="py-2.5 pr-4 text-center tabular-nums text-slate-600 dark:text-slate-300">{c._count?.ventas || 0}</td>
-                    <td className="py-2.5 text-right">
+                    <td className="py-2.5 text-right whitespace-nowrap">
+                      {!verArchivados && (
+                        <button
+                          type="button"
+                          onClick={() => setLlamada(c)}
+                          className="mr-1 inline-flex h-7 w-7 items-center justify-center rounded-lg text-amber-600 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-500/10 align-middle"
+                          title="Registrar llamada"
+                          aria-label={`Registrar llamada con ${c.nombre}`}
+                        >
+                          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 4h4l2 5-3 2a11 11 0 005 5l2-3 5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2z" /></svg>
+                        </button>
+                      )}
                       <MenuAcciones
                         small
                         label={`Acciones de ${c.nombre}`}
@@ -541,6 +585,7 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
                           'sep',
                           { label: 'Restaurar cliente', onClick: () => restaurar(c) },
                         ] : [
+                          { label: 'Registrar llamada', onClick: () => setLlamada(c) },
                           { label: 'Ver expediente', onClick: () => navigate(`/clientes/${c.id}`) },
                           { label: 'Editar', onClick: () => abrirEditar(c) },
                           { label: 'Agendar cita', onClick: () => navigate(`/clientes/${c.id}`, { state: { abrirCita: true } }) },
@@ -590,9 +635,9 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
           )}
           <div className="grid grid-cols-2 gap-3">
             <Field label="Nombre*"><input className="input" required value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} /></Field>
-            <Field label="Apellido paterno*"><input className="input" required value={form.apellidoP} onChange={(e) => setForm({ ...form, apellidoP: e.target.value })} /></Field>
+            <Field label="Apellido paterno"><input className="input" value={form.apellidoP} onChange={(e) => setForm({ ...form, apellidoP: e.target.value })} /></Field>
             <Field label="Apellido materno"><input className="input" value={form.apellidoM} onChange={(e) => setForm({ ...form, apellidoM: e.target.value })} /></Field>
-            <Field label="Teléfono"><input className="input" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} /></Field>
+            <Field label="Teléfono"><input className="input" type="tel" inputMode="tel" placeholder="444 123 4567" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} /></Field>
             <Field label="Email"><input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
             <Field label="Etapa del pipeline">
               <select className="input" value={form.estado} onChange={(e) => setForm({ ...form, estado: e.target.value })}>
@@ -694,6 +739,13 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
           // al módulo) solo captura y recibe la confirmación del cierre.
           if (creado && esAdmin()) navigate(`/candidatos/${creado.id}`);
         }}
+      />
+
+      <RegistrarLlamadaModal
+        open={!!llamada}
+        onClose={() => setLlamada(null)}
+        cliente={llamada}
+        onCita={() => navigate(`/clientes/${llamada.id}`, { state: { abrirCita: true } })}
       />
 
       {/* Recordatorio desde el menú ⋯ (mismo modal que usa la ficha) */}

@@ -37,7 +37,8 @@ export default function Login() {
     setLoading(true);
     try {
       await login(email, password);
-      navigate('/');
+      // Se entra a "Hoy" (2026-10-13): la lista de trabajo, no los KPIs.
+      navigate('/hoy');
     } catch (err) {
       setError(handleError(err));
     } finally {

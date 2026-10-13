@@ -7,9 +7,10 @@ import { Card, Modal, Field, CitaBadge, VentaBadge, EmptyState, MenuAcciones, Da
 import PolizaFormModal from '../components/polizas/PolizaFormModal.jsx';
 import CitaFormModal from '../components/citas/CitaFormModal.jsx';
 import NotaFormModal from '../components/notas/NotaFormModal.jsx';
+import RegistrarLlamadaModal, { ligaWhatsApp } from '../components/clientes/RegistrarLlamadaModal.jsx';
 import VisorDocumento, { useVisorDocumento } from '../components/documentos/VisorDocumento.jsx';
 import ActivityTimeline from '../components/actividad/ActivityTimeline.jsx';
-import { ETAPAS, ETAPAS_SELECCIONABLES, infoEtapa, siguienteEtapa } from '../components/clientes/etapas.js';
+import { ETAPAS, ETAPAS_SELECCIONABLES, infoEtapa, siguienteEtapa, confirmacionCambioEtapa } from '../components/clientes/etapas.js';
 import { infoFuente, opcionesFuente } from '../components/clientes/fuentes.js';
 import { infoCanal, CITA_VIVA } from '../components/citas/tipos.js';
 import {
@@ -17,12 +18,16 @@ import {
   RAMOS, RAMOS_LABEL,
   FORMAS_PAGO, esVentaGanada, esVentaPipeline,
 } from '../lib/format.js';
+import { avisar } from '../lib/toast.js';
 
 // Subestado derivado: una póliza está "activa" en función de su estado — no es
 // un campo independiente (por eso se muestra como subestado, no como columna).
 const POLIZA_ACTIVA = new Set(['PAGADA', 'FIRMADA', 'APROBADA']);
 
-const iniciales = (c) => `${c.nombre?.[0] || ''}${c.apellidoP?.[0] || ''}`.toUpperCase();
+// Solo letras: un nombre como "(Pelayo)" daba el avatar "P(".
+const iniciales = (c) => `${c.nombre || ''} ${c.apellidoP || ''}`
+  .split(/\s+/).map((p) => p.replace(/[^\p{L}]/gu, '')).filter(Boolean)
+  .map((p) => p[0]).slice(0, 2).join('').toUpperCase() || '?';
 
 // Stepper del embudo: posición sobre el enum ordenado de etapas, pintado con
 // el color de la etapa actual (el color encodea progreso — mapa único en
@@ -101,7 +106,7 @@ function ListaRecordatorios({ items, onEliminar, vacio }) {
             {!automatico && (
               <button
                 onClick={() => onEliminar(n.id)}
-                className="opacity-0 group-hover:opacity-100 text-red-500 text-xs transition-opacity shrink-0"
+                className="text-slate-400 hover:text-red-600 dark:hover:text-red-400 text-xs shrink-0"
                 title="Eliminar recordatorio"
               >Eliminar</button>
             )}
@@ -133,6 +138,7 @@ export default function ClienteDetalle() {
 
   // Cita: modal compartido del módulo de Citas (clienteId fija el cliente)
   const [citaOpen, setCitaOpen] = useState(false);
+  const [llamadaOpen, setLlamadaOpen] = useState(false);
 
   // Producto de interés
   const [productoOpen, setProductoOpen] = useState(false);
@@ -210,11 +216,13 @@ export default function ClienteDetalle() {
   };
 
   const cambiarEstado = async (estado) => {
+    const pregunta = confirmacionCambioEtapa(c?.estado, estado, c?.nombre);
+    if (pregunta && !window.confirm(pregunta)) return;
     try {
       await api.patch(`/clientes/${id}`, { estado });
-      qc.invalidateQueries(['cliente', id]);
-      qc.invalidateQueries(['clientes']);
-    } catch (e2) { alert(handleError(e2)); }
+      avisar(`Etapa: ${infoEtapa(estado).label}`);
+      ['cliente', 'clientes', 'actividad-cliente', 'proceso-ventas'].forEach((k) => qc.invalidateQueries([k]));
+    } catch (e2) { avisar(handleError(e2), 'error'); }
   };
 
   // Archivar (DELETE hace borrado lógico en el backend) y restaurar
@@ -224,7 +232,7 @@ export default function ClienteDetalle() {
       await api.delete(`/clientes/${id}`);
       qc.invalidateQueries(['clientes']);
       navigate('/clientes');
-    } catch (e2) { alert(handleError(e2)); } finally { setArchivando(false); }
+    } catch (e2) { avisar(handleError(e2), 'error'); } finally { setArchivando(false); }
   };
 
   const restaurarCliente = async () => {
@@ -232,7 +240,7 @@ export default function ClienteDetalle() {
       await api.patch(`/clientes/${id}`, { archivado: false });
       qc.invalidateQueries(['cliente', id]);
       qc.invalidateQueries(['clientes']);
-    } catch (e2) { alert(handleError(e2)); }
+    } catch (e2) { avisar(handleError(e2), 'error'); }
   };
 
   // Notas y recordatorios (el formulario vive en NotaFormModal, compartido con
@@ -247,19 +255,21 @@ export default function ClienteDetalle() {
       await api.delete(`/notas/${delNotaId}`);
       setDelNotaId(null);
       qc.invalidateQueries(['cliente', id]);
-    } catch (e2) { alert(handleError(e2)); }
+    } catch (e2) { avisar(handleError(e2), 'error'); }
   };
 
   // Citas: el alta usa CitaFormModal; la baja normal es "Cancelar" (conserva
   // el registro). El borrado real vive en el calendario, con confirmación.
   const abrirCita = () => setCitaOpen(true);
 
-  const cancelarCita = async (citaId) => {
+  const cancelarCita = async (ci) => {
+    if (!window.confirm(`¿Cancelar "${ci.titulo}" del ${fechaHora(ci.fechaHoraInicio)}? Queda en el historial como cancelada.`)) return;
     try {
-      await api.patch(`/citas/${citaId}`, { estado: 'CANCELADA' });
+      await api.patch(`/citas/${ci.id}`, { estado: 'CANCELADA' });
+      avisar('Cita cancelada');
       qc.invalidateQueries(['cliente', id]);
       qc.invalidateQueries(['citas-cal']);
-    } catch (e2) { alert(handleError(e2)); }
+    } catch (e2) { avisar(handleError(e2), 'error'); }
   };
 
   // Producto de interés
@@ -277,7 +287,7 @@ export default function ClienteDetalle() {
       });
       setProductoOpen(false);
       qc.invalidateQueries(['cliente', id]);
-    } catch (e2) { alert(handleError(e2)); } finally { setProductoSaving(false); }
+    } catch (e2) { avisar(handleError(e2), 'error'); } finally { setProductoSaving(false); }
   };
 
   // Pólizas: cancelar (soft) y eliminar definitivo, siempre desde menú + confirmación
@@ -288,7 +298,7 @@ export default function ClienteDetalle() {
       setCancelarPoliza(null);
       qc.invalidateQueries(['cliente', id]);
       qc.invalidateQueries(['ventas']);
-    } catch (e2) { alert(handleError(e2)); } finally { setCancelandoPoliza(false); }
+    } catch (e2) { avisar(handleError(e2), 'error'); } finally { setCancelandoPoliza(false); }
   };
 
   const eliminarPoliza = async () => {
@@ -298,7 +308,7 @@ export default function ClienteDetalle() {
       setDelPolizaId(null);
       qc.invalidateQueries(['cliente', id]);
       qc.invalidateQueries(['ventas']);
-    } catch (e2) { alert(handleError(e2)); } finally { setDelPolizaBusy(false); }
+    } catch (e2) { avisar(handleError(e2), 'error'); } finally { setDelPolizaBusy(false); }
   };
 
   // Archivos
@@ -321,7 +331,7 @@ export default function ClienteDetalle() {
       await api.delete(`/documentos/${delDocId}`);
       setDelDocId(null);
       qc.invalidateQueries(['cliente', id]);
-    } catch (e2) { alert(handleError(e2)); }
+    } catch (e2) { avisar(handleError(e2), 'error'); }
   };
 
   // Recordatorios segmentados: los del asesor (su propia gestión: llamadas,
@@ -338,7 +348,7 @@ export default function ClienteDetalle() {
       await api.patch(`/clientes/${id}`, { necesitaSeguimiento: !c.necesitaSeguimiento });
       qc.invalidateQueries(['cliente', id]);
       qc.invalidateQueries(['clientes']);
-    } catch (e2) { alert(handleError(e2)); }
+    } catch (e2) { avisar(handleError(e2), 'error'); }
   };
 
   return (
@@ -370,8 +380,16 @@ export default function ClienteDetalle() {
                 {!ETAPAS_SELECCIONABLES.some((e) => e.value === c.estado) && <option value={c.estado}>{infoEtapa(c.estado).label}</option>}
               </select>
             </div>
+            {!c.archivadoEn && (
+              <button onClick={() => setLlamadaOpen(true)} className="btn-primary">
+                Registrar llamada
+              </button>
+            )}
+            {!c.archivadoEn && ligaWhatsApp(c.telefono) && (
+              <a href={ligaWhatsApp(c.telefono)} target="_blank" rel="noreferrer" className="btn-secondary">WhatsApp</a>
+            )}
             {proxima && (
-              <button onClick={() => cambiarEstado(proxima.value)} className="btn-primary" title={`Pasar a ${proxima.label}`}>
+              <button onClick={() => cambiarEstado(proxima.value)} className="btn-secondary" title={`Pasar a ${proxima.label}`}>
                 Avanzar etapa →
               </button>
             )}
@@ -529,7 +547,7 @@ export default function ClienteDetalle() {
                 </table>
               </div>
             ) : (
-              <EmptyState message="Sin pólizas registradas · usa «+ Crear póliza» para registrar la primera" />
+              <EmptyState message="Aún no tiene pólizas registradas." accion={{ label: '+ Registrar póliza', onClick: () => setPolizaModal({ open: true, venta: null }) }} />
             )}
           </Card>
 
@@ -553,8 +571,8 @@ export default function ClienteDetalle() {
                       <CitaBadge estado={ci.estado} />
                       {CITA_VIVA.includes(ci.estado) && (
                         <button
-                          onClick={() => cancelarCita(ci.id)}
-                          className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-xs transition-opacity"
+                          onClick={() => cancelarCita(ci)}
+                          className="text-slate-500 hover:text-red-600 dark:hover:text-red-400 text-xs"
                           title="Cancelar cita (conserva el registro)"
                         >Cancelar</button>
                       )}
@@ -562,7 +580,12 @@ export default function ClienteDetalle() {
                   </li>
                 ))}
               </ul>
-            ) : <p className="text-sm text-slate-400 dark:text-slate-500 py-1">Sin citas programadas.</p>}
+            ) : (
+              <div className="flex items-center justify-between gap-2 py-1">
+                <p className="text-sm text-slate-400 dark:text-slate-500">Sin citas programadas.</p>
+                <button type="button" onClick={abrirCita} className="text-xs font-semibold text-brand-600 dark:text-brand-400 hover:underline">Agendar una</button>
+              </div>
+            )}
           </Card>
 
           {/* Actividad reciente: mismo ActivityTimeline del módulo de Actividad,
@@ -653,7 +676,7 @@ export default function ClienteDetalle() {
           <form onSubmit={save} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <Field label="Nombre"><input className="input" required value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} /></Field>
-              <Field label="Apellido paterno"><input className="input" required value={form.apellidoP} onChange={(e) => setForm({ ...form, apellidoP: e.target.value })} /></Field>
+              <Field label="Apellido paterno"><input className="input" value={form.apellidoP} onChange={(e) => setForm({ ...form, apellidoP: e.target.value })} /></Field>
               <Field label="Apellido materno"><input className="input" value={form.apellidoM} onChange={(e) => setForm({ ...form, apellidoM: e.target.value })} /></Field>
               <Field label="Teléfono"><input className="input" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} /></Field>
               <Field label="Email"><input className="input" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
@@ -681,6 +704,13 @@ export default function ClienteDetalle() {
       </Modal>
 
       {/* Modal nota / recordatorio (compartido con la lista de clientes) */}
+      <RegistrarLlamadaModal
+        open={llamadaOpen}
+        onClose={() => setLlamadaOpen(false)}
+        cliente={c}
+        onCita={() => setCitaOpen(true)}
+      />
+
       <NotaFormModal
         open={notaOpen}
         onClose={() => setNotaOpen(false)}

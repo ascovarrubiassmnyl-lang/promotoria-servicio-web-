@@ -12,6 +12,7 @@ import {
   infoSituacion, ASEGURADORA, primaPendienteConversion,
 } from './tipos.js';
 import VisorDocumento, { useVisorDocumento } from '../documentos/VisorDocumento.jsx';
+import { avisar } from '../../lib/toast.js';
 
 const PERIODO_LABEL = { MENSUAL: 'por mes', TRIMESTRAL: 'por trimestre', SEMESTRAL: 'por semestre' };
 
@@ -121,7 +122,7 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
       qc.invalidateQueries(['poliza', p.id]);
       qc.invalidateQueries(['ventas']);
       qc.invalidateQueries(['equipo-resumen']);
-    } catch (e) { alert(handleError(e)); }
+    } catch (e) { avisar(handleError(e), 'error'); }
   };
 
   const abrirCobro = () => setCobro({

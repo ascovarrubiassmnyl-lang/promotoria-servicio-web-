@@ -8,7 +8,7 @@ import { montoMoneda, primaPendienteConversion } from './tipos.js';
 
 // Lista de pólizas COMPARTIDA entre roles (asesor y promotor).
 // El comportamiento se condiciona solo por props (readOnly / onOpen), nunca se duplica.
-export default function PolicyList({ ventas, loading = false, onOpen }) {
+export default function PolicyList({ ventas, loading = false, onOpen, onNueva = null }) {
   const [q, setQ] = useState('');
   const [estado, setEstado] = useState('');
   const [ramo, setRamo] = useState('');
@@ -95,7 +95,10 @@ export default function PolicyList({ ventas, loading = false, onOpen }) {
         {loading ? (
           <EmptyState message="Cargando…" />
         ) : filtradas.length === 0 ? (
-          <EmptyState message="Sin pólizas" />
+          <EmptyState
+            message={ventas?.length ? 'Ninguna póliza coincide con los filtros.' : 'Aún no registras pólizas.'}
+            accion={!ventas?.length && onNueva ? { label: '+ Nueva póliza', onClick: onNueva } : null}
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

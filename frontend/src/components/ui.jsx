@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ESTADOS_VENTA_LABEL, nombreMes } from '../lib/format.js';
 import { infoEtapa } from './clientes/etapas.js';
 import { infoEstadoCita } from './citas/tipos.js';
+import { suscribirToasts } from '../lib/toast.js';
 
 export function Card({ children, className = '', title, subtitle, actions }) {
   return (
@@ -69,21 +71,157 @@ export function VentaBadge({ estado }) {
   return <Badge color={estadoVentaColor[estado] || 'slate'} className="badge-dot">{ESTADOS_VENTA_LABEL[estado] || estado}</Badge>;
 }
 
-export function EmptyState({ message = 'Sin datos' }) {
-  return <div className="text-center py-12 text-sm text-slate-400 dark:text-slate-500">{message}</div>;
+// Contenedor de avisos (lib/toast.js). Se monta UNA vez en Layout. Los de
+// éxito se van solos a los 3.5 s; los de error se quedan 7 s y se cierran con ×.
+const TOAST_ESTILO = {
+  ok: 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/90 dark:text-emerald-200',
+  error: 'border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/90 dark:text-red-200',
+  info: 'border-slate-200 bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100',
+};
+export function Toasts() {
+  const [lista, setLista] = useState([]);
+  useEffect(() => suscribirToasts((t) => {
+    setLista((l) => [...l.slice(-3), t]);
+    setTimeout(() => setLista((l) => l.filter((x) => x.id !== t.id)), t.tipo === 'error' ? 7000 : 3500);
+  }), []);
+  if (!lista.length) return null;
+  return (
+    <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-[100] flex w-[calc(100%-2rem)] max-w-sm flex-col gap-2" role="status" aria-live="polite">
+      {lista.map((t) => (
+        <div key={t.id} className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm shadow-lg ${TOAST_ESTILO[t.tipo] || TOAST_ESTILO.info}`}>
+          <span className="flex-1">{t.mensaje}</span>
+          <button type="button" aria-label="Cerrar" onClick={() => setLista((l) => l.filter((x) => x.id !== t.id))} className="opacity-60 hover:opacity-100">×</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Selector con buscador (2026-10-13, auditoría de UI): elegir cliente en
+// Nueva cita / Nueva póliza era un <select> con toda la cartera. Mismo
+// contrato que un select (value/onChange con el value elegido). opciones:
+// [{value, label, grupo?, detalle?}]; el texto busca sin acentos en label y
+// detalle (teléfono, correo). Click-outside como MenuAcciones.
+const sinAcentos = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+export function SelectorBuscable({ value, onChange, opciones = [], placeholder = 'Buscar…', disabled = false, required = false, vacio = 'Sin resultados' }) {
+  const [abierto, setAbierto] = useState(false);
+  const [texto, setTexto] = useState('');
+  const [activo, setActivo] = useState(0);
+  const ref = useRef(null);
+  const elegida = opciones.find((o) => o.value === value);
+
+  useEffect(() => {
+    if (!abierto) return undefined;
+    const fuera = (e) => { if (ref.current && !ref.current.contains(e.target)) setAbierto(false); };
+    document.addEventListener('mousedown', fuera);
+    return () => document.removeEventListener('mousedown', fuera);
+  }, [abierto]);
+
+  const q = sinAcentos(texto.trim());
+  const filtradas = (q ? opciones.filter((o) => sinAcentos(`${o.label} ${o.detalle || ''}`).includes(q)) : opciones).slice(0, 50);
+
+  const elegir = (o) => { onChange(o.value); setTexto(''); setAbierto(false); };
+  const teclas = (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setAbierto(true); setActivo((i) => Math.min(i + 1, filtradas.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActivo((i) => Math.max(i - 1, 0)); }
+    else if (e.key === 'Enter' && abierto && filtradas[activo]) { e.preventDefault(); elegir(filtradas[activo]); }
+    else if (e.key === 'Escape') setAbierto(false);
+  };
+
+  let grupoPrevio = null;
+  return (
+    <div ref={ref} className="relative">
+      <input
+        className="input"
+        disabled={disabled}
+        value={abierto ? texto : (elegida?.label || '')}
+        placeholder={elegida ? elegida.label : placeholder}
+        onFocus={() => { setAbierto(true); setTexto(''); setActivo(0); }}
+        onChange={(e) => { setTexto(e.target.value); setAbierto(true); setActivo(0); }}
+        onKeyDown={teclas}
+        role="combobox"
+        aria-expanded={abierto}
+        autoComplete="off"
+      />
+      {/* Para que la validación nativa del form siga exigiendo elegir uno. */}
+      {required && (
+        <input tabIndex={-1} aria-hidden="true" required value={value || ''} onChange={() => {}} className="absolute inset-x-0 bottom-0 h-px opacity-0 pointer-events-none" />
+      )}
+      {abierto && !disabled && (
+        <ul className="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800" role="listbox">
+          {filtradas.length === 0 && <li className="px-3 py-2 text-sm text-slate-400">{vacio}</li>}
+          {filtradas.map((o, i) => {
+            const cabecera = o.grupo && o.grupo !== grupoPrevio ? o.grupo : null;
+            grupoPrevio = o.grupo;
+            return (
+              <li key={o.value}>
+                {cabecera && <p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">{cabecera}</p>}
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={o.value === value}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => elegir(o)}
+                  onMouseEnter={() => setActivo(i)}
+                  className={`flex w-full items-baseline justify-between gap-2 px-3 py-1.5 text-left text-sm ${i === activo ? 'bg-slate-100 dark:bg-slate-700' : ''} ${o.value === value ? 'font-semibold text-brand-700 dark:text-brand-300' : 'text-slate-700 dark:text-slate-200'}`}
+                >
+                  <span className="truncate">{o.label}</span>
+                  {o.detalle && <span className="shrink-0 text-xs text-slate-400">{o.detalle}</span>}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// Estado vacío. Con `accion` ({label, onClick}) lleva el botón de lo que toca
+// hacer ahí mismo (2026-10-13, auditoría: los vacíos eran solo texto gris).
+export function EmptyState({ message = 'Sin datos', accion = null }) {
+  return (
+    <div className="text-center py-12 text-sm text-slate-400 dark:text-slate-500">
+      <p>{message}</p>
+      {accion && <button type="button" onClick={accion.onClick} className="btn-secondary mt-3 text-sm">{accion.label}</button>}
+    </div>
+  );
 }
 
 // Menú desplegable de acciones (⋯). Las acciones destructivas viven aquí, con
 // confirmación aparte — nunca como botón directo. items: [{label, onClick,
 // danger?}, 'sep', ...]; los falsy se omiten.
+//
+// El menú se pinta en un portal con posición fija (2026-10-13, auditoría F12):
+// como hijo absoluto quedaba recortado por el overflow de la tarjeta/tabla
+// cuando había pocas filas. Se abre hacia arriba si no cabe abajo y se cierra
+// al hacer scroll o cambiar el tamaño de la ventana.
 export function MenuAcciones({ items, small = false, label = 'Más acciones' }) {
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null);
   const ref = useRef(null);
+  const menuRef = useRef(null);
   useEffect(() => {
-    if (!open) return;
-    const cerrar = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); };
+    if (!open) return undefined;
+    const cerrar = (e) => {
+      if (!ref.current?.contains(e.target) && !menuRef.current?.contains(e.target)) setOpen(false);
+    };
+    const cerrarSiempre = () => setOpen(false);
     document.addEventListener('click', cerrar);
-    return () => document.removeEventListener('click', cerrar);
+    window.addEventListener('scroll', cerrarSiempre, true);
+    window.addEventListener('resize', cerrarSiempre);
+    return () => {
+      document.removeEventListener('click', cerrar);
+      window.removeEventListener('scroll', cerrarSiempre, true);
+      window.removeEventListener('resize', cerrarSiempre);
+    };
+  }, [open]);
+  useLayoutEffect(() => {
+    if (!open || !ref.current) return;
+    const r = ref.current.getBoundingClientRect();
+    const alto = menuRef.current?.offsetHeight || 0;
+    const arriba = r.bottom + 4 + alto > window.innerHeight - 8 && r.top - 4 - alto > 8;
+    setPos({ top: arriba ? r.top - 4 - alto : r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
   }, [open]);
   return (
     <div className="relative inline-block" ref={ref}>
@@ -100,8 +238,12 @@ export function MenuAcciones({ items, small = false, label = 'Más acciones' }) 
           <circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" />
         </svg>
       </button>
-      {open && (
-        <div className="absolute right-0 top-full mt-1 z-30 min-w-[210px] rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-lg p-1.5">
+      {open && createPortal(
+        <div
+          ref={menuRef}
+          style={pos ? { top: pos.top, right: pos.right } : { visibility: 'hidden', top: 0, right: 0 }}
+          className="fixed z-[90] min-w-[210px] rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-lg p-1.5"
+        >
           {items.filter(Boolean).map((it, i) => it === 'sep' ? (
             <div key={`sep-${i}`} className="my-1 h-px bg-slate-100 dark:bg-slate-700" />
           ) : (
@@ -114,7 +256,8 @@ export function MenuAcciones({ items, small = false, label = 'Más acciones' }) 
                 : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'}`}
             >{it.label}</button>
           ))}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

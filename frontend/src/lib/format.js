@@ -24,16 +24,32 @@ export function tamanoLegible(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function fechaCorta(value) {
-  return new Date(value).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+// UN solo formato de fecha en toda la app (2026-10-13, auditoría de UI: se
+// veían "08-oct, 12:05 p.m.", "16 feb 2027" y "13/10/2026, 01:30 p.m." en la
+// misma sesión). Regla: día + mes corto, el año solo si no es el actual
+// ("13 oct", "16 feb 2027"); la hora en 12 h sin cero a la izquierda
+// ("1:30 p.m."); y con hora, los días cercanos se dicen con palabra
+// ("Hoy, 1:30 p.m."). No formatear fechas a mano en componentes.
+function diaMes(d) {
+  const mismoAnio = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString('es-MX', { day: 'numeric', month: 'short', ...(mismoAnio ? {} : { year: 'numeric' }) }).replace('.', '');
 }
 
-export function fechaHora(value) {
-  return new Date(value).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+export function fechaCorta(value) {
+  if (!value) return '—';
+  return diaMes(new Date(value));
 }
 
 export function hora(value) {
-  return new Date(value).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+  return new Date(value).toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit' });
+}
+
+export function fechaHora(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  const dias = Math.round((new Date(d).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000);
+  const dia = { 0: 'Hoy', 1: 'Mañana', '-1': 'Ayer' }[dias] || diaMes(d);
+  return `${dia}, ${hora(d)}`;
 }
 
 export function nombreMes(m) {

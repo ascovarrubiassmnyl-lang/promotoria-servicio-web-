@@ -1,13 +1,15 @@
-import { NavLink, useNavigate, Outlet } from 'react-router-dom';
-import { Suspense, lazy, useState, useEffect } from 'react';
+import { NavLink, useNavigate, useLocation, Outlet } from 'react-router-dom';
+import { Suspense, lazy, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
 import { soportaWebGL, Silencioso } from './decor/util3d.jsx';
 import BannerActivarPush from './notificaciones/BannerActivarPush.jsx';
+import { Toasts } from './ui.jsx';
 import InvitarUsuarioModal from './usuarios/InvitarUsuarioModal.jsx';
 import CampanaNotificaciones from './notificaciones/CampanaNotificaciones.jsx';
 import { useNoLeidas } from '../hooks/useNotificaciones.js';
 import { useLeadsSinVer } from '../hooks/useLeadsLanding.js';
+import { ROLES_LABEL } from './configuracion/secciones.js';
 
 // Fondo 3D decorativo del panel (solo modo oscuro): mismo patrón que el login
 // — lazy + Suspense (three no entra al bundle inicial), solo con WebGL y con
@@ -27,29 +29,150 @@ const IconClinica = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="
 const IconCandidatos = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M17 11l2 2 4-4"/></svg>);
 const IconConfig = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>);
 const IconLogout = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>);
-const IconToggle = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>);
+const IconPanelCollapse = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 4v16"/><path d="M15 10l-2 2l2 2"/></svg>);
+const IconPanelExpand = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 4v16"/><path d="M14 10l2 2l-2 2"/></svg>);
 const IconMas = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>);
 const IconClose = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>);
 const IconSun = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>);
 const IconMoon = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>);
 const IconInvitar = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>);
 const IconLeads = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>);
+const IconHoy = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg>);
 const IconCampanaNav = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>);
 
 const ICONS = {
   dashboard: IconDashboard, clientes: IconClientes, citas: IconCal, ventas: IconPoliza,
   actividad: IconAct, asesores: IconAsesores, metas: IconMetas, configuracion: IconConfig,
-  puntos: IconPuntos, clinica: IconClinica, candidatos: IconCandidatos, leads: IconLeads,
+  puntos: IconPuntos, clinica: IconClinica, candidatos: IconCandidatos, leads: IconLeads, hoy: IconHoy,
 };
 
 const STORAGE_KEY = 'crm:sidebar:colapsado';
 
+// Sidebar de escritorio (rediseño 2026-10-13, referencia "Sidebar" collapsible
+// que señaló el usuario; se adoptó el diseño, no su stack — allá era TS +
+// framer-motion + Base UI + tabler, aquí JS + Tailwind sin dependencias).
+// La geometría de cada ítem es IDÉNTICA expandido y colapsado (padding fijo,
+// ícono anclado a la izquierda): al animar el ancho los íconos no saltan, solo
+// se recorta y desvanece el texto. 60px = 8 (nav) + 12 (ítem) + 20 (ícono) +
+// 12 + 8, así el ícono queda centrado en el riel.
+const ANCHO_EXPANDIDO = 260;
+const ANCHO_COLAPSADO = 60;
+
+const itemBase =
+  'group/item relative flex w-full items-center gap-2.5 rounded-[10px] px-3 py-[7px] text-[13.5px] font-medium leading-none whitespace-nowrap select-none outline-none transition-colors duration-150';
+const itemInactivo =
+  'text-slate-600 hover:text-slate-900 hover:bg-slate-900/[0.04] dark:text-slate-300 dark:hover:text-white dark:hover:bg-white/[0.05]';
+const itemActivo = 'text-slate-900 dark:text-white';
+
+// Texto que se desvanece al colapsar (se queda en el DOM: lo sigue leyendo un
+// lector de pantalla y el ancho de la columna se encarga de recortarlo).
+function Desvanece({ show, className = '', children }) {
+  return (
+    <span className={`transition-opacity duration-150 motion-reduce:transition-none ${show ? 'opacity-100' : 'opacity-0'} ${className}`}>
+      {children}
+    </span>
+  );
+}
+
+function SeccionSidebar({ label, colapsado, children }) {
+  return (
+    <div role="group" aria-label={label} className="py-1">
+      {label && (
+        <div className="flex h-[26px] items-end px-[18px] pb-1.5">
+          <Desvanece show={!colapsado} className="text-[10.5px] font-medium uppercase leading-none tracking-[0.08em] text-slate-400 dark:text-slate-500">
+            {label}
+          </Desvanece>
+        </div>
+      )}
+      <div className="flex flex-col gap-px px-2">{children}</div>
+    </div>
+  );
+}
+
+function BadgeItem({ n, alerta, colapsado }) {
+  if (!(n > 0)) return null;
+  const color = alerta ? 'bg-red-500' : 'bg-brand-600';
+  return (
+    <>
+      <Desvanece show={!colapsado} className="relative z-10 flex shrink-0">
+        <span className={`min-w-[20px] rounded-full ${color} px-1.5 text-center text-[11px] font-semibold leading-5 text-white tabular-nums`}>
+          {n > 99 ? '99+' : n}
+        </span>
+      </Desvanece>
+      {colapsado && <span className={`absolute left-[26px] top-1 h-2 w-2 rounded-full ${color} ring-2 ring-white dark:ring-slate-900`} />}
+    </>
+  );
+}
+
+// Ítem de navegación. Dentro del <nav> el fondo activo lo pinta el indicador
+// deslizante; fuera de él (footer) se pinta aquí mismo (`fondoActivo`).
+function ItemSidebar({ l, icono, colapsado, onClick, fondoActivo = false }) {
+  const Icon = icono || ICONS[l.id || l.seccion] || IconDashboard;
+  return (
+    <NavLink
+      to={l.to}
+      end={l.end}
+      onClick={onClick}
+      title={colapsado ? l.label : undefined}
+      className={({ isActive }) =>
+        `${itemBase} ${isActive ? itemActivo : itemInactivo} ${isActive && fondoActivo ? 'bg-slate-900/[0.06] dark:bg-white/[0.08]' : ''}`
+      }
+    >
+      {({ isActive }) => (
+        <>
+          <span
+            className={`relative z-10 flex h-5 w-5 shrink-0 items-center justify-center transition-colors duration-150 ${
+              isActive
+                ? 'text-brand-600 dark:text-brand-400'
+                : 'text-slate-400 group-hover/item:text-slate-900 dark:text-slate-500 dark:group-hover/item:text-white'
+            }`}
+          >
+            <Icon className="h-[18px] w-[18px]" />
+          </span>
+          <Desvanece show={!colapsado} className="relative z-10 min-w-0 flex-1 truncate text-left">
+            {l.label}
+          </Desvanece>
+          <BadgeItem n={l.badge} alerta={l.badgeAlerta} colapsado={colapsado} />
+        </>
+      )}
+    </NavLink>
+  );
+}
+
+function BotonSidebar({ icono: Icon, label, title, colapsado, onClick, peligro = false }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={colapsado ? (title || label) : title}
+      className={`${itemBase} ${
+        peligro
+          ? 'text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20'
+          : itemInactivo
+      }`}
+    >
+      <span
+        className={`relative z-10 flex h-5 w-5 shrink-0 items-center justify-center transition-colors duration-150 ${
+          peligro ? '' : 'text-slate-400 group-hover/item:text-slate-900 dark:text-slate-500 dark:group-hover/item:text-white'
+        }`}
+      >
+        <Icon className="h-[18px] w-[18px]" />
+      </span>
+      <Desvanece show={!colapsado} className="relative z-10 min-w-0 flex-1 truncate text-left">
+        {label}
+      </Desvanece>
+    </button>
+  );
+}
+
 // Secciones que ocupan una pestaña propia en la barra inferior (móvil), en
 // orden. El resto de destinos permitidos caen en la hoja "Más".
-const PRIMARY_SECCIONES = ['dashboard', 'clientes', 'citas', 'ventas'];
+// "Hoy" (2026-10-13) desplaza al Panel a la hoja "Más": es la pantalla
+// que un asesor en campo abre en el celular.
+const PRIMARY_SECCIONES = ['hoy', 'clientes', 'citas', 'ventas'];
 // Etiqueta corta para la barra inferior (el sidebar usa la larga).
 const NAV_CORTO = {
-  dashboard: 'Panel', clientes: 'CRM', citas: 'Citas', ventas: 'Pólizas',
+  hoy: 'Hoy', dashboard: 'Panel', clientes: 'CRM', citas: 'Citas', ventas: 'Pólizas',
   actividad: 'Actividad', metas: 'Metas', asesores: 'Asesores', configuracion: 'Ajustes',
   puntos: '25 puntos', clinica: 'Clínica', candidatos: 'Candidatos', leads: 'Sitio web',
 };
@@ -83,7 +206,42 @@ export default function Layout() {
     localStorage.setItem(STORAGE_KEY, colapsado ? '1' : '0');
   }, [colapsado]);
 
+  // Píldora activa que se desliza entre ítems: se mide el NavLink con
+  // aria-current="page" dentro del <nav>. La primera medición no anima (si no,
+  // la píldora "volaría" desde arriba al cargar).
+  const location = useLocation();
+  const navRef = useRef(null);
+  const [indicador, setIndicador] = useState(null);
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return undefined;
+    const medir = () => {
+      const el = nav.querySelector('[aria-current="page"]');
+      setIndicador((prev) =>
+        el ? { top: el.offsetTop, height: el.offsetHeight, animar: Boolean(prev) } : null,
+      );
+    };
+    medir();
+    const ro = new ResizeObserver(medir);
+    ro.observe(nav);
+    return () => ro.disconnect();
+  }, [location.pathname, esAdmin()]);
+
+  // Scrollbar del nav: visible solo mientras se scrollea.
+  const [scrolleando, setScrolleando] = useState(false);
+  const timerScroll = useRef(null);
+  const alScrollear = () => {
+    setScrolleando(true);
+    clearTimeout(timerScroll.current);
+    timerScroll.current = setTimeout(() => setScrolleando(false), 700);
+  };
+  useEffect(() => () => clearTimeout(timerScroll.current), []);
+
   const allLinks = [
+    // "Hoy" (2026-10-13, auditoría de UI): la lista de trabajo del día —citas,
+    // recordatorios vencidos, leads nuevos y a quién llamar— en un solo lugar.
+    // Para todos los roles y sin sección RBAC: es SIEMPRE el día propio.
+    { to: '/hoy', label: 'Hoy', id: 'hoy' },
     { to: '/', label: 'Dashboard', end: true, seccion: 'dashboard' },
     { to: '/clientes', label: 'CRM', seccion: 'clientes' },
     // "Agrega tu sitio web" (captura de leads desde landings): para TODOS los
@@ -118,18 +276,12 @@ export default function Layout() {
   // Navegación móvil (misma fuente que el sidebar, sin re-derivar permisos):
   // las 4 secciones primarias son pestañas fijas y el resto va en la hoja "Más".
   const navMovil = [...links, ...adminLinksFiltrados];
+  // Los destinos sin sección RBAC se identifican por `id` ("hoy", "leads").
+  const claveNav = (l) => l.id || l.seccion;
   const tabsPrimarios = PRIMARY_SECCIONES
-    .map((s) => navMovil.find((l) => l.seccion === s))
+    .map((s) => navMovil.find((l) => claveNav(l) === s))
     .filter(Boolean);
-  // `id` marca destinos sin pestaña primaria propia ("Agrega tu sitio web"):
-  // siempre van a la hoja "Más".
-  const tabsMas = navMovil.filter((l) => l.id || !PRIMARY_SECCIONES.includes(l.seccion));
-
-  const wClase = colapsado ? 'w-[68px]' : 'w-64';
-  const linkClase = (isActive) =>
-    `${isActive ? 'bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60'} ${
-      colapsado ? 'justify-center px-0' : 'pl-3 pr-4 gap-3'
-    } group relative flex items-center gap-3 rounded-lg ${colapsado ? 'h-10 w-10 mx-auto' : 'py-2'} text-sm font-medium transition`;
+  const tabsMas = navMovil.filter((l) => !PRIMARY_SECCIONES.includes(claveNav(l)));
 
   return (
     <div className="h-screen flex overflow-hidden relative app-shell">
@@ -144,142 +296,111 @@ export default function Layout() {
       )}
 
       <aside
-        className={`${wClase} bg-white dark:bg-slate-900/70 dark:backdrop-blur-xl border-r border-slate-200 dark:border-slate-700/70 hidden md:flex flex-col transition-all duration-200 shrink-0 h-screen relative z-10`}
+        style={{ width: colapsado ? ANCHO_COLAPSADO : ANCHO_EXPANDIDO }}
+        className="hidden md:flex flex-col shrink-0 h-screen relative z-10 overflow-hidden bg-white dark:bg-slate-900/70 dark:backdrop-blur-xl border-r border-slate-200 dark:border-slate-700/70 transition-[width] duration-[240ms] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
+        aria-label="Navegación principal"
       >
-        {/* Logo + toggle */}
-        <div className={`border-b border-slate-100 dark:border-slate-700 flex items-center h-16 ${colapsado ? 'justify-center px-2' : 'justify-between px-4'}`}>
+        {/* Encabezado. Colapsado, el propio logo expande el sidebar (al pasar
+            el mouse se cambia por el ícono de expandir); expandido, el botón
+            de colapsar vive a la derecha. Mismo alto en ambos estados para que
+            los ítems de abajo no se muevan al alternar. */}
+        <div className="flex h-[52px] shrink-0 items-center px-2">
           {colapsado ? (
-            <span className="text-xl font-bold text-brand-600 dark:text-brand-400">O</span>
-          ) : (
-            <img src={logoSrc} alt="Origen" className="h-8 w-auto object-contain" />
-          )}
-          {!colapsado && (
             <button
-              onClick={() => setColapsado(true)}
-              className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 dark:hover:text-slate-200 transition shrink-0"
-              title="Colapsar"
-              aria-label="Colapsar sidebar"
+              onClick={() => setColapsado(false)}
+              className="group/logo flex h-10 w-11 items-center justify-center rounded-[10px] text-slate-500 hover:bg-slate-900/[0.05] hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/[0.06] dark:hover:text-white transition-[background-color,transform] duration-150 active:scale-[0.97] motion-reduce:active:scale-100"
+              title="Expandir menú"
+              aria-label="Expandir menú"
+              aria-expanded="false"
             >
-              <IconToggle className="w-4 h-4 rotate-180" />
+              <span className="text-xl font-bold text-brand-600 dark:text-brand-400 group-hover/logo:hidden">O</span>
+              <IconPanelExpand className="hidden h-[17px] w-[17px] group-hover/logo:block" />
             </button>
+          ) : (
+            <>
+              <img src={logoSrc} alt="Origen" className="ml-2.5 h-7 w-auto object-contain" />
+              <button
+                onClick={() => setColapsado(true)}
+                className="ml-auto mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-[10px] text-slate-400 hover:bg-slate-900/[0.06] hover:text-slate-900 dark:text-slate-500 dark:hover:bg-white/[0.08] dark:hover:text-white transition-[background-color,color,transform] duration-150 active:scale-[0.96] motion-reduce:active:scale-100"
+                title="Colapsar menú"
+                aria-label="Colapsar menú"
+                aria-expanded="true"
+              >
+                <IconPanelCollapse className="h-[17px] w-[17px]" />
+              </button>
+            </>
           )}
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 p-2 overflow-y-auto overflow-x-hidden">
-          {links.map((l) => {
-            const Icon = ICONS[l.id || l.seccion] || IconDashboard;
-            return (
-              <NavLink
-                key={l.to}
-                to={l.to}
-                end={l.end}
-                onClick={() => setColapsado(true)}
-                className={({ isActive }) => linkClase(isActive)}
-                title={colapsado ? l.label : undefined}
-              >
-                <Icon className="w-5 h-5 shrink-0" />
-                {!colapsado && <span className="truncate">{l.label}</span>}
-                {l.badge > 0 && (
-                  <span className={colapsado
-                    ? 'absolute top-1 right-1 h-2 w-2 rounded-full bg-brand-500'
-                    : 'ml-auto min-w-[20px] rounded-full bg-brand-600 px-1.5 text-center text-[11px] font-semibold leading-5 text-white tabular-nums'}>
-                    {colapsado ? '' : (l.badge > 99 ? '99+' : l.badge)}
-                  </span>
-                )}
-                {colapsado && (
-                  <span className="pointer-events-none absolute left-[calc(100%+8px)] z-50 whitespace-nowrap rounded-md bg-slate-800 dark:bg-slate-700 px-2 py-1 text-xs text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                    {l.label}
-                  </span>
-                )}
-              </NavLink>
-            );
-          })}
+        {/* Nav. El fondo del ítem activo es UNA sola píldora que se desliza
+            entre ítems (indicador medido sobre el NavLink con aria-current). */}
+        <nav
+          ref={navRef}
+          onScroll={alScrollear}
+          className={`sidebar-nav relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain py-2 ${scrolleando ? 'is-scrolling' : ''}`}
+        >
+          {indicador && (
+            <span
+              aria-hidden="true"
+              className={`pointer-events-none absolute inset-x-2 top-0 rounded-[10px] bg-slate-900/[0.06] dark:bg-white/[0.08] motion-reduce:transition-none ${
+                indicador.animar ? 'transition-[transform,height] duration-[280ms] ease-[cubic-bezier(0.23,1,0.32,1)]' : ''
+              }`}
+              style={{ transform: `translateY(${indicador.top}px)`, height: indicador.height }}
+            />
+          )}
+          <SeccionSidebar>
+            {links.map((l) => (
+              <ItemSidebar key={l.to} l={l} colapsado={colapsado} onClick={() => setColapsado(true)} />
+            ))}
+          </SeccionSidebar>
           {esAdmin() && adminLinksFiltrados.length > 0 && (
-            <>
-              {!colapsado && <p className="px-3 pt-4 pb-1 text-xs font-semibold uppercase text-slate-400 dark:text-slate-500">Admin</p>}
-              {colapsado && <div className="my-2 mx-3 border-t border-slate-100 dark:border-slate-700" />}
-              {adminLinksFiltrados.map((l) => {
-                const Icon = ICONS[l.id || l.seccion] || IconDashboard;
-                return (
-                  <NavLink
-                    key={l.to}
-                    to={l.to}
-                    onClick={() => setColapsado(true)}
-                    className={({ isActive }) => linkClase(isActive)}
-                    title={colapsado ? l.label : undefined}
-                  >
-                    <Icon className="w-5 h-5 shrink-0" />
-                    {!colapsado && <span className="truncate">{l.label}</span>}
-                    {colapsado && (
-                      <span className="pointer-events-none absolute left-[calc(100%+8px)] z-50 whitespace-nowrap rounded-md bg-slate-800 dark:bg-slate-700 px-2 py-1 text-xs text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                        {l.label}
-                      </span>
-                    )}
-                  </NavLink>
-                );
-              })}
-            </>
+            <SeccionSidebar label="Admin" colapsado={colapsado}>
+              {adminLinksFiltrados.map((l) => (
+                <ItemSidebar key={l.to} l={l} colapsado={colapsado} onClick={() => setColapsado(true)} />
+              ))}
+            </SeccionSidebar>
           )}
         </nav>
 
-        {/* Footer: notificaciones + invitar + usuario + tema + logout.
+        {/* Footer: notificaciones + invitar + tema + usuario + cerrar sesión.
             Notificaciones se eliminó el 2026-08-25 (vivían solo en "Requiere
             tu atención" del Dashboard) y se restauró el 2026-09-25 a pedido
             del usuario — el volumen de invitaciones de citas con el nuevo
             sistema de invitados hizo falta una bandeja propia otra vez. */}
-        <div className="p-2 border-t border-slate-100 dark:border-slate-700 space-y-1">
-          {colapsado ? (
-            <div className="flex justify-center">
-              <CampanaNotificaciones className="h-10 w-10" />
-            </div>
-          ) : (
-            <CampanaNotificaciones etiqueta="Notificaciones" />
-          )}
-          <button
-            onClick={() => setOpenInvitar(true)}
-            className={`flex items-center gap-3 rounded-lg ${colapsado ? 'h-10 w-10 justify-center mx-auto' : 'px-3 py-2'} text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition`}
-            title="Invitar a la promotoría"
-          >
-            <IconInvitar className="w-5 h-5 shrink-0" />
-            {!colapsado && <span className="text-sm font-medium">Invitar</span>}
-          </button>
-          <button
+        <div className="shrink-0 border-t border-slate-200 dark:border-slate-700/70 px-2 py-2 flex flex-col gap-px">
+          <ItemSidebar
+            l={{ to: '/notificaciones', label: 'Notificaciones', badge: noLeidas, badgeAlerta: true }}
+            icono={IconCampanaNav}
+            colapsado={colapsado}
+            fondoActivo
+          />
+          <BotonSidebar icono={IconInvitar} label="Invitar" title="Invitar a la promotoría" colapsado={colapsado} onClick={() => setOpenInvitar(true)} />
+          <BotonSidebar
+            icono={tema === 'dark' ? IconSun : IconMoon}
+            label={tema === 'dark' ? 'Modo claro' : 'Modo oscuro'}
+            colapsado={colapsado}
             onClick={alternar}
-            className={`flex items-center gap-3 rounded-lg ${colapsado ? 'h-10 w-10 justify-center mx-auto' : 'px-3 py-2'} text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition`}
-            title={tema === 'dark' ? 'Modo claro' : 'Modo oscuro'}
-          >
-            {tema === 'dark' ? <IconSun className="w-5 h-5 shrink-0" /> : <IconMoon className="w-5 h-5 shrink-0" />}
-            {!colapsado && <span className="text-sm font-medium">{tema === 'dark' ? 'Modo claro' : 'Modo oscuro'}</span>}
-          </button>
+          />
 
-          {!colapsado && user && (
-            <div className="px-3 py-1.5">
-              <p className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{user.nombre} {user.apellidoP}</p>
-              <p className="text-xs text-slate-400 dark:text-slate-500">{user.rol}</p>
+          {user && (
+            <div className="mt-1 flex items-center gap-2.5 px-2 py-1.5" title={colapsado ? `${user.nombre} ${user.apellidoP}` : undefined}>
+              <span className="avatar !h-7 !w-7 !text-[11px]">
+                {(user.nombre?.[0] || '') + (user.apellidoP?.[0] || '')}
+              </span>
+              <span className={`min-w-0 flex-1 transition-opacity duration-150 motion-reduce:transition-none ${colapsado ? 'opacity-0' : 'opacity-100'}`}>
+                <span className="block truncate text-[13px] font-medium leading-tight text-slate-800 dark:text-slate-100">{user.nombre} {user.apellidoP}</span>
+                <span className="block truncate text-[11px] leading-tight text-slate-400 dark:text-slate-500">{ROLES_LABEL[user.rol] || user.rol}</span>
+              </span>
             </div>
           )}
 
-          <button
+          <BotonSidebar
+            icono={IconLogout}
+            label="Cerrar sesión"
+            colapsado={colapsado}
+            peligro
             onClick={() => { logout(); navigate('/login'); }}
-            className={`flex items-center gap-3 rounded-lg ${colapsado ? 'h-10 w-10 justify-center mx-auto text-red-500' : 'px-3 py-2 text-red-600 dark:text-red-400'} hover:bg-red-50 dark:hover:bg-red-900/20 transition`}
-            title="Cerrar sesión"
-          >
-            <IconLogout className="w-5 h-5 shrink-0" />
-            {!colapsado && <span className="text-sm font-medium">Cerrar sesión</span>}
-          </button>
-
-          {/* Botón expandir cuando está colapsado */}
-          {colapsado && (
-            <button
-              onClick={() => setColapsado(false)}
-              className="flex items-center justify-center w-10 h-10 mx-auto rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 dark:hover:text-slate-200 transition"
-              title="Expandir"
-              aria-label="Expandir sidebar"
-            >
-              <IconToggle className="w-4 h-4" />
-            </button>
-          )}
+          />
         </div>
       </aside>
 
@@ -304,6 +425,7 @@ export default function Layout() {
           <div className="max-w-7xl mx-auto p-4 pb-8 sm:p-6 md:pb-6">
             <BannerActivarPush />
             <Outlet />
+            <Toasts />
           </div>
         </main>
 

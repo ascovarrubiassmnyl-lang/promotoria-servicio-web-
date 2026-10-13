@@ -4,6 +4,7 @@ import { api, handleError } from '../../api/client.js';
 import PolicyList from './PolicyList.jsx';
 import PolicyDetail from './PolicyDetail.jsx';
 import PolizaFormModal from './PolizaFormModal.jsx';
+import { avisar } from '../../lib/toast.js';
 
 // Vista de pólizas compartida por ambos roles.
 //  - asesorId=null  → cartera propia del usuario autenticado (asesor).
@@ -29,7 +30,7 @@ export default function PolizasView({ asesorId = null, readOnly = false, titulo 
       qc.invalidateQueries(['ventas']);
       qc.invalidateQueries(['equipo-resumen']);
       setPolizaSel(null);
-    } catch (e) { alert(handleError(e)); }
+    } catch (e) { avisar(handleError(e), 'error'); }
   };
 
   return (
@@ -47,7 +48,7 @@ export default function PolizasView({ asesorId = null, readOnly = false, titulo 
             )}
           </div>
           {banner}
-          <PolicyList ventas={ventas} loading={isLoading} onOpen={(v) => setPolizaSel(v.id)} />
+          <PolicyList ventas={ventas} loading={isLoading} onOpen={(v) => setPolizaSel(v.id)} onNueva={readOnly ? null : () => { setVentaEdit(null); setFormOpen(true); }} />
         </>
       )}
 

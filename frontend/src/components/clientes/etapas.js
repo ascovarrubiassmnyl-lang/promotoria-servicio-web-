@@ -167,3 +167,16 @@ export const FLAG_SEGUIMIENTO = {
   chipOn: 'ring-amber-500 dark:ring-amber-400',
   badgeOn: 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
 };
+
+// ¿Pedir confirmación antes de mover a esta etapa? (2026-10-13, auditoría de
+// UI). Avanzar es directo —es lo que se hace 20 veces al día—; retroceder en
+// el embudo o descartar sí se confirma, porque un clic accidental mueve
+// métricas. Devuelve el texto de la pregunta, o null si no hace falta.
+export function confirmacionCambioEtapa(de, a, nombre = 'este contacto') {
+  if (!a || de === a) return null;
+  if (a === 'DESCARTADO') return `¿Descartar a ${nombre}? Sale del embudo y de la clínica (puedes reactivarlo cambiando la etapa).`;
+  const oDe = ordenEtapa(de);
+  const oA = ordenEtapa(a);
+  if (oDe >= 0 && oA >= 0 && oA < oDe) return `¿Regresar a ${nombre} de «${infoEtapa(de).label}» a «${infoEtapa(a).label}»?`;
+  return null;
+}

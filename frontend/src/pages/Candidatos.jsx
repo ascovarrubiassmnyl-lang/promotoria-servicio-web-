@@ -6,6 +6,7 @@ import { Modal, EmptyState, MenuAcciones } from '../components/ui.jsx';
 import CandidatoFormModal from '../components/candidatos/CandidatoFormModal.jsx';
 import { ETAPAS_CANDIDATO, infoEtapaCandidato, SEMAFOROS, infoSemaforo } from '../components/candidatos/tipos.js';
 import { fechaCorta, hora } from '../lib/format.js';
+import { avisar } from '../lib/toast.js';
 
 // CRM de candidatos a asesor (reclutamiento de la promotora). Solo
 // ADMIN/SUPERADMIN llegan aquí (sección RBAC `candidatos` con piso de rol).
@@ -57,14 +58,14 @@ export default function Candidatos() {
       await api.delete(`/candidatos/${toArchive.id}`);
       setToArchive(null);
       qc.invalidateQueries(['candidatos']);
-    } catch (e) { alert(handleError(e)); } finally { setArchiving(false); }
+    } catch (e) { avisar(handleError(e), 'error'); } finally { setArchiving(false); }
   };
 
   const restaurar = async (c) => {
     try {
       await api.patch(`/candidatos/${c.id}`, { archivado: false });
       qc.invalidateQueries(['candidatos']);
-    } catch (e) { alert(handleError(e)); }
+    } catch (e) { avisar(handleError(e), 'error'); }
   };
 
   const chipBase = 'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition bg-white dark:bg-slate-800';

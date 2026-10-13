@@ -4,7 +4,7 @@ import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import {
   Modal, Field, DatePicker, NumeroFormateado,
-  PantallaCompleta, ValorFijo,
+  PantallaCompleta, ValorFijo, SelectorBuscable,
 } from '../ui.jsx';
 import {
   RAMOS, RAMOS_LABEL, FORMAS_PAGO, FORMAS_PAGO_LIST,
@@ -16,6 +16,7 @@ import {
 } from './tipos.js';
 import MontoMoneda from './MontoMoneda.jsx';
 import SubirPolizaModal from './SubirPolizaModal.jsx';
+import { avisar } from '../../lib/toast.js';
 
 const VACIO = {
   clienteId: '', ramo: 'GMM', producto: '', productoCatalogoId: '',
@@ -182,6 +183,11 @@ export default function PolizaFormModal({
   const set = (campo, valor) => setForm((f) => ({ ...f, [campo]: valor }));
 
   const clienteDeLista = clientes?.find((c) => c.id === form.clienteId);
+  const opcionesClientes = (clientes || []).map((c) => ({
+    value: c.id,
+    label: `${c.nombre} ${c.apellidoP || ''} ${c.apellidoM || ''}`.replace(/\s+/g, ' ').trim(),
+    detalle: c.telefono || '',
+  }));
   const nombreDelCliente = (nombreCliente
     || (clienteDeLista ? `${clienteDeLista.nombre} ${clienteDeLista.apellidoP} ${clienteDeLista.apellidoM || ''}` : '')
     || (editando ? `${venta.cliente?.nombre || ''} ${venta.cliente?.apellidoP || ''} ${venta.cliente?.apellidoM || ''}` : '')
@@ -343,6 +349,7 @@ export default function PolizaFormModal({
           documentosTmp: form.documentosTmp?.length ? form.documentosTmp : undefined,
         });
       }
+      avisar(editando ? 'Póliza actualizada' : 'Póliza registrada');
       qc.invalidateQueries(['ventas']);
       qc.invalidateQueries(['equipo-resumen']);
       onSaved?.();
@@ -361,10 +368,7 @@ export default function PolizaFormModal({
         <div className="space-y-3">
           {!clienteId && (
             <Field label="Cliente*">
-              <select className="input" required value={form.clienteId} onChange={(e) => set('clienteId', e.target.value)}>
-                <option value="">Selecciona…</option>
-                {clientes?.map((c) => <option key={c.id} value={c.id}>{c.nombre} {c.apellidoP}</option>)}
-              </select>
+              <SelectorBuscable required value={form.clienteId} onChange={(v) => set('clienteId', v)} opciones={opcionesClientes} placeholder="Escribe un nombre o teléfono…" />
             </Field>
           )}
           <p className="text-sm text-slate-500 dark:text-slate-400">¿Cómo quieres registrar esta póliza?</p>
@@ -533,19 +537,9 @@ export default function PolizaFormModal({
                     <div>
                       <Field label="Cliente*">
                         <div className="flex gap-2">
-                          <select
-                            className="input flex-1"
-                            required
-                            value={form.clienteId}
-                            onChange={(e) => set('clienteId', e.target.value)}
-                          >
-                            <option value="">— Seleccionar cliente —</option>
-                            {clientes?.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.nombre} {c.apellidoP} {c.apellidoM || ''}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="flex-1">
+                            <SelectorBuscable required value={form.clienteId} onChange={(v) => set('clienteId', v)} opciones={opcionesClientes} placeholder="Escribe un nombre o teléfono…" />
+                          </div>
                         </div>
                       </Field>
                     </div>

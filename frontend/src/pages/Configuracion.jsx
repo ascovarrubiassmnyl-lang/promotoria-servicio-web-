@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useNotif } from '../context/NotifContext.jsx';
 import { Card, EmptyState } from '../components/ui.jsx';
 import { SECCIONES, SECCIONES_SENSIBLES, ROLES_LABEL, ROLES_MATRIZ, ROLES_ADMIN, infoSeccion } from '../components/configuracion/secciones.js';
+import { avisar } from '../lib/toast.js';
 
 // Configuración = plano de control de acceso (RBAC por rol):
 //   1) "Roles y accesos": política por rol, el único control de acceso.
@@ -106,7 +107,7 @@ function RolesTab({ esSuperadmin }) {
       qc.invalidateQueries(['config-politicas']);
       qc.invalidateQueries(['config-bitacora']);
     } catch (e) {
-      alert(handleError(e));
+      avisar(handleError(e), 'error');
     } finally {
       setSaving(false);
     }

@@ -3,6 +3,18 @@
 // del backend (backend/src/utils/actividad.js). No definir labels ni colores de
 // actividad en ningún otro componente.
 
+import { infoEtapa } from '../clientes/etapas.js';
+
+// Resultado de una llamada (POST /clientes/:id/llamada). Copia corta para el
+// título; los labels largos viven en RegistrarLlamadaModal.
+const RESULTADO_LLAMADA_CORTO = {
+  NO_CONTESTO: 'no contestó',
+  CONTACTADO: 'contactado',
+  VOLVER_A_LLAMAR: 'volver a llamar',
+  CITA: 'consiguió cita',
+  NO_INTERESADO: 'no le interesa',
+};
+
 const Icono = ({ d }) => (
   <svg className="w-[17px] h-[17px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
     {d.map((p, i) => <path key={i} d={p} />)}
@@ -40,6 +52,16 @@ export const TIPOS_EVENTO = {
     icon: <Icono d={['M9 8a3 3 0 106 0 3 3 0 00-6 0', 'M4 20c0-3 2-5 5-5', 'M17 11v6', 'M14 14h6']} />,
     titulo: () => 'Nuevo cliente registrado',
   },
+  CLIENTE_ETAPA: {
+    label: 'Cambio de etapa',
+    dot: 'bg-lime-500',
+    text: 'text-lime-600 dark:text-lime-400',
+    marker: 'bg-lime-50 text-lime-600 ring-lime-200 dark:bg-lime-500/10 dark:text-lime-400 dark:ring-lime-500/30',
+    chipOn: 'ring-lime-500 dark:ring-lime-400',
+    badgeOn: 'bg-lime-50 text-lime-700 dark:bg-lime-500/15 dark:text-lime-300',
+    icon: <Icono d={['M4 17l6-6 4 4 6-6', 'M14 9h6v6']} />,
+    titulo: (m) => `${m.cliente || 'Cliente'}: ${infoEtapa(m.de).label} → ${infoEtapa(m.a).label}`,
+  },
   LLAMADA: {
     label: 'Llamada',
     dot: 'bg-amber-500',
@@ -48,7 +70,10 @@ export const TIPOS_EVENTO = {
     chipOn: 'ring-amber-500 dark:ring-amber-400',
     badgeOn: 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
     icon: <Icono d={['M5 4h4l2 5-3 2a11 11 0 005 5l2-3 5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2z']} />,
-    titulo: (m) => (m.cliente ? `Llamada con ${m.cliente}` : 'Llamada'),
+    titulo: (m) => {
+      const base = m.cliente ? `Llamada con ${m.cliente}` : 'Llamada';
+      return RESULTADO_LLAMADA_CORTO[m.resultado] ? `${base} · ${RESULTADO_LLAMADA_CORTO[m.resultado]}` : base;
+    },
   },
   PAGO_CONFIRMADO: {
     label: 'Pago registrado',

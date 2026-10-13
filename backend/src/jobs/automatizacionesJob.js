@@ -43,7 +43,7 @@ async function yaNotificado(destinatarioId, tipo, clave, desde) {
 // tiene citas vivas ni recordatorios abiertos, y no es todavía cliente (ninguna
 // póliza viva). Se avisa una vez cada 15 días por prospecto, para no repetir
 // el mismo aviso todos los días.
-async function prospectosEstancados() {
+export async function prospectosEstancados() {
   const corte = diasAtras(DIAS_ESTANCADO);
   const candidatos = await prisma.cliente.findMany({
     where: {
@@ -61,29 +61,50 @@ async function prospectosEstancados() {
       notasItems: { none: { tipo: { in: ['RECORDATORIO', 'RECORDATORIO_PAGO'] }, completada: false } },
     },
     select: { id: true, nombre: true, apellidoP: true, asesorId: true, estado: true, actualizadoEn: true },
-    take: 200,
+    orderBy: { actualizadoEn: 'asc' },
+    take: 500,
   });
 
-  let avisados = 0;
+  // Agrupado por asesor (2026-10-13, auditoría de UI): antes salía UNA
+  // notificación por prospecto y la campana se llenaba de avisos iguales que
+  // nadie leía. Ahora es un solo aviso con el conteo, a lo más uno al día por
+  // asesor; la idempotencia por prospecto (una vez cada 15 días) se conserva
+  // leyendo los clienteIds de los avisos ya enviados en la ventana.
+  const porAsesor = new Map();
   for (const c of candidatos) {
-    const clave = `prospecto:${c.id}`;
-    if (await yaNotificado(c.asesorId, 'PROSPECTO_ESTANCADO', clave, corte)) continue;
-    const dias = Math.floor((Date.now() - new Date(c.actualizadoEn).getTime()) / (24 * 60 * 60 * 1000));
-    const nombre = `${c.nombre} ${c.apellidoP}`.trim();
+    if (!porAsesor.has(c.asesorId)) porAsesor.set(c.asesorId, []);
+    porAsesor.get(c.asesorId).push(c);
+  }
+
+  let avisados = 0;
+  for (const [asesorId, lista] of porAsesor) {
+    const previos = await prisma.notificacion.findMany({
+      where: { destinatarioId: asesorId, tipo: 'PROSPECTO_ESTANCADO', creadoEn: { gte: corte } },
+      select: { datos: true, creadoEn: true },
+    });
+    // Un aviso agrupado por día como máximo.
+    if (previos.some((n) => n.creadoEn > diasAtras(1) && Array.isArray(n.datos?.clienteIds))) continue;
+    const yaAvisados = new Set(previos.flatMap((n) => [n.datos?.clienteId, ...(n.datos?.clienteIds || [])]).filter(Boolean));
+    const nuevos = lista.filter((c) => !yaAvisados.has(c.id));
+    if (!nuevos.length) continue;
+
+    const nombres = nuevos.slice(0, 3).map((c) => `${c.nombre} ${c.apellidoP || ''}`.trim());
+    const resto = nuevos.length - nombres.length;
+    const uno = nuevos.length === 1;
     try {
-      await notificar(c.asesorId, 'PROSPECTO_ESTANCADO', {
-        titulo: 'Prospecto sin avance · Origen Promotoría',
-        cuerpo: `${nombre} lleva ${dias} días sin movimiento. ¿Le das seguimiento?`,
+      await notificar(asesorId, 'PROSPECTO_ESTANCADO', {
+        titulo: uno ? 'Prospecto sin avance · Origen Promotoría' : `${nuevos.length} prospectos sin avance · Origen Promotoría`,
+        cuerpo: `${nombres.join(', ')}${resto > 0 ? ` y ${resto} más` : ''} ${uno ? 'lleva' : 'llevan'} más de ${DIAS_ESTANCADO} días sin movimiento.`,
         datos: {
-          clave,
-          url: `${process.env.PUBLIC_URL || ''}/clientes/${c.id}`,
-          clienteId: c.id,
-          dias,
+          clave: `prospectos:${new Date().toISOString().slice(0, 10)}`,
+          url: `${process.env.PUBLIC_URL || ''}${uno ? `/clientes/${nuevos[0].id}` : '/clientes'}`,
+          clienteIds: nuevos.map((c) => c.id),
+          ...(uno ? { clienteId: nuevos[0].id } : {}),
         },
       });
-      avisados += 1;
+      avisados += nuevos.length;
     } catch (err) {
-      console.warn(`[automatizaciones] no se pudo avisar del prospecto ${c.id}: ${err.message}`);
+      console.warn(`[automatizaciones] no se pudo avisar de prospectos sin avance a ${asesorId}: ${err.message}`);
     }
   }
   return avisados;

@@ -13,6 +13,7 @@ import {
 } from '../components/candidatos/tipos.js';
 import { infoTipoCita } from '../components/citas/tipos.js';
 import { fechaCorta, hora, edad, fechaHora } from '../lib/format.js';
+import { avisar } from '../lib/toast.js';
 
 // Selector de calificación 1–5 de una dimensión (0 = sin contestar).
 function Calificacion({ valor, onChange, disabled }) {
@@ -179,7 +180,7 @@ export default function CandidatoDetalle() {
       await api.put(`/candidatos/${id}/evaluacion/${paso}`, data);
       refetch();
       qc.invalidateQueries(['candidatos']);
-    } catch (e) { alert(handleError(e)); } finally { setGuardandoPaso(null); }
+    } catch (e) { avisar(handleError(e), 'error'); } finally { setGuardandoPaso(null); }
   };
 
   const cambiarEtapa = async (etapa) => {
@@ -188,14 +189,14 @@ export default function CandidatoDetalle() {
       await api.patch(`/candidatos/${id}/etapa`, { etapa });
       refetch();
       qc.invalidateQueries(['candidatos']);
-    } catch (e) { alert(handleError(e)); } finally { setAvanzando(false); }
+    } catch (e) { avisar(handleError(e), 'error'); } finally { setAvanzando(false); }
   };
 
   const completarNota = async (nota) => {
     try {
       await api.patch(`/notas/${nota.id}`, { completada: !nota.completada });
       refetch();
-    } catch (e) { alert(handleError(e)); }
+    } catch (e) { avisar(handleError(e), 'error'); }
   };
 
   const eliminarNota = async () => {
@@ -203,7 +204,7 @@ export default function CandidatoDetalle() {
       await api.delete(`/notas/${notaABorrar.id}`);
       setNotaABorrar(null);
       refetch();
-    } catch (e) { alert(handleError(e)); }
+    } catch (e) { avisar(handleError(e), 'error'); }
   };
 
   const archivar = async () => {
@@ -211,7 +212,7 @@ export default function CandidatoDetalle() {
       await api.delete(`/candidatos/${id}`);
       navigate('/candidatos');
       qc.invalidateQueries(['candidatos']);
-    } catch (e) { alert(handleError(e)); }
+    } catch (e) { avisar(handleError(e), 'error'); }
   };
 
   if (!candidato) return null;

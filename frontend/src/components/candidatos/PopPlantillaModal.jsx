@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import { Modal, Field } from '../ui.jsx';
 import { TIPOS_PREGUNTA_POP, BLOQUES_SUGERIDOS } from './tipos.js';
+import { avisar } from '../../lib/toast.js';
 
 // Editor del cuestionario POP de la promotoría: preguntas, opciones y cuántos
 // puntos vale cada una. Los puntos se capturan aquí y NUNCA viajan al
@@ -107,7 +108,7 @@ export default function PopPlantillaModal({ open, onClose, plantilla = null, onS
       qc.invalidateQueries(['pop-plantillas']);
       onSaved?.();
     } catch (e2) {
-      alert(handleError(e2));
+      avisar(handleError(e2), 'error');
     } finally {
       setSaving(false);
     }

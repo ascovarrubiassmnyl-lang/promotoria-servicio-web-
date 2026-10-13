@@ -161,3 +161,11 @@ export const DISPONIBILIDAD_ESTILO = {
   texto: 'text-slate-600 dark:text-slate-300',
   label: 'Ocupado',
 };
+
+// Texto del aviso (toast) tras cambiar el estado de una cita desde el panel.
+export const MENSAJE_ESTADO_CITA = {
+  COMPLETADA: 'Cita marcada como completada',
+  CANCELADA: 'Cita cancelada',
+  NO_ASISTIO: 'Marcada como "no asistió"',
+  CONFIRMADA: 'Cita confirmada',
+};

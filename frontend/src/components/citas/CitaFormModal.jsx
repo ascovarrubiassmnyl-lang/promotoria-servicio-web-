@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { Modal, Field } from '../ui.jsx';
+import { Modal, Field, SelectorBuscable } from '../ui.jsx';
 import { CANALES, TIPOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, infoCanal, RECURRENCIAS, DIAS_SEMANA_LABEL } from './tipos.js';
 import { hora, fechaCorta, isoLocalInput } from '../../lib/format.js';
+import { avisar } from '../../lib/toast.js';
 
 const DURACION_DEFAULT_MIN = 30;
 
@@ -309,11 +310,15 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
         if (resultado?.citas?.length > 1 || resultado?.omitidas?.length) {
           const partes = [`Se agendaron ${resultado.citas.length} citas de la serie.`];
           if (resultado.omitidas?.length) partes.push(`${resultado.omitidas.length} se omitieron por empalme con otra cita.`);
-          window.alert(partes.join(' '));
+          avisar(partes.join(' '), resultado.omitidas?.length ? 'info' : 'ok');
+        } else {
+          avisar('Cita agendada');
         }
       }
-      qc.invalidateQueries(['citas']);
-      qc.invalidateQueries(['citas-cal']);
+      if (cita) avisar('Cita actualizada');
+      // Agendar con cliente mueve su etapa y suma en 25 puntos (utils/seguimiento.js).
+      ['hoy', 'citas', 'citas-cal', 'cliente', 'clientes', 'puntos-semana', 'clinica-semana', 'dashboard']
+        .forEach((k) => qc.invalidateQueries([k]));
       onSaved?.();
       onClose();
     } catch (e2) { setErr(handleError(e2)); } finally { setSaving(false); }
@@ -360,33 +365,22 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
         )}
         {!editando && !clienteId && !esPersonal && !modalidadPropia && (
           <Field label="Cliente o candidato*">
-            <select
-              className="input"
+            {/* También se puede agendar con un candidato a asesor, no solo con
+                un cliente (2026-09-25). Buscador en vez de <select> (2026-10-13). */}
+            <SelectorBuscable
               required
-              value={form.clienteId ? `cliente:${form.clienteId}` : form.candidatoId ? `candidato:${form.candidatoId}` : ''}
               disabled={necesitaAsesor && !form.asesorId}
-              onChange={(e) => {
-                const [tipo, id] = e.target.value.split(':');
+              placeholder={necesitaAsesor && !form.asesorId ? 'Elige asesor primero' : 'Escribe un nombre o teléfono…'}
+              value={form.clienteId ? `cliente:${form.clienteId}` : form.candidatoId ? `candidato:${form.candidatoId}` : ''}
+              onChange={(v) => {
+                const [tipo, id] = v.split(':');
                 setForm({ ...form, clienteId: tipo === 'cliente' ? id : '', candidatoId: tipo === 'candidato' ? id : '' });
               }}
-            >
-              <option value="">{necesitaAsesor && !form.asesorId ? 'Elige asesor primero' : 'Selecciona…'}</option>
-              {!!clientes?.length && (
-                <optgroup label="Clientes">
-                  {clientes.map((c) => <option key={c.id} value={`cliente:${c.id}`}>{c.nombre} {c.apellidoP} {c.apellidoM || ''}</option>)}
-                </optgroup>
-              )}
-              {/* También se puede agendar con un candidato a asesor, no solo con
-                  un cliente (2026-09-25, pedido del usuario: Diana, Michelle y
-                  Lupita no lo encontraban aquí — antes esta lista solo traía
-                  clientes y el candidato solo aparecía en modalidades de
-                  reclutamiento). */}
-              {!!candidatos?.length && (
-                <optgroup label="Candidatos a asesor">
-                  {candidatos.map((c) => <option key={c.id} value={`candidato:${c.id}`}>{c.nombre} {c.apellidoP} {c.apellidoM || ''}</option>)}
-                </optgroup>
-              )}
-            </select>
+              opciones={[
+                ...(clientes || []).map((c) => ({ value: `cliente:${c.id}`, label: `${c.nombre} ${c.apellidoP || ''} ${c.apellidoM || ''}`.replace(/\s+/g, ' ').trim(), detalle: c.telefono || '', grupo: 'Clientes' })),
+                ...(candidatos || []).map((c) => ({ value: `candidato:${c.id}`, label: `${c.nombre} ${c.apellidoP || ''} ${c.apellidoM || ''}`.replace(/\s+/g, ' ').trim(), grupo: 'Candidatos a asesor' })),
+              ]}
+            />
           </Field>
         )}
         <Field label="Título*">

@@ -3,12 +3,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Modal, Drawer, CitaBadge, EmptyState, MenuAcciones, Field } from '../ui.jsx';
-import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, DISPONIBILIDAD_ESTILO, infoCanal, infoTipoCita, colorCita, infoInvitacion } from './tipos.js';
+import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, DISPONIBILIDAD_ESTILO, infoCanal, infoTipoCita, colorCita, infoInvitacion, MENSAJE_ESTADO_CITA } from './tipos.js';
 import CitaFormModal from './CitaFormModal.jsx';
 import CalendarioMovil from './CalendarioMovil.jsx';
 import { MiniMes, GrupoVisibilidad } from './CalendarioSidebar.jsx';
 import useIsMobile from '../../hooks/useIsMobile.js';
 import { hora, nombreMes, fechaCorta } from '../../lib/format.js';
+import { avisar } from '../../lib/toast.js';
 
 const DIAS_SEM = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 const HORA_INI = 8;
@@ -492,9 +493,9 @@ function FichaCita({ cita, onClose, onReagendar, onEliminar, onCambiarEstado, es
 
         {viva && (
           <div className="flex flex-wrap gap-1.5 border-t border-slate-100 dark:border-slate-700 pt-3">
-            <button type="button" onClick={async () => { await onCambiarEstado(cita, 'COMPLETADA'); onClose(); }} className="rounded-lg border border-emerald-300 dark:border-emerald-700 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">✓ Completar</button>
-            <button type="button" onClick={async () => { await onCambiarEstado(cita, 'NO_ASISTIO'); onClose(); }} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">No asistió</button>
-            <button type="button" onClick={async () => { await onCambiarEstado(cita, 'CANCELADA'); onClose(); }} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Cancelar cita</button>
+            <button type="button" onClick={async () => { if (await onCambiarEstado(cita, 'COMPLETADA')) onClose(); }} className="rounded-lg border border-emerald-300 dark:border-emerald-700 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">✓ Completar</button>
+            <button type="button" onClick={async () => { if (await onCambiarEstado(cita, 'NO_ASISTIO')) onClose(); }} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">No asistió</button>
+            <button type="button" onClick={async () => { if (await onCambiarEstado(cita, 'CANCELADA')) onClose(); }} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Cancelar cita</button>
             <button type="button" onClick={() => onReagendar(cita)} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Cambiar cliente / tipo…</button>
           </div>
         )}
@@ -743,12 +744,17 @@ function CalendarioEscritorio() {
   }, [view, desde, refDate]);
 
   // ---------- Acciones de ciclo de vida ----------
+  // Devuelve false si no se hizo (el usuario se arrepintió o falló), para que
+  // quien llama no cierre la ficha como si se hubiera guardado.
   const cambiarEstado = async (c, estado) => {
+    if (estado === 'CANCELADA' && !window.confirm(`¿Cancelar "${c.titulo}"? Queda en el historial como cancelada.`)) return false;
     try {
       await api.patch(`/citas/${c.id}`, { estado });
       qc.invalidateQueries(['citas-cal']);
       qc.invalidateQueries(['citas']);
-    } catch (e) { alert(handleError(e)); }
+      avisar(MENSAJE_ESTADO_CITA[estado] || 'Cita actualizada');
+      return true;
+    } catch (e) { avisar(handleError(e), 'error'); return false; }
   };
 
   const confirmarEliminar = async () => {
@@ -759,7 +765,7 @@ function CalendarioEscritorio() {
       setToDelete(null);
       qc.invalidateQueries(['citas-cal']);
       qc.invalidateQueries(['citas']);
-    } catch (e) { alert(handleError(e)); } finally { setDeleting(false); }
+    } catch (e) { avisar(handleError(e), 'error'); } finally { setDeleting(false); }
   };
 
   // Con la disponibilidad de un promotor a la vista, agendar significa casi

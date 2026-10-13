@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import { Modal, Field } from '../ui.jsx';
 import { isoLocalInput } from '../../lib/format.js';
+import { avisar } from '../../lib/toast.js';
 
 // Modal único para crear una Nota o un Recordatorio, usado desde la ficha
 // (ClienteDetalle), el menú ⋯ de la lista (ClientesView) y la ficha de
@@ -59,6 +60,8 @@ export default function NotaFormModal({
         // que CitaFormModal con fechaHoraInicio/Fin.
         fechaAviso: form.fechaAviso ? new Date(form.fechaAviso).toISOString() : null,
       });
+      avisar(form.fechaAviso ? 'Recordatorio guardado' : 'Nota guardada');
+      qc.invalidateQueries(['hoy']);
       onClose();
       if (esCandidato) {
         qc.invalidateQueries(['candidato', candidatoId]);
@@ -68,7 +71,7 @@ export default function NotaFormModal({
       }
       onSaved?.();
     } catch (e2) {
-      alert(handleError(e2));
+      avisar(handleError(e2), 'error');
     } finally {
       setSaving(false);
     }

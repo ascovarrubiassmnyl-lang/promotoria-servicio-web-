@@ -3,9 +3,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { Modal, CitaBadge } from '../ui.jsx';
-import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, DISPONIBILIDAD_ESTILO, infoCanal, infoTipoCita, colorCita, infoInvitacion } from './tipos.js';
+import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, DISPONIBILIDAD_ESTILO, infoCanal, infoTipoCita, colorCita, infoInvitacion, MENSAJE_ESTADO_CITA } from './tipos.js';
 import CitaFormModal from './CitaFormModal.jsx';
 import { hora, fechaCorta, nombreMes, isoLocalInput } from '../../lib/format.js';
+import { avisar } from '../../lib/toast.js';
 
 // Calendario SOLO para móvil (< md). Paradigma distinto al de escritorio: nada
 // de cuadrícula semanal de 7 columnas — vistas Día / Agenda / Mes con tira de
@@ -264,13 +265,18 @@ export default function CalendarioMovil() {
   };
 
   // ---------- Acciones de ciclo de vida ----------
+  // Devuelve false si no se hizo (el usuario se arrepintió o falló), para que
+  // quien llama no cierre la ficha como si se hubiera guardado.
   const cambiarEstado = async (c, estado) => {
+    if (estado === 'CANCELADA' && !window.confirm(`¿Cancelar "${c.titulo}"? Queda en el historial como cancelada.`)) return false;
     try {
       await api.patch(`/citas/${c.id}`, { estado });
       setDetalle(null);
       qc.invalidateQueries(['citas-cal']);
       qc.invalidateQueries(['citas']);
-    } catch (e) { alert(handleError(e)); }
+      avisar(MENSAJE_ESTADO_CITA[estado] || 'Cita actualizada');
+      return true;
+    } catch (e) { avisar(handleError(e), 'error'); return false; }
   };
 
   // Respuesta del promotor a una invitación de acompañamiento. Al aceptar, si
@@ -290,14 +296,14 @@ export default function CalendarioMovil() {
       setDetalle(null);
       qc.invalidateQueries(['citas-cal']);
       qc.invalidateQueries(['citas']);
-    } catch (e2) { alert(handleError(e2)); }
+    } catch (e2) { avisar(handleError(e2), 'error'); }
   };
 
   // Propuesta de otro horario (promotor invitado): la cita conserva su horario
   // original hasta que el asesor la acepte.
   const enviarSugerencia = async (c) => {
-    if (!sugerencia.inicio || !sugerencia.fin) { alert('Indica inicio y fin de la propuesta'); return; }
-    if (new Date(sugerencia.fin) <= new Date(sugerencia.inicio)) { alert('El fin debe ser posterior al inicio'); return; }
+    if (!sugerencia.inicio || !sugerencia.fin) { avisar('Indica inicio y fin de la propuesta', 'error'); return; }
+    if (new Date(sugerencia.fin) <= new Date(sugerencia.inicio)) { avisar('El fin debe ser posterior al inicio', 'error'); return; }
     try {
       await api.patch(`/citas/${c.id}/invitacion`, {
         respuesta: 'SUGERIDA',
@@ -309,7 +315,7 @@ export default function CalendarioMovil() {
       setDetalle(null);
       qc.invalidateQueries(['citas-cal']);
       qc.invalidateQueries(['citas']);
-    } catch (e2) { alert(handleError(e2)); }
+    } catch (e2) { avisar(handleError(e2), 'error'); }
   };
 
   // Respuesta del asesor dueño de la cita a la sugerencia del promotor.
@@ -328,7 +334,7 @@ export default function CalendarioMovil() {
       setDetalle(null);
       qc.invalidateQueries(['citas-cal']);
       qc.invalidateQueries(['citas']);
-    } catch (e2) { alert(handleError(e2)); }
+    } catch (e2) { avisar(handleError(e2), 'error'); }
   };
 
   // --- Invitados adicionales (2026-09-25) --- mismo patrón que arriba
@@ -352,12 +358,12 @@ export default function CalendarioMovil() {
       setDetalle(null);
       qc.invalidateQueries(['citas-cal']);
       qc.invalidateQueries(['citas']);
-    } catch (e2) { alert(handleError(e2)); }
+    } catch (e2) { avisar(handleError(e2), 'error'); }
   };
 
   const enviarSugerenciaInvitado = async (c, inv) => {
-    if (!sugerenciaInvitado.inicio || !sugerenciaInvitado.fin) { alert('Indica inicio y fin de la propuesta'); return; }
-    if (new Date(sugerenciaInvitado.fin) <= new Date(sugerenciaInvitado.inicio)) { alert('El fin debe ser posterior al inicio'); return; }
+    if (!sugerenciaInvitado.inicio || !sugerenciaInvitado.fin) { avisar('Indica inicio y fin de la propuesta', 'error'); return; }
+    if (new Date(sugerenciaInvitado.fin) <= new Date(sugerenciaInvitado.inicio)) { avisar('El fin debe ser posterior al inicio', 'error'); return; }
     try {
       await api.patch(`/citas/${c.id}/invitados/${inv.id}`, {
         respuesta: 'SUGERIDA',
@@ -369,7 +375,7 @@ export default function CalendarioMovil() {
       setDetalle(null);
       qc.invalidateQueries(['citas-cal']);
       qc.invalidateQueries(['citas']);
-    } catch (e2) { alert(handleError(e2)); }
+    } catch (e2) { avisar(handleError(e2), 'error'); }
   };
 
   const responderSugerenciaInvitado = async (c, inv, aceptar) => {
@@ -387,7 +393,7 @@ export default function CalendarioMovil() {
       setDetalle(null);
       qc.invalidateQueries(['citas-cal']);
       qc.invalidateQueries(['citas']);
-    } catch (e2) { alert(handleError(e2)); }
+    } catch (e2) { avisar(handleError(e2), 'error'); }
   };
 
   const confirmarEliminar = async () => {
@@ -398,7 +404,7 @@ export default function CalendarioMovil() {
       setToDelete(null);
       qc.invalidateQueries(['citas-cal']);
       qc.invalidateQueries(['citas']);
-    } catch (e) { alert(handleError(e)); } finally { setDeleting(false); }
+    } catch (e) { avisar(handleError(e), 'error'); } finally { setDeleting(false); }
   };
 
   // Con la disponibilidad de un promotor a la vista, agendar significa casi

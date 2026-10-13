@@ -8,6 +8,7 @@ import { registrarActividad } from '../utils/actividad.js';
 import { notificar } from '../utils/notificaciones.js';
 import { crearEvento, borrarEvento, horarioLibre } from '../services/googleCalendar.js';
 import { marcarCitaObtenidaEnClinica } from '../utils/clinica.js';
+import { marcarCitaEnCliente, sumarEnPuntosDeHoy } from '../utils/seguimiento.js';
 
 const router = Router();
 router.use(authenticate);
@@ -446,6 +447,16 @@ router.post('/', asyncHandler(async (req, res) => {
     marcarCitaObtenidaEnClinica(cliente.id).catch((e) =>
       console.warn(`[citas] no se pudo cerrar la clínica de ${cliente.id}: ${e.message}`)
     );
+    // Y en la ficha: el cliente sube a la etapa CITA (sin retroceder a quien ya
+    // va más adelante) y cuenta como cita obtenida en 25 puntos de hoy. Antes
+    // solo la captura de Cal.com hacía esto; agendar desde la ficha dejaba el
+    // embudo, la clínica y 25 puntos desfasados entre sí.
+    await marcarCitaEnCliente(cliente.id, primera.fechaHoraInicio);
+    if (primera.clasificacion !== 'PERSONAL') {
+      await sumarEnPuntosDeHoy(asesorId, 'citasObtenidas').catch((e) =>
+        console.warn(`[citas] no se pudo sumar en 25 puntos: ${e.message}`)
+      );
+    }
   } else if (candidato) {
     await registrarActividad(asesorId, 'CITA_CREADA', {
       citaId: primera.id,

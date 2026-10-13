@@ -8,6 +8,7 @@ export const TIPOS_ACTIVIDAD = [
   'POLIZA_CREADA',
   'CITA_CREADA',
   'CLIENTE_CREADO',
+  'CLIENTE_ETAPA',               // el cliente cambió de etapa del embudo (de → a)
   'LLAMADA',
   'PAGO_CONFIRMADO',
   'PAGO_RECORDADO',

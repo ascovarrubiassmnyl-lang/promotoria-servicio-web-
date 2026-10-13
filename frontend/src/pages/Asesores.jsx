@@ -7,6 +7,7 @@ import ClientesView from '../components/clientes/ClientesView.jsx';
 import { mxn, num, fechaCorta } from '../lib/format.js';
 import { ROLES_LABEL, ROLES_ASIGNABLES, ROLES_DESC } from '../components/configuracion/secciones.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { avisar } from '../lib/toast.js';
 
 // Filtro/tabla del roster puede mostrar el SUPERADMIN si existe (es quien
 // desarrolla el servicio). El alta/edición NO lo ofrece: ver ROLES_ASIGNABLES
@@ -215,7 +216,7 @@ function EquipoTab() {
   };
 
   const toggleActivo = async (u) => {
-    try { await api.patch(`/usuarios/${u.id}`, { activo: !u.activo }); qc.invalidateQueries(['usuarios']); } catch (e) { alert(handleError(e)); }
+    try { await api.patch(`/usuarios/${u.id}`, { activo: !u.activo }); qc.invalidateQueries(['usuarios']); } catch (e) { avisar(handleError(e), 'error'); }
   };
 
   // Genera (o reemplaza) el link de invitación de una cuenta pendiente —
@@ -224,7 +225,7 @@ function EquipoTab() {
     try {
       const { data } = await api.post(`/usuarios/${u.id}/invitacion`);
       setInvitacion({ nombre: u.nombre, email: u.email, ...data });
-    } catch (e) { alert(handleError(e)); }
+    } catch (e) { avisar(handleError(e), 'error'); }
   };
 
   const copiarLink = async () => {

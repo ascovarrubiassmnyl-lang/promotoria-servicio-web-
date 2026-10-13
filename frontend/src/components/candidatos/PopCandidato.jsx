@@ -6,6 +6,7 @@ import CandidatoFormModal from './CandidatoFormModal.jsx';
 import PopPlantillaModal from './PopPlantillaModal.jsx';
 import { infoRecomendacion, infoEstadoPop, camposFaltantesPop } from './tipos.js';
 import { fechaCorta, edad } from '../../lib/format.js';
+import { avisar } from '../../lib/toast.js';
 
 // Barra de un bloque del resultado (ADN en Ventas, Experiencia…), el
 // equivalente de las barras del "Gráfico del Potencial de Ventas" del reporte
@@ -159,14 +160,14 @@ export default function PopCandidato({ candidato, onCambio }) {
       setOpenEnviar(false);
       onCambio?.();
       qc.invalidateQueries(['candidato', candidato.id]);
-    } catch (e) { alert(handleError(e)); } finally { setEnviando(false); }
+    } catch (e) { avisar(handleError(e), 'error'); } finally { setEnviando(false); }
   };
 
   const cancelar = async (envio) => {
     try {
       await api.patch(`/pop/envios/${envio.id}/cancelar`);
       onCambio?.();
-    } catch (e) { alert(handleError(e)); }
+    } catch (e) { avisar(handleError(e), 'error'); }
   };
 
   const borrar = async () => {
@@ -174,7 +175,7 @@ export default function PopCandidato({ candidato, onCambio }) {
       await api.delete(`/pop/envios/${aBorrar.id}`);
       setABorrar(null);
       onCambio?.();
-    } catch (e) { alert(handleError(e)); }
+    } catch (e) { avisar(handleError(e), 'error'); }
   };
 
   return (

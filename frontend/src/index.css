@@ -29,6 +29,24 @@
     background: radial-gradient(120% 120% at 70% 0%, #131a52, #070a24);
   }
 
+  /* Nav del sidebar: scrollbar invisible en reposo, visible solo mientras se
+     scrollea (Layout.jsx pone .is-scrolling y lo quita al detenerse). */
+  .sidebar-nav {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+  .sidebar-nav::-webkit-scrollbar { width: 4px; }
+  .sidebar-nav::-webkit-scrollbar-track { background: transparent; }
+  .sidebar-nav::-webkit-scrollbar-thumb {
+    background-color: transparent;
+    border-radius: 9999px;
+    transition: background-color 0.45s ease;
+  }
+  .sidebar-nav.is-scrolling { scrollbar-color: rgba(15, 23, 42, 0.18) transparent; }
+  .sidebar-nav.is-scrolling::-webkit-scrollbar-thumb { background-color: rgba(15, 23, 42, 0.18); }
+  .dark .sidebar-nav.is-scrolling { scrollbar-color: rgba(255, 255, 255, 0.11) transparent; }
+  .dark .sidebar-nav.is-scrolling::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.11); }
+
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition;
   }

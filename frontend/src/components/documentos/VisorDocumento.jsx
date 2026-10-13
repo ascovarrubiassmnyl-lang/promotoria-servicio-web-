@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api, handleError } from '../../api/client.js';
 import { Modal } from '../ui.jsx';
+import { avisar } from '../../lib/toast.js';
 
 // Visor + descarga de un DocumentoCliente (clic = previsualizar, descargar es
 // secundario — mismo patrón ya usado en la ficha de cliente). La API va con
@@ -40,7 +41,7 @@ export function useVisorDocumento() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-    } catch (e) { alert(handleError(e)); }
+    } catch (e) { avisar(handleError(e), 'error'); }
   };
 
   return { visor, verArchivo, cerrarVisor, descargarArchivo };

@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout.jsx';
 import { ProtectedRoute, SeccionRoute } from './components/Protected.jsx';
 import Login from './pages/Login.jsx';
@@ -20,6 +20,8 @@ import Candidatos from './pages/Candidatos.jsx';
 import CandidatoDetalle from './pages/CandidatoDetalle.jsx';
 import Notificaciones from './pages/Notificaciones.jsx';
 import LeadsLanding from './pages/LeadsLanding.jsx';
+import NoEncontrada from './pages/NoEncontrada.jsx';
+import Hoy from './pages/Hoy.jsx';
 
 export default function App() {
   return (
@@ -31,6 +33,9 @@ export default function App() {
       <Route path="/pop/:token" element={<PopPublico />} />
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route path="/" element={<SeccionRoute seccion="dashboard"><Dashboard /></SeccionRoute>} />
+        {/* "Hoy": lista de trabajo del día, para todos y sin sección RBAC — la
+            API (GET /hoy) solo devuelve datos de quien consulta. */}
+        <Route path="/hoy" element={<Hoy />} />
         <Route path="/clientes" element={<SeccionRoute seccion="clientes"><Clientes /></SeccionRoute>} />
         {/* "Agrega tu sitio web": autoservicio para todos los usuarios, sin sección RBAC. */}
         <Route path="/leads" element={<LeadsLanding />} />
@@ -61,8 +66,8 @@ export default function App() {
             Restaurada 2026-09-25 tras eliminarse el 2026-08-25 — el usuario
             la extrañó al crecer el volumen de invitaciones de citas. */}
         <Route path="/notificaciones" element={<Notificaciones />} />
+        <Route path="*" element={<NoEncontrada />} />
       </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

@@ -5,6 +5,9 @@ import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion } from '../middleware/permisos.js';
 import { registrarActividad } from '../utils/actividad.js';
 import { agregarClienteAClinica, ETAPAS_CLINICA } from '../utils/clinica.js';
+import { normalizarTelefono } from '../utils/captura.js';
+import { parseFechaEntrada } from '../utils/fechas.js';
+import { registrarLlamada, RESULTADOS_LLAMADA } from '../utils/seguimiento.js';
 
 const router = Router();
 router.use(authenticate);
@@ -119,12 +122,27 @@ router.get('/:id', asyncHandler(async (req, res) => {
 // como estado, se traduce a la bandera sin tocar la etapa.
 const normalizarEtapa = (estado) => (estado === 'NECESITA_SEGUIMIENTO' ? null : estado);
 
+// Teléfono capturado a mano: se guarda normalizado (+52 + 10 dígitos, misma
+// función que la captura de landings) para que la deduplicación y el botón de
+// llamar/WhatsApp funcionen. Letras o menos de 10 dígitos = error de captura.
+function telefonoDeEntrada(valor) {
+  if (valor === undefined) return { valor: undefined };
+  if (valor === null || String(valor).trim() === '') return { valor: null };
+  const texto = String(valor);
+  if (/[a-z]/i.test(texto) || texto.replace(/\D/g, '').length < 10) {
+    return { error: 'Teléfono inválido: escribe al menos 10 dígitos (ej. 444 123 4567)' };
+  }
+  return { valor: normalizarTelefono(texto) };
+}
+
 router.post('/', asyncHandler(async (req, res) => {
   const { nombre, apellidoP, apellidoM, email, telefono, fechaNacimiento, rfc, curp, direccion, estado, notas, fuente, productoInteres, detalleInteres, referidoPorId, necesitaSeguimiento } = req.body || {};
-  // Solo nombre y apellido son obligatorios: un "cliente frío" es un prospecto
-  // del que todavía no se tienen datos de contacto (antes se inventaba un
-  // correo falso tipo aaa@gmail.com para poder darlo de alta).
-  if (!nombre || !apellidoP) return res.status(400).json({ error: 'nombre y apellidoP son requeridos' });
+  // Solo el nombre es obligatorio (2026-10-13): exigir apellido paterno
+  // llenaba la cartera de "Beni . ." — de un prospecto de Instagram muchas
+  // veces solo se sabe el nombre. La columna sigue siendo String: va vacía.
+  if (!nombre || !String(nombre).trim()) return res.status(400).json({ error: 'El nombre es requerido' });
+  const tel = telefonoDeEntrada(telefono);
+  if (tel.error) return res.status(400).json({ error: tel.error });
   const asesorId = (req.user.rol === 'ASESOR') ? req.user.id : (req.body.asesorId || req.user.id);
   if (req.user.rol !== 'ASESOR' && req.body.asesorId) {
     const existe = await prisma.usuario.findUnique({ where: { id: req.body.asesorId } });
@@ -132,8 +150,8 @@ router.post('/', asyncHandler(async (req, res) => {
   }
   const cliente = await prisma.cliente.create({
     data: {
-      asesorId, nombre, apellidoP, apellidoM: apellidoM || null, email: email || null,
-      telefono: telefono || null,
+      asesorId, nombre: String(nombre).trim(), apellidoP: (apellidoP || '').trim(), apellidoM: apellidoM || null, email: email || null,
+      telefono: tel.valor ?? null,
       fechaNacimiento: fechaNacimiento ? new Date(fechaNacimiento) : null,
       rfc: rfc || null, curp: curp || null, direccion: direccion || null,
       estado: normalizarEtapa(estado) || 'PROSPECTO',
@@ -146,7 +164,7 @@ router.post('/', asyncHandler(async (req, res) => {
   });
   await registrarActividad(asesorId, 'CLIENTE_CREADO', {
     clienteId: cliente.id,
-    cliente: `${nombre} ${apellidoP}`,
+    cliente: `${cliente.nombre} ${cliente.apellidoP}`.trim(),
   });
 
   // Un prospecto recién registrado es exactamente lo que la clínica telefónica
@@ -184,10 +202,12 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   } = req.body || {};
   const data = {};
   if (nombre) data.nombre = nombre;
-  if (apellidoP) data.apellidoP = apellidoP;
+  if (apellidoP !== undefined) data.apellidoP = (apellidoP || '').trim();
   if (apellidoM !== undefined) data.apellidoM = apellidoM;
   if (email !== undefined) data.email = email || null;
-  if (telefono !== undefined) data.telefono = telefono || null;
+  const tel = telefonoDeEntrada(telefono);
+  if (tel.error) return res.status(400).json({ error: tel.error });
+  if (tel.valor !== undefined) data.telefono = tel.valor;
   if (fechaNacimiento !== undefined) data.fechaNacimiento = fechaNacimiento ? new Date(fechaNacimiento) : null;
   if (rfc !== undefined) data.rfc = rfc || null;
   if (curp !== undefined) data.curp = curp || null;
@@ -217,7 +237,44 @@ router.patch('/:id', asyncHandler(async (req, res) => {
   if (req.body.archivado === false) data.archivadoEn = null;
   if (req.body.archivado === true) data.archivadoEn = new Date();
   const cliente = await prisma.cliente.update({ where: { id }, data });
+  // Cambio de etapa = evento en la bitácora (antes "Avanzar etapa" no dejaba
+  // rastro y no se podía reconstruir cuánto tardó cada paso del embudo).
+  if (data.estado && data.estado !== existente.estado) {
+    await registrarActividad(existente.asesorId, 'CLIENTE_ETAPA', {
+      clienteId: id,
+      cliente: `${cliente.nombre} ${cliente.apellidoP}`.trim(),
+      de: existente.estado,
+      a: data.estado,
+      ...(req.body.motivo ? { nota: String(req.body.motivo).slice(0, 300) } : {}),
+    });
+  }
   res.json(cliente);
+}));
+
+// Registrar una llamada (2026-10-13): un solo clic desde la lista o la ficha.
+// Crea la actividad LLAMADA (embudo, Metas), suma en 25 puntos de hoy,
+// actualiza la clínica y la etapa según el resultado y, si se pide, deja un
+// recordatorio para volver a llamar. Toda la propagación vive en
+// utils/seguimiento.js.
+router.post('/:id/llamada', asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const cliente = await prisma.cliente.findUnique({ where: { id } });
+  if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+  if (req.user.rol === 'ASESOR' && cliente.asesorId !== req.user.id) return res.status(403).json({ error: 'Sin acceso a este cliente' });
+  const { resultado, nota, recordarEn } = req.body || {};
+  if (!RESULTADOS_LLAMADA[resultado]) return res.status(400).json({ error: 'resultado inválido' });
+  const fechaRecordatorio = recordarEn ? parseFechaEntrada(recordarEn) : null;
+  if (recordarEn && (!fechaRecordatorio || Number.isNaN(fechaRecordatorio.getTime()))) {
+    return res.status(400).json({ error: 'Fecha del recordatorio inválida' });
+  }
+  const r = await registrarLlamada({
+    cliente,
+    asesorId: cliente.asesorId,
+    resultado,
+    nota: nota ? String(nota).slice(0, 500) : null,
+    recordarEn: fechaRecordatorio,
+  });
+  res.status(201).json(r);
 }));
 
 // Borrado lógico: archiva el cliente en vez de borrarlo. Sus pólizas, citas,

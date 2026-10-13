@@ -3,7 +3,6 @@ import { prisma } from '../prisma.js';
 import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion } from '../middleware/permisos.js';
-import { registrarActividad } from '../utils/actividad.js';
 
 const router = Router();
 router.use(authenticate);
@@ -32,24 +31,7 @@ router.get('/', asyncHandler(async (req, res) => {
   res.json(actividades);
 }));
 
-// Registrar una llamada: crea actividad tipo LLAMADA y actualiza fechaUltimaLlamada del cliente
-router.post('/llamada', asyncHandler(async (req, res) => {
-  const { clienteId, descripcion } = req.body || {};
-  if (!clienteId) return res.status(400).json({ error: 'clienteId es requerido' });
-  const cliente = await prisma.cliente.findUnique({ where: { id: clienteId } });
-  if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
-  if (req.user.rol === 'ASESOR' && cliente.asesorId !== req.user.id) return res.status(403).json({ error: 'Sin acceso a este cliente' });
-  const asesorId = cliente.asesorId || req.user.id;
-  const actividad = await registrarActividad(asesorId, 'LLAMADA', {
-    clienteId,
-    cliente: `${cliente.nombre} ${cliente.apellidoP}`,
-    nota: descripcion || null,
-  });
-  await prisma.cliente.update({
-    where: { id: clienteId },
-    data: { fechaUltimaLlamada: new Date() },
-  });
-  res.status(201).json(actividad);
-}));
+// Registrar una llamada vive en POST /clientes/:id/llamada (sección clientes,
+// con la propagación completa en utils/seguimiento.js).
 
 export default router;

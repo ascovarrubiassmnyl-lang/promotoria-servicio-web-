@@ -1036,6 +1036,89 @@ que se guardaron ya formateados — no volver a escribirla.
   filtra por `metadata.clienteId`), stepper coloreado por etapa y botón
   "Avanzar etapa" (usa `siguienteEtapa`).
 
+## Registrar llamada — un solo punto de captura (2026-10-13)
+
+Origen: auditoría de UI del 13-oct (rol Asesor). El hueco más grande era que
+**no existía forma de registrar una llamada** (el backend tenía
+`POST /actividad/llamada` pero ningún componente lo usaba) y que llamada/cita
+había que capturarlas en tres módulos que no se hablaban (ficha, 25 puntos,
+clínica). Ahora:
+
+- **`POST /api/clientes/:id/llamada`** (`{resultado, nota?, recordarEn?}`,
+  sección `clientes`, dueño o admin). El endpoint viejo de `/actividad` se
+  eliminó. Resultados: `NO_CONTESTO`, `CONTACTADO`, `VOLVER_A_LLAMAR`, `CITA`,
+  `NO_INTERESADO`.
+- **Toda la propagación vive en `utils/seguimiento.js`** (única
+  implementación): actividad `LLAMADA` con `metadata.resultado` (alimenta el
+  embudo del Dashboard y la meta de llamadas), `fechaUltimaLlamada`, etapa
+  (contacto → `CONTACTADO` solo desde `ETAPAS_CLINICA`, nunca retrocede;
+  no interesado → `DESCARTADO`), fila de clínica de la semana, **+1 en
+  `llamadasRealizadas` del 25 puntos de HOY** (solo escribe hoy, así que no
+  choca con el candado) y, si se pide, un `RECORDATORIO` para volver a llamar.
+- **Agendar una cita con cliente** (`POST /citas`) ahora también sube al
+  cliente a `CITA` (`marcarCitaEnCliente`, mismas etapas que la captura de
+  Cal.com), guarda `fechaUltimaCita` y suma `citasObtenidas` en 25 puntos de
+  hoy. Antes solo cerraba la fila de la clínica.
+- **Cambio de etapa = actividad `CLIENTE_ETAPA`** (`{de, a, nota?}`; el PATCH
+  acepta `motivo`). Antes "Avanzar etapa" no dejaba rastro.
+- **Alta de cliente: solo el nombre es obligatorio** (apellido paterno va como
+  `''`) y el teléfono se valida (≥10 dígitos, sin letras → 400) y se guarda
+  normalizado con `normalizarTelefono()` de `utils/captura.js` (+52…).
+- UI: `components/clientes/RegistrarLlamadaModal.jsx` (compartido): botón
+  "Registrar llamada" en la ficha (acción primaria; "Avanzar etapa" pasó a
+  secundario) e ícono de teléfono en cada fila de la lista. Con resultado
+  `CITA` abre la agenda al guardar. Trae botones Llamar (`tel:`) y WhatsApp
+  (`wa.me`).
+- Tests: `backend/test/seguimiento.test.js`.
+
+## "Hoy" y arreglos de Fase 1 de la auditoría (2026-10-13)
+
+- **`/hoy` = pantalla de entrada** (el login navega ahí; primera pestaña del
+  nav y de la barra móvil, el Panel pasó a "Más"). `GET /api/hoy`
+  (`routes/hoy.js`) es **siempre el día de quien consulta** — sin sección
+  RBAC y sin `asesorId`, igual que `/notificaciones`. Devuelve: citas de hoy
+  (dueño, promotor que aceptó o invitado que aceptó), **citas por cerrar**
+  (propias, ya terminadas, aún PROGRAMADA/CONFIRMADA, últimos 30 días, sin
+  PERSONAL — cerrarlas alimenta "citas realizadas" de Metas), recordatorios
+  abiertos de hoy o vencidos, leads nuevos sin llamar (PROSPECTO/RETARGETING,
+  sin `fechaUltimaLlamada`, `leadSinVer` o de los últimos 7 días), "a quién
+  llamar" (clínica de la semana en PENDIENTE, sin repetir leads ni clientes con
+  cita hoy) y el progreso de 25 puntos de hoy (`puntosDe` de `routes/puntos.js`).
+  Rango del día con `rangoHoyMx()` (`utils/seguimiento.js`, offset leído de
+  Intl). UI: `pages/Hoy.jsx`.
+- **Avisos "prospecto sin avance" agrupados**: un solo aviso por asesor con
+  conteo y nombres, a lo más uno al día (`datos.clienteIds`); la ventana de
+  15 días por prospecto se respeta leyendo esos ids. Antes era un aviso por
+  prospecto (111 de 147 en la auditoría).
+- **Toasts**: `avisar(msg, 'ok'|'error'|'info')` de `lib/toast.js` +
+  `<Toasts />` montado una vez en `Layout`. Ya no se usa `alert()` para
+  errores. Avisos de éxito en llamada, cita, cliente, recordatorio, póliza y
+  cambios de etapa/estado.
+- **Confirmaciones**: cancelar cita (ficha, calendario y móvil) y, al cambiar
+  etapa, solo retroceder en el embudo o descartar
+  (`confirmacionCambioEtapa()` en `etapas.js`). Avanzar es directo a
+  propósito: es la acción de todos los días y el usuario pidió menos clics.
+  Los botones que solo aparecían con hover (cancelar cita, eliminar
+  recordatorio en la ficha) ahora están siempre visibles.
+- **`SelectorBuscable`** (`ui.jsx`): combobox con búsqueda sin acentos, por
+  nombre o teléfono, con teclado. Lo usan "Cliente o candidato" en
+  `CitaFormModal` y "Cliente" en `PolizaFormModal`. Usarlo en cualquier
+  selector de cartera en vez de un `<select>` largo.
+- **`MenuAcciones` se pinta en un portal** con `position: fixed` y se voltea
+  hacia arriba si no cabe: antes lo recortaba el overflow de la tabla.
+- **Filtros del CRM en la URL** (`?q=&etapa=&segmento=&archivados=1`):
+  sobreviven al ir a la ficha y regresar, y se pueden enlazar. Los conteos del
+  segmento respetan la etapa elegida y la cabecera dice "N de M contactos".
+- **Un solo formato de fecha** (`fechaCorta`/`fechaHora`/`hora` en
+  `lib/format.js`): "13 oct", con año solo si no es el actual, hora "1:30
+  p.m." y "Hoy/Mañana/Ayer" en fechas con hora.
+- **404 real** (`pages/NoEncontrada.jsx`) dentro del Layout, en vez de
+  redirigir al Dashboard en silencio.
+- **`EmptyState` acepta `accion`** ({label, onClick}): los vacíos llevan el
+  botón de lo que toca hacer.
+- Tests: `backend/test/seguimiento.test.js` cubre el agrupado de avisos y
+  `GET /hoy`.
+
 ## Ficha de cliente (rediseño 2026-07)
 
 `pages/ClienteDetalle.jsx` (`/clientes/:id`), compartida por ambos roles con
@@ -2048,6 +2131,32 @@ claro queda intacto; el contenido manda sobre el efecto):
   poner el canvas dentro de `<main>` (vive una sola vez en el Layout).
 - `three` + R3F quedan en un chunk compartido que solo descargan `/login` o
   el panel en oscuro; el bundle inicial no debe crecer por el 3D.
+
+## Sidebar de escritorio (rediseño 2026-10-13)
+
+`Layout.jsx` (solo `md`+; la barra inferior y la hoja "Más" de móvil no
+cambiaron). Referencia: un componente `Sidebar` "collapsible" que señaló el
+usuario — **se adoptó el diseño, no el stack** (allá TS + framer-motion +
+Base UI + tabler; aquí JS + Tailwind, cero dependencias, misma decisión que
+el leaderboard y el calendario).
+
+- **260px ↔ 60px**, ancho animado 240ms `cubic-bezier(0.23,1,0.32,1)`,
+  apagado con `prefers-reduced-motion`.
+- **La geometría del ítem es la misma en ambos estados** (padding fijo, ícono
+  anclado a la izquierda, centrado en el riel de 60px): al colapsar los íconos
+  no saltan, el texto solo se desvanece (`Desvanece`, sigue en el DOM para
+  lectores de pantalla). No volver a `justify-center` en colapsado.
+- **Una sola píldora activa que se desliza** entre ítems: se mide el `NavLink`
+  con `aria-current="page"` dentro del `<nav>`; la primera medición no anima.
+  Activo = texto neutro + ícono de marca; hover = superficie neutra tenue.
+- Colapsado, **el logo expande** (al pasar el mouse cambia al ícono de
+  expandir); el botón suelto de expandir del footer se eliminó.
+- Footer: Notificaciones (badge rojo; punto cuando está colapsado), Invitar,
+  tema, usuario (avatar + `ROLES_LABEL`) y Cerrar sesión.
+- Scrollbar del nav invisible en reposo y visible solo mientras se scrollea
+  (`.sidebar-nav` / `.is-scrolling` en `index.css`).
+- Sigue vigente: se colapsa solo al hacer clic en un ítem y la preferencia vive
+  en `localStorage` (`crm:sidebar:colapsado`).
 
 ## Sistema de diseño (tokens y componentes)
 
