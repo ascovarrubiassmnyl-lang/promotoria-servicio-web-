@@ -22,6 +22,7 @@ import Notificaciones from './pages/Notificaciones.jsx';
 import LeadsLanding from './pages/LeadsLanding.jsx';
 import NoEncontrada from './pages/NoEncontrada.jsx';
 import Hoy from './pages/Hoy.jsx';
+import RecuperarArchivos from './pages/RecuperarArchivos.jsx';
 
 export default function App() {
   return (
@@ -66,6 +67,7 @@ export default function App() {
             Restaurada 2026-09-25 tras eliminarse el 2026-08-25 — el usuario
             la extrañó al crecer el volumen de invitaciones de citas. */}
         <Route path="/notificaciones" element={<Notificaciones />} />
+        <Route path="/recuperar-archivos" element={<SeccionRoute seccion="clientes"><RecuperarArchivos /></SeccionRoute>} />
         <Route path="*" element={<NoEncontrada />} />
       </Route>
     </Routes>

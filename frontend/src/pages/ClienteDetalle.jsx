@@ -158,7 +158,7 @@ export default function ClienteDetalle() {
   const [docErr, setDocErr] = useState('');
   const [delDocId, setDelDocId] = useState(null);
   // Visor de archivos: se previsualiza en un modal; la descarga es secundaria.
-  const { visor, verArchivo, cerrarVisor, descargarArchivo } = useVisorDocumento();
+  const { visor, verArchivo, cerrarVisor, descargarArchivo, reemplazarArchivo } = useVisorDocumento();
 
   const [delNotaId, setDelNotaId] = useState(null);
 
@@ -761,7 +761,7 @@ export default function ClienteDetalle() {
         onSaved={() => qc.invalidateQueries(['cliente', id])}
       />
 
-      <VisorDocumento visor={visor} onClose={cerrarVisor} onDescargar={descargarArchivo} />
+      <VisorDocumento visor={visor} onClose={cerrarVisor} onDescargar={descargarArchivo} onReemplazar={reemplazarArchivo} />
 
       {/* Confirmación archivar cliente (borrado lógico) */}
       <Modal open={archivarOpen} onClose={() => setArchivarOpen(false)} title="Archivar cliente">

@@ -83,9 +83,29 @@ contraseña normal); `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`,
 
 ## 5. Archivos subidos (uploads)
 
-`backend/uploads/` (documentos de clientes) vive en el filesystem, que en
-Railway es **efímero**: se pierde en cada deploy. Para conservarlos, agrega un
-**Volume** al servicio (Settings → Volumes) montado en `/app/backend/uploads`.
+Los documentos de clientes y pólizas se guardan en un **Bucket de Railway**
+(S3 compatible, `crm-documentos`, región `sjc`), no en el disco del
+contenedor: ese disco es **efímero** y se vacía en cada deploy (así se
+perdieron 75 carátulas el 13-oct-2026). El código está en
+`backend/src/services/almacenamiento.js` y se activa solo cuando el servicio
+web tiene estas variables, configuradas como referencias al bucket:
+
+```
+BUCKET=${{crm-documentos.BUCKET}}
+ACCESS_KEY_ID=${{crm-documentos.ACCESS_KEY_ID}}
+SECRET_ACCESS_KEY=${{crm-documentos.SECRET_ACCESS_KEY}}
+ENDPOINT=${{crm-documentos.ENDPOINT}}
+REGION=${{crm-documentos.REGION}}
+```
+
+Sin ellas usa `backend/uploads/` (correcto en desarrollo) y en producción
+deja un `⚠️ Sin bucket ni volumen` en el log al arrancar. No se usa un Volume:
+en el plan gratuito el único volumen permitido por proyecto ya es el de
+Postgres, y el bucket cuesta 10 veces menos por GB.
+
+Si algún archivo se perdió, la pantalla `/recuperar-archivos` lo lista y
+permite re-subirlos todos de golpe: se re-vinculan solos por nombre de
+archivo.
 
 ## 6. Verificar el deploy
 

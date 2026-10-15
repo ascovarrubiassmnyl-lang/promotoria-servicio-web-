@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
+import { UPLOADS_DIR, persistir, existe } from '../services/almacenamiento.js';
 import crypto from 'crypto';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma.js';
@@ -28,9 +28,7 @@ router.use(permiteSeccion('ventas'));
 // Mismo /uploads que documentos.js (incluso mismo nombre de archivo físico
 // aleatorio) para que el PDF de la póliza sea un DocumentoCliente normal,
 // servible por GET /documentos/:id/ver y /descargar sin lógica aparte.
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const UPLOADS_DIR = path.resolve(__dirname, '../../uploads');
-fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+// El destino definitivo (bucket o disco) lo resuelve services/almacenamiento.js.
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
   filename: (_req, file, cb) => {
@@ -267,6 +265,10 @@ router.post('/analizar-documento', uploadPoliza.array('archivos', MAX_DOCUMENTOS
     const { datos, modelo } = await analizarPolizaPdf(
       archivos.map((f) => ({ ruta: f.path, mime: f.mimetype })),
     );
+    // Ya analizados desde el disco local, se mandan a su destino definitivo
+    // ANTES de responder: el POST /ventas que los vincula puede llegar después
+    // de un deploy, y en disco efímero ya no estarían.
+    await Promise.all(archivos.map((f) => persistir(f.filename, f.mimetype)));
     res.json({
       datos,
       modelo,
@@ -562,8 +564,7 @@ router.post('/', asyncHandler(async (req, res) => {
     for (const d of documentos) {
       // Un archivo que ya no está en disco (subida abandonada y limpiada) se
       // salta en silencio: la póliza se guarda igual, sin ese adjunto.
-      const ruta = path.join(UPLOADS_DIR, path.basename(d.archivo));
-      if (!fs.existsSync(ruta)) continue;
+      if (!(await existe(d.archivo))) continue;
       const doc = await tx.documentoCliente.create({
         data: {
           clienteId, asesorId: req.user.id, ventaId: creada.id,
@@ -741,6 +742,7 @@ router.post('/:id/documento', uploadPoliza.single('archivo'), asyncHandler(async
     return res.status(403).json({ error: 'Sin acceso a esta póliza' });
   }
   const nombreOriginal = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+  await persistir(req.file.filename, req.file.mimetype);
   const venta = await prisma.$transaction(async (tx) => {
     const doc = await tx.documentoCliente.create({
       data: {

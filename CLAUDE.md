@@ -2334,6 +2334,33 @@ lenguaje: KPIs arriba con `.kpi`, barra de filtros con `.input w-auto`, tabla
 dentro de `.card` con `thead` uppercase + hover en filas + `tfoot` de totales,
 montos con `tabular-nums`, y estados como badges con punto.
 
+## Archivos subidos: bucket, no disco (2026-10-15)
+
+Bug real: los archivos vivían en `backend/uploads/` del contenedor de Railway,
+que es efímero. La secretaria subió 75 carátulas el 12-oct y el deploy del
+13-oct las borró; los `DocumentoCliente` quedaron en la base y el visor
+respondía 410 ("Request failed with status code 410", porque con
+`responseType: 'blob'` el mensaje del servidor no se leía).
+
+- **Único punto de acceso a archivos**: `services/almacenamiento.js`
+  (`persistir`, `guardarBuffer`, `abrir`, `existe`, `borrar`, `listar`). Con
+  `BUCKET`/`ACCESS_KEY_ID`/`SECRET_ACCESS_KEY`/`ENDPOINT`/`REGION` usa el
+  Bucket S3 de Railway; sin ellas, disco local (desarrollo). La clave del
+  objeto es `DocumentoCliente.archivo`, sin cambios de esquema. Nunca volver a
+  leer o escribir `UPLOADS_DIR` directo desde una ruta: multer escribe ahí solo
+  como temporal y `persistir()` lo sube al bucket.
+- **El análisis con IA lee el disco local antes de persistir** y
+  `/analizar-documento` persiste antes de responder: el `POST /ventas` que
+  vincula `documentosTmp` puede llegar después de un deploy.
+- **Recuperación**: `GET /documentos/perdidos` (registros sin archivo, más el
+  espacio usado) y `POST /documentos/recuperar` (multipart, hasta 20 por
+  petición; el frontend manda de 10 en 10) re-vinculan por **nombre de archivo
+  exacto** (NFC) sobre la misma clave, así que la ficha y la póliza quedan como
+  estaban. `POST /documentos/:id/reemplazar` es para uno solo con otro nombre.
+  Alcance: un asesor solo ve sus clientes; con alcance de administración, todo.
+  UI: `pages/RecuperarArchivos.jsx` (`/recuperar-archivos`, sección
+  `clientes`) y el estado "perdido" de `VisorDocumento`.
+
 ## Seguridad operativa
 
 - `backend/.env` y `frontend/.env` contienen secretos (JWT, VAPID, DB) y están

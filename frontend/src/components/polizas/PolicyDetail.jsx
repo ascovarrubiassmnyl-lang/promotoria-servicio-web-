@@ -75,7 +75,7 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
     queryFn: async () => (await api.get('/ventas/tipo-cambio')).data,
     staleTime: 60 * 60 * 1000,
   });
-  const { visor, verArchivo, cerrarVisor, descargarArchivo } = useVisorDocumento();
+  const { visor, verArchivo, cerrarVisor, descargarArchivo, reemplazarArchivo } = useVisorDocumento();
   // Comisión de la póliza en toda su vida + lo cobrado (utils/comisiones.js
   // en el servidor; información interna del asesor).
   const { data: comision } = useQuery({
@@ -862,7 +862,7 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
         </div>
       </Modal>
 
-      <VisorDocumento visor={visor} onClose={cerrarVisor} onDescargar={descargarArchivo} />
+      <VisorDocumento visor={visor} onClose={cerrarVisor} onDescargar={descargarArchivo} onReemplazar={reemplazarArchivo} />
     </div>
   );
 }
