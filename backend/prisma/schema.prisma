@@ -960,6 +960,9 @@ model PagoPoliza {
   comisionPct   Float?
   comisionMonto Float?
   tipoCambio    Float?
+  // true = el asesor capturó la comisión de este recibo a mano (corrección):
+  // ni el recálculo al editar ni el job la vuelven a calcular.
+  comisionManual Boolean         @default(false)
   creadoEn      DateTime         @default(now())
 
   @@index([ventaId, periodo])

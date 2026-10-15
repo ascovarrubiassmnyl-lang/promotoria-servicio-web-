@@ -174,3 +174,49 @@ test('API: producto sin tabla (GMM) usa el % capturado solo en el año 1', async
   const cm = await (await api(`/api/ventas/${v.id}/comisiones`)).json();
   assert.equal(cm.sinTabla, true);
 });
+
+test('API: póliza capturada tarde — completar recibos desde la emisión y corregir uno a mano', async () => {
+  // Caso real: Vida Mujer mensual que empezó hace 3 meses y unos días; se
+  // capturó hoy con solo el primer recibo registrado.
+  const inicio = new Date(); inicio.setMonth(inicio.getMonth() - 3); inicio.setDate(inicio.getDate() - 5); inicio.setHours(12, 0, 0, 0);
+  const r = await api('/api/ventas', {
+    method: 'POST',
+    body: {
+      clienteId: cliente.id, ramo: 'VIDA', producto: 'Vida Mujer', primaAnual: 12000,
+      estado: 'PAGADA', formaPago: 'MENSUAL', fechaInicioVigencia: inicio.toISOString(),
+    },
+  });
+  assert.equal(r.status, 201, await r.clone().text());
+  const v = await r.json();
+
+  const f = await (await api(`/api/ventas/${v.id}/pagos/faltantes`)).json();
+  assert.equal(f.periodos.length, 3); // meses 2, 3 y 4; el siguiente aún no vence
+  assert.equal((await api(`/api/ventas/${v.id}/pagos/faltantes`, { token: tokenOtro })).status, 403);
+
+  const c = await api(`/api/ventas/${v.id}/pagos/completar`, { method: 'POST', body: { periodos: f.periodos } });
+  assert.equal(c.status, 201);
+  assert.equal((await c.json()).registrados, 3);
+  const pagos = await prisma.pagoPoliza.findMany({ where: { ventaId: v.id }, orderBy: { periodo: 'asc' } });
+  assert.equal(pagos.length, 4);
+  assert.ok(pagos.every((p) => p.comisionMonto === 400));
+  // El próximo pago queda en el primer recibo que todavía no vence.
+  const venta = await prisma.venta.findUnique({ where: { id: v.id } });
+  const sig = new Date(inicio); sig.setMonth(sig.getMonth() + 4);
+  assert.equal(new Date(venta.fechaProximoPago).toISOString(), sig.toISOString());
+  // Idempotente: ya no falta nada.
+  assert.equal((await (await api(`/api/ventas/${v.id}/pagos/faltantes`)).json()).periodos.length, 0);
+
+  // Corregir la comisión de un recibo a mano: manda y el job no la toca.
+  const ultimo = pagos[3];
+  const e = await api(`/api/ventas/${v.id}/pagos/${ultimo.id}`, { method: 'PATCH', body: { comisionManual: true, comisionMonto: 350.5, comisionPct: 35 } });
+  assert.equal(e.status, 200);
+  const editado = await e.json();
+  assert.deepEqual([editado.comisionManual, editado.comisionMonto, editado.comisionPct], [true, 350.5, 35]);
+  const res = await (await api(`/api/ventas/${v.id}/comisiones`)).json();
+  assert.equal(res.cobradoMXN, 400 * 3 + 350.5);
+  // Sin monto, la comisión manual se rechaza.
+  assert.equal((await api(`/api/ventas/${v.id}/pagos/${pagos[2].id}`, { method: 'PATCH', body: { comisionManual: true } })).status, 400);
+  // Regresar a automática recalcula con la tabla (pago parcial = proporcional).
+  const a = await (await api(`/api/ventas/${v.id}/pagos/${ultimo.id}`, { method: 'PATCH', body: { comisionManual: false, montoPagado: 500 } })).json();
+  assert.deepEqual([a.comisionManual, a.comisionMonto], [false, 200]);
+});

@@ -909,6 +909,20 @@ según la forma de pago, y llevar el historial de cada recibo pagado.
   PAGADA/APROBADA sin pagos (`registrarPrimerPagoSiAplica()`; periodo = inicio
   de vigencia y, si no había próximo pago, fija el siguiente). Borrar un pago
   mal capturado: `DELETE /ventas/:id/pagos/:pagoId`.
+- **Correcciones** (2026-10-15, pólizas capturadas tarde): `PATCH
+  /ventas/:id/pagos/:pagoId` corrige periodo, fecha, monto y nota de un recibo
+  y su comisión — `comisionManual: true` + `comisionMonto` (MXN, `comisionPct`
+  opcional) fija la comisión que el asesor ve en su estado de cuenta; ni el
+  recálculo al editar ni `reconciliarComisionesPendientes()` la vuelven a
+  tocar (`PagoPoliza.comisionManual`, migración
+  `20261015180000_pago_comision_manual`). `comisionManual: false` la regresa a
+  la tabla. `GET /ventas/:id/pagos/faltantes` + `POST .../pagos/completar`
+  (`recibosFaltantes()`): recibos vencidos desde el inicio de vigencia sin pago
+  registrado (empata con tolerancia de medio intervalo), la UI los enseña con
+  casillas para desmarcar los no pagados, los registra con la comisión de su
+  año y mueve `fechaProximoPago` al primer recibo que aún no vence. UI: botón
+  "Completar desde la emisión" y menú ⋯ → "Corregir pago o comisión" en el
+  historial de `PolicyDetail`.
 - **Lecturas**: `GET /ventas/:id/comisiones` (proyección año por año, anual y
   por recibo, lo cobrado y el historial), `POST /ventas/comisiones/preview`
   (lo usa `PolizaFormModal` mientras se captura — el frontend **no

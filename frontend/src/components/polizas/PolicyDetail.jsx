@@ -85,6 +85,11 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
   // Pago anterior (histórico): pólizas que ya llevaban tiempo al capturarse.
   const PAGO_VACIO = { open: false, periodo: '', fechaPago: '', monto: '', justificacion: '', saving: false, err: '' };
   const [pagoHist, setPagoHist] = useState(PAGO_VACIO);
+  // Corregir un pago ya registrado (monto, fechas y comisión a mano).
+  const EDIT_VACIO = { open: false, id: null, periodo: '', fechaPago: '', monto: '', justificacion: '', comisionManual: false, comisionMonto: '', comisionPct: '', saving: false, err: '' };
+  const [editPago, setEditPago] = useState(EDIT_VACIO);
+  // Completar de golpe los recibos vencidos desde la emisión.
+  const [completar, setCompletar] = useState({ open: false, cargando: false, periodos: [], elegidos: [], saving: false, err: '' });
 
   // Confirmación de pago: pantalla real con monto y periodo, no un confirm()
   // del navegador — el asesor tiene que ver qué está registrando.
@@ -190,6 +195,72 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
       avisar('Pago anterior registrado');
       refrescarPagos();
     } catch (e2) { setPagoHist((x) => ({ ...x, saving: false, err: handleError(e2) })); }
+  };
+
+  // ISO → 'YYYY-MM-DD' en hora local (el contrato del DatePicker).
+  const aDia = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  const abrirEditPago = (pago) => setEditPago({
+    ...EDIT_VACIO,
+    open: true,
+    id: pago.id,
+    periodo: aDia(pago.periodo),
+    fechaPago: aDia(pago.fechaPago),
+    monto: pago.montoPagado ?? '',
+    justificacion: pago.justificacion || '',
+    comisionManual: Boolean(pago.comisionManual),
+    comisionMonto: pago.comisionMonto ?? '',
+    comisionPct: pago.comisionPct ?? '',
+  });
+
+  const guardarEditPago = async (e) => {
+    e.preventDefault();
+    if (!editPago.periodo) { setEditPago((x) => ({ ...x, err: 'Indica la fecha del recibo.' })); return; }
+    if (editPago.comisionManual && (editPago.comisionMonto === '' || !(+editPago.comisionMonto >= 0))) {
+      setEditPago((x) => ({ ...x, err: 'Captura la comisión que te pagaron por este recibo.' }));
+      return;
+    }
+    setEditPago((x) => ({ ...x, saving: true, err: '' }));
+    try {
+      const aIso = (d) => (d ? new Date(`${d}T12:00:00`).toISOString() : undefined);
+      await api.patch(`/ventas/${p.id}/pagos/${editPago.id}`, {
+        periodo: aIso(editPago.periodo),
+        fechaPago: aIso(editPago.fechaPago || editPago.periodo),
+        montoPagado: editPago.monto !== '' ? +editPago.monto : null,
+        justificacion: editPago.justificacion,
+        comisionManual: editPago.comisionManual,
+        ...(editPago.comisionManual ? {
+          comisionMonto: +editPago.comisionMonto,
+          comisionPct: editPago.comisionPct !== '' ? +editPago.comisionPct : null,
+        } : {}),
+      });
+      setEditPago(EDIT_VACIO);
+      avisar('Pago corregido');
+      refrescarPagos();
+    } catch (e2) { setEditPago((x) => ({ ...x, saving: false, err: handleError(e2) })); }
+  };
+
+  const abrirCompletar = async () => {
+    setCompletar({ open: true, cargando: true, periodos: [], elegidos: [], saving: false, err: '' });
+    try {
+      const { data } = await api.get(`/ventas/${p.id}/pagos/faltantes`);
+      setCompletar((x) => ({ ...x, cargando: false, periodos: data.periodos, elegidos: data.periodos, montoEsperado: data.montoEsperado }));
+    } catch (e2) { setCompletar((x) => ({ ...x, cargando: false, err: handleError(e2) })); }
+  };
+
+  const confirmarCompletar = async () => {
+    setCompletar((x) => ({ ...x, saving: true, err: '' }));
+    try {
+      const { data } = await api.post(`/ventas/${p.id}/pagos/completar`, { periodos: completar.elegidos });
+      setCompletar({ open: false, cargando: false, periodos: [], elegidos: [], saving: false, err: '' });
+      avisar(`${data.registrados} recibo(s) registrados como pagados`);
+      refrescarPagos();
+      qc.invalidateQueries(['ventas']);
+    } catch (e2) { setCompletar((x) => ({ ...x, saving: false, err: handleError(e2) })); }
   };
 
   const borrarPago = async (pago) => {
@@ -409,9 +480,16 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
           <Card
             title={`Historial de pagos (${historial.length})`}
             actions={!readOnly && (
-              <button type="button" onClick={() => setPagoHist({ ...PAGO_VACIO, open: true, monto: p.montoEsperado ?? '' })} className="btn-secondary text-xs py-1 px-2">
-                + Registrar pago anterior
-              </button>
+              <div className="flex flex-wrap gap-1.5">
+                {p.formaPago !== 'UNICO' && (
+                  <button type="button" onClick={abrirCompletar} className="btn-secondary text-xs py-1 px-2">
+                    Completar desde la emisión
+                  </button>
+                )}
+                <button type="button" onClick={() => setPagoHist({ ...PAGO_VACIO, open: true, monto: p.montoEsperado ?? '' })} className="btn-secondary text-xs py-1 px-2">
+                  + Registrar pago anterior
+                </button>
+              </div>
             )}
           >
             {historial.length === 0 ? (
@@ -454,9 +532,13 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
                             )}
                             {pago.anioPoliza && <span className="text-slate-400 dark:text-slate-500"> · año {pago.anioPoliza}{pago.comisionPct != null ? ` (${pago.comisionPct}%)` : ''}</span>}
                           </p>
+                          {pago.comisionManual && <p className="text-xs text-slate-400 dark:text-slate-500">Comisión ajustada a mano</p>}
                         </div>
                         {!readOnly && (
-                          <MenuAcciones small label="Acciones del pago" items={[{ label: 'Borrar (capturado por error)', danger: true, onClick: () => borrarPago(pago) }]} />
+                          <MenuAcciones small label="Acciones del pago" items={[
+                            { label: 'Corregir pago o comisión', onClick: () => abrirEditPago(pago) },
+                            { label: 'Borrar (capturado por error)', danger: true, onClick: () => borrarPago(pago) },
+                          ]} />
                         )}
                       </div>
                     </div>
@@ -681,6 +763,103 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
             <button type="submit" disabled={pagoHist.saving} className="btn-primary">{pagoHist.saving ? 'Guardando…' : 'Registrar pago'}</button>
           </div>
         </form>
+      </Modal>
+
+      {/* Corregir un pago: fechas, monto y la comisión de ese recibo. La
+          comisión manual manda sobre la tabla y nadie la recalcula. */}
+      <Modal open={editPago.open} onClose={() => setEditPago(EDIT_VACIO)} title="Corregir pago">
+        <form onSubmit={guardarEditPago} className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Fecha del recibo (periodo)*">
+              <DatePicker value={editPago.periodo} onChange={(v) => setEditPago((x) => ({ ...x, periodo: v }))} />
+            </Field>
+            <Field label="Fecha en que pagó">
+              <DatePicker value={editPago.fechaPago} onChange={(v) => setEditPago((x) => ({ ...x, fechaPago: v }))} placeholder="Igual al recibo" />
+            </Field>
+          </div>
+          <Field label="Monto pagado">
+            <NumeroFormateado value={editPago.monto} onChange={(v) => setEditPago((x) => ({ ...x, monto: v }))} />
+          </Field>
+          <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+            <p className="label mb-2">Comisión de este recibo</p>
+            <div className="flex gap-4 text-sm">
+              <label className="inline-flex items-center gap-1.5">
+                <input type="radio" checked={!editPago.comisionManual} onChange={() => setEditPago((x) => ({ ...x, comisionManual: false }))} />
+                Según la tabla
+              </label>
+              <label className="inline-flex items-center gap-1.5">
+                <input type="radio" checked={editPago.comisionManual} onChange={() => setEditPago((x) => ({ ...x, comisionManual: true }))} />
+                Capturarla a mano
+              </label>
+            </div>
+            {editPago.comisionManual ? (
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field label="Comisión en pesos*">
+                  <NumeroFormateado value={editPago.comisionMonto} onChange={(v) => setEditPago((x) => ({ ...x, comisionMonto: v }))} />
+                </Field>
+                <Field label="% (opcional)">
+                  <input type="number" step="0.01" min="0" max="100" className="input" value={editPago.comisionPct} onChange={(e) => setEditPago((x) => ({ ...x, comisionPct: e.target.value }))} />
+                </Field>
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Se recalcula con el % del año de póliza en que cae el recibo.</p>
+            )}
+          </div>
+          <Field label="Nota (opcional)">
+            <input className="input" value={editPago.justificacion} onChange={(e) => setEditPago((x) => ({ ...x, justificacion: e.target.value }))} />
+          </Field>
+          {editPago.err && <p className="text-sm text-red-600">{editPago.err}</p>}
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setEditPago(EDIT_VACIO)} className="btn-secondary">Cancelar</button>
+            <button type="submit" disabled={editPago.saving} className="btn-primary">{editPago.saving ? 'Guardando…' : 'Guardar'}</button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Completar recibos: todos los que ya vencieron desde el inicio de
+          vigencia y no están registrados. Se pueden desmarcar los que no se
+          pagaron. */}
+      <Modal open={completar.open} onClose={() => setCompletar((x) => ({ ...x, open: false }))} title="Completar pagos desde la emisión">
+        <div className="space-y-3">
+          {completar.cargando ? (
+            <p className="text-sm text-slate-500">Buscando recibos…</p>
+          ) : completar.periodos.length === 0 ? (
+            <p className="text-sm text-slate-500 dark:text-slate-400">Todos los recibos vencidos hasta hoy ya están registrados.</p>
+          ) : (
+            <>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Recibos vencidos hasta hoy que no están registrados. Desmarca los que el cliente no pagó. Cada uno se registra por {mxn(completar.montoEsperado)} con la comisión de su año de póliza; después puedes corregir cualquiera.
+              </p>
+              <div className="max-h-72 space-y-1 overflow-y-auto">
+                {completar.periodos.map((per) => {
+                  const marcado = completar.elegidos.includes(per);
+                  return (
+                    <label key={per} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                      <input
+                        type="checkbox"
+                        checked={marcado}
+                        onChange={() => setCompletar((x) => ({
+                          ...x,
+                          elegidos: marcado ? x.elegidos.filter((e) => e !== per) : [...x.elegidos, per],
+                        }))}
+                      />
+                      Recibo del {fechaCorta(per)}
+                    </label>
+                  );
+                })}
+              </div>
+            </>
+          )}
+          {completar.err && <p className="text-sm text-red-600">{completar.err}</p>}
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setCompletar((x) => ({ ...x, open: false }))} className="btn-secondary">Cerrar</button>
+            {completar.periodos.length > 0 && (
+              <button type="button" onClick={confirmarCompletar} disabled={completar.saving || completar.elegidos.length === 0} className="btn-primary">
+                {completar.saving ? 'Registrando…' : `Registrar ${completar.elegidos.length} como pagados`}
+              </button>
+            )}
+          </div>
+        </div>
       </Modal>
 
       <VisorDocumento visor={visor} onClose={cerrarVisor} onDescargar={descargarArchivo} />

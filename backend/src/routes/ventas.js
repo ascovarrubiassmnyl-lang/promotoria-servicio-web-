@@ -16,6 +16,7 @@ import { MONEDAS, resolverPrima } from '../utils/prima.js';
 import {
   esquemaParaPoliza, registrarPagoConComision, registrarPrimerPagoSiAplica,
   resumenComisionPoliza, proyeccionPoliza, siguientePeriodo, montoEsperadoDeRecibo,
+  comisionAutomatica, recibosFaltantes,
 } from '../utils/comisionesPoliza.js';
 import { pctDelAnio, isrResicoMensual, TOPE_RESICO_ANUAL, PAGOS_POR_ANIO as RECIBOS_POR_ANIO, anioDePoliza } from '../utils/comisiones.js';
 
@@ -799,6 +800,123 @@ router.post('/:id/pagos', asyncHandler(async (req, res) => {
   });
   if (duplicado) return res.status(409).json({ error: 'Ese recibo ya estaba registrado como pagado' });
   res.status(201).json(pago);
+}));
+
+// Corregir un recibo ya registrado: periodo, fecha, monto, nota y su
+// comisión. `comisionManual: true` + `comisionMonto` (MXN) fija la comisión a
+// mano (el asesor la conoce por su estado de cuenta) y nadie la recalcula
+// después; `comisionManual: false` la regresa al cálculo de la tabla.
+router.patch('/:id/pagos/:pagoId', asyncHandler(async (req, res) => {
+  const venta = await polizaConAcceso(req, res);
+  if (!venta) return;
+  const pago = await prisma.pagoPoliza.findFirst({ where: { id: req.params.pagoId, ventaId: venta.id } });
+  if (!pago) return res.status(404).json({ error: 'Pago no encontrado' });
+  const b = req.body || {};
+  const data = {};
+
+  if (b.periodo !== undefined) {
+    const p = new Date(b.periodo);
+    if (Number.isNaN(p.getTime())) return res.status(400).json({ error: 'Periodo inválido' });
+    data.periodo = p;
+  }
+  if (b.fechaPago !== undefined) {
+    const f = new Date(b.fechaPago);
+    if (Number.isNaN(f.getTime()) || f > new Date(Date.now() + 86400000)) return res.status(400).json({ error: 'La fecha de pago no puede ser futura' });
+    data.fechaPago = f;
+  }
+  if (b.montoPagado !== undefined) {
+    const m = b.montoPagado === null || b.montoPagado === '' ? null : +b.montoPagado;
+    if (m != null && (Number.isNaN(m) || m < 0)) return res.status(400).json({ error: 'Monto pagado inválido' });
+    data.montoPagado = m;
+  }
+  if (b.justificacion !== undefined) data.justificacion = String(b.justificacion || '').trim().slice(0, 300) || null;
+
+  const periodo = data.periodo || pago.periodo;
+  const montoPagado = data.montoPagado !== undefined ? data.montoPagado : pago.montoPagado;
+  const manual = b.comisionManual !== undefined ? Boolean(b.comisionManual) : pago.comisionManual;
+
+  if (manual) {
+    // Si llega monto nuevo se usa; si no, solo se conserva el de un recibo que
+    // ya era manual (pasar de automática a manual exige capturarlo).
+    const monto = b.comisionMonto !== undefined && b.comisionMonto !== null && b.comisionMonto !== ''
+      ? +b.comisionMonto
+      : (pago.comisionManual ? pago.comisionMonto : null);
+    if (monto == null || Number.isNaN(monto) || monto < 0) return res.status(400).json({ error: 'Captura la comisión de este recibo' });
+    const pct = b.comisionPct !== undefined && b.comisionPct !== null && b.comisionPct !== '' ? +b.comisionPct : (b.comisionPct === undefined ? pago.comisionPct : null);
+    if (pct != null && (Number.isNaN(pct) || pct < 0 || pct > 100)) return res.status(400).json({ error: 'Porcentaje inválido' });
+    Object.assign(data, {
+      comisionManual: true,
+      comisionMonto: +monto.toFixed(2),
+      comisionPct: pct,
+      anioPoliza: anioDePoliza(venta.fechaInicioVigencia || venta.fechaEmision || venta.creadoEn, periodo),
+      tipoCambio: null,
+    });
+  } else {
+    Object.assign(data, { comisionManual: false }, await comisionAutomatica(venta, {
+      periodo, montoEsperado: pago.montoEsperado, montoPagado,
+    }));
+  }
+
+  const actualizado = await prisma.pagoPoliza.update({ where: { id: pago.id }, data });
+  res.json(actualizado);
+}));
+
+// Recibos vencidos desde la emisión que todavía no están registrados como
+// pagados (para pólizas capturadas tarde). Solo lectura: la UI los enseña
+// antes de confirmarlos.
+router.get('/:id/pagos/faltantes', asyncHandler(async (req, res) => {
+  const venta = await polizaConAcceso(req, res);
+  if (!venta) return;
+  const faltan = await recibosFaltantes(venta);
+  res.json({ periodos: faltan, montoEsperado: montoEsperadoDeRecibo(venta) });
+}));
+
+// Registra como pagados los recibos vencidos que falten (todos, o los
+// `periodos` que mande la UI tras desmarcar alguno). Cada uno con su comisión
+// del año de póliza que le toca. Deja el próximo pago en el primer recibo que
+// aún no vence, si estaba atrasado.
+router.post('/:id/pagos/completar', asyncHandler(async (req, res) => {
+  const venta = await polizaConAcceso(req, res);
+  if (!venta) return;
+  const faltan = await recibosFaltantes(venta);
+  const elegidos = Array.isArray(req.body?.periodos)
+    ? faltan.filter((f) => req.body.periodos.some((x) => new Date(x).getTime() === f.getTime()))
+    : faltan;
+  const creados = [];
+  for (const periodo of elegidos) {
+    const { pago } = await registrarPagoConComision(venta, {
+      periodo,
+      fechaPago: periodo,
+      registradoPor: req.user.id,
+      justificacion: 'Recibo anterior (completado desde la emisión)',
+    });
+    if (pago) creados.push(pago);
+  }
+
+  // Próximo pago: el primer recibo después del último pagado, si el que había
+  // ya quedó cubierto o no existía.
+  if (creados.length && venta.formaPago !== 'UNICO') {
+    const ultimo = await prisma.pagoPoliza.findFirst({
+      where: { ventaId: venta.id, estado: 'PAGADO' }, orderBy: { periodo: 'desc' },
+    });
+    const actual = venta.fechaProximoPago ? new Date(venta.fechaProximoPago) : null;
+    if (ultimo && (!actual || actual <= new Date(ultimo.periodo))) {
+      const sig = siguientePeriodo(ultimo.periodo, venta.formaPago);
+      const fin = venta.fechaFinVigencia ? new Date(venta.fechaFinVigencia) : null;
+      const proxima = sig && (!fin || sig <= fin) ? sig : null;
+      // Los avisos de cobro de recibos que ya quedaron pagados se cierran.
+      await prisma.nota.updateMany({
+        where: { ventaId: venta.id, tipo: 'RECORDATORIO_PAGO', completada: false },
+        data: { completada: true, notificacionEnviada: true, avisoPrevioEnviado: true },
+      });
+      await prisma.venta.update({ where: { id: venta.id }, data: { fechaProximoPago: proxima } });
+      if (proxima) {
+        const v = await prisma.venta.findUnique({ where: { id: venta.id }, include: { cliente: { select: { nombre: true, apellidoP: true } } } });
+        await sincronizarRecordatorioPago(v);
+      }
+    }
+  }
+  res.status(201).json({ registrados: creados.length });
 }));
 
 // Borrar un recibo capturado por error (dueño o admin). Físico: es un

@@ -91,6 +91,48 @@ export async function registrarPagoConComision(venta, { periodo, fechaPago, mont
   return { pago };
 }
 
+// Comisión automática (según la tabla) de un recibo ya registrado: se usa al
+// corregir un pago y regresar su comisión a "automática".
+export async function comisionAutomatica(venta, { periodo, montoEsperado, montoPagado }) {
+  return comisionDeRecibo({
+    venta,
+    esquema: venta.esquemaComision,
+    fechaPeriodo: new Date(periodo),
+    montoEsperado,
+    montoPagado,
+    tipoCambio: await tcParaRecibo(venta),
+  });
+}
+
+// Recibos que ya vencieron (periodo <= hoy) desde el inicio de vigencia y no
+// tienen pago PAGADO registrado. Un pago cuenta para un periodo si cae a menos
+// de la mitad del intervalo entre recibos: así empata aunque se haya
+// capturado con otra hora/zona o con un par de días de diferencia.
+export async function recibosFaltantes(venta, hasta = new Date()) {
+  const inicio = venta.fechaInicioVigencia || venta.fechaEmision;
+  if (!inicio) return [];
+  const pagos = await prisma.pagoPoliza.findMany({
+    where: { ventaId: venta.id, estado: 'PAGADO' },
+    select: { periodo: true },
+  });
+  const tolerancia = ((MESES_POR_PAGO[venta.formaPago] || 12) * 30 * 86400000) / 2;
+  const fin = venta.fechaFinVigencia ? new Date(venta.fechaFinVigencia) : null;
+  const faltan = [];
+  let p = new Date(inicio);
+  // Tope de 600 recibos (50 años mensuales): una vigencia absurda no cuelga.
+  for (let i = 0; p && p <= hasta && (!fin || p <= fin) && i < 600; i += 1) {
+    const cubierto = pagos.some((x) => Math.abs(new Date(x.periodo) - p) < tolerancia);
+    if (!cubierto) faltan.push(new Date(p));
+    if (venta.formaPago === 'UNICO') break;
+    // Siempre desde el inicio (no encadenado) para no arrastrar el corrimiento
+    // de fin de mes: 31 ene + 1 mes = 3 mar.
+    const sig = new Date(inicio);
+    sig.setMonth(sig.getMonth() + (i + 1) * (MESES_POR_PAGO[venta.formaPago] || 12));
+    p = sig;
+  }
+  return faltan;
+}
+
 // Al dar de alta (o pasar a PAGADA/APROBADA) una póliza sin ningún pago: el
 // primer recibo ya se cobró. Se registra con periodo = inicio de vigencia y,
 // si no había próximo pago capturado, se fija el siguiente recibo.
@@ -165,7 +207,7 @@ export async function reconciliarComisionesPendientes() {
   const pendientes = await prisma.pagoPoliza.findMany({
     // Un recibo de un año sin tabla (GMM año 2+) queda con anioPoliza y sin
     // % — no se vuelve a intentar.
-    where: { estado: 'PAGADO', comisionMonto: null, OR: [{ anioPoliza: null }, { comisionPct: { not: null } }] },
+    where: { estado: 'PAGADO', comisionManual: false, comisionMonto: null, OR: [{ anioPoliza: null }, { comisionPct: { not: null } }] },
     include: { venta: true },
     take: 200,
   });
