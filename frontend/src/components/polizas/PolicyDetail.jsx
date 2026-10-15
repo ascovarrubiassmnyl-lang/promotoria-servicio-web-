@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError, TIMEOUT_SUBIDA } from '../../api/client.js';
 import { useAuth } from '../../context/AuthContext.jsx';
-import { Card, VentaBadge, EmptyState, Modal, Field, NumeroFormateado } from '../ui.jsx';
+import { Card, VentaBadge, EmptyState, Modal, Field, NumeroFormateado, DatePicker, MenuAcciones } from '../ui.jsx';
+import TablaComisiones from './TablaComisiones.jsx';
 import {
   mxn, fechaCorta, fechaHora, RAMOS_LABEL, FORMAS_PAGO,
   esVentaGanada, esVentaPipeline, PAGOS_POR_ANIO, edad, tamanoLegible,
@@ -75,6 +76,15 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
     staleTime: 60 * 60 * 1000,
   });
   const { visor, verArchivo, cerrarVisor, descargarArchivo } = useVisorDocumento();
+  // Comisión de la póliza en toda su vida + lo cobrado (utils/comisiones.js
+  // en el servidor; información interna del asesor).
+  const { data: comision } = useQuery({
+    queryKey: ['poliza-comisiones', polizaId],
+    queryFn: async () => (await api.get(`/ventas/${polizaId}/comisiones`)).data,
+  });
+  // Pago anterior (histórico): pólizas que ya llevaban tiempo al capturarse.
+  const PAGO_VACIO = { open: false, periodo: '', fechaPago: '', monto: '', justificacion: '', saving: false, err: '' };
+  const [pagoHist, setPagoHist] = useState(PAGO_VACIO);
 
   // Confirmación de pago: pantalla real con monto y periodo, no un confirm()
   // del navegador — el asesor tiene que ver qué está registrando.
@@ -145,12 +155,50 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
         justificacion: cobro.otroMonto ? cobro.justificacion : undefined,
       });
       setCobro({ open: false, otroMonto: false, monto: '', justificacion: '', saving: false, err: '' });
+      avisar('Pago registrado');
       qc.invalidateQueries(['poliza', p.id]);
+      qc.invalidateQueries(['poliza-comisiones', p.id]);
+      qc.invalidateQueries(['comisiones-resumen']);
       qc.invalidateQueries(['ventas']);
       qc.invalidateQueries(['cliente', p.clienteId]);
     } catch (e2) {
       setCobro((c) => ({ ...c, saving: false, err: handleError(e2) }));
     }
+  };
+
+  const refrescarPagos = () => {
+    qc.invalidateQueries(['poliza', p.id]);
+    qc.invalidateQueries(['poliza-comisiones', p.id]);
+    qc.invalidateQueries(['comisiones-resumen']);
+  };
+
+  const guardarPagoHistorico = async (e) => {
+    e.preventDefault();
+    if (!pagoHist.periodo) { setPagoHist((x) => ({ ...x, err: 'Indica la fecha del recibo.' })); return; }
+    setPagoHist((x) => ({ ...x, saving: true, err: '' }));
+    try {
+      // Fechas de día ('YYYY-MM-DD'): a mediodía local para que la zona
+      // horaria no las corra al día anterior.
+      const aIso = (d) => (d ? new Date(`${d}T12:00:00`).toISOString() : undefined);
+      await api.post(`/ventas/${p.id}/pagos`, {
+        periodo: aIso(pagoHist.periodo),
+        fechaPago: aIso(pagoHist.fechaPago || pagoHist.periodo),
+        montoPagado: pagoHist.monto !== '' ? +pagoHist.monto : undefined,
+        justificacion: pagoHist.justificacion || undefined,
+      });
+      setPagoHist(PAGO_VACIO);
+      avisar('Pago anterior registrado');
+      refrescarPagos();
+    } catch (e2) { setPagoHist((x) => ({ ...x, saving: false, err: handleError(e2) })); }
+  };
+
+  const borrarPago = async (pago) => {
+    if (!window.confirm(`¿Borrar el pago del periodo ${fechaCorta(pago.periodo)}? Úsalo solo si se capturó por error.`)) return;
+    try {
+      await api.delete(`/ventas/${p.id}/pagos/${pago.id}`);
+      avisar('Pago borrado');
+      refrescarPagos();
+    } catch (e2) { avisar(handleError(e2), 'error'); }
   };
 
   return (
@@ -331,9 +379,41 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
             )}
           </Card>
 
+          {/* Comisión a lo largo de la vida de la póliza: % por año de
+              póliza, por recibo según la forma de pago, y lo cobrado. */}
+          {comision && (
+            <Card title="Comisión de la póliza" subtitle="Información interna del asesor">
+              <div className="mb-4 grid grid-cols-3 gap-3">
+                <div className="kpi kpi-green">
+                  <p className="kpi-label">Cobrada a la fecha</p>
+                  <p className="kpi-val money-earned">{mxn(comision.cobradoMXN || 0)}</p>
+                  {comision.pendientesDeConvertir > 0 && <p className="kpi-note">{comision.pendientesDeConvertir} pago(s) por convertir</p>}
+                </div>
+                <div className="kpi">
+                  <p className="kpi-label">Año 1</p>
+                  <p className="kpi-val">{comision.anios?.[0]?.comisionAnualMXN != null ? mxn(comision.anios[0].comisionAnualMXN) : '—'}</p>
+                  <p className="kpi-note">{comision.anios?.[0]?.pct ?? '—'}% de la prima</p>
+                </div>
+                <div className="kpi kpi-accent">
+                  <p className="kpi-label">Toda la vida</p>
+                  <p className="kpi-val">{comision.sinTabla ? '—' : comision.totalVidaMXN != null ? mxn(comision.totalVidaMXN) : '—'}</p>
+                  <p className="kpi-note">{comision.sinTabla ? 'sin tabla de renovación' : `${comision.anios?.length || 0} años de primas`}</p>
+                </div>
+              </div>
+              <TablaComisiones datos={comision} formaPago={p.formaPago} mostrarCobrado />
+            </Card>
+          )}
+
           {/* Historial de pagos: cobros realmente registrados (PagoPoliza).
               Distinto del calendario de recibos, que son los avisos programados. */}
-          <Card title={`Historial de pagos (${historial.length})`}>
+          <Card
+            title={`Historial de pagos (${historial.length})`}
+            actions={!readOnly && (
+              <button type="button" onClick={() => setPagoHist({ ...PAGO_VACIO, open: true, monto: p.montoEsperado ?? '' })} className="btn-secondary text-xs py-1 px-2">
+                + Registrar pago anterior
+              </button>
+            )}
+          >
             {historial.length === 0 ? (
               <p className="text-sm text-slate-400 dark:text-slate-500">Todavía no se ha registrado ningún cobro de esta póliza.</p>
             ) : (
@@ -355,12 +435,28 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
                           <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">{pago.justificacion}</p>
                         )}
                       </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-sm font-semibold tabular-nums money-earned">{mxn(pago.montoPagado)}</p>
-                        {distinto && (
-                          <p className="text-xs text-slate-400 dark:text-slate-500 tabular-nums">
-                            esperado {mxn(pago.montoEsperado)}
+                      <div className="flex shrink-0 items-start gap-1">
+                        <div className="text-right">
+                          <p className="text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">{mxn(pago.montoPagado)}</p>
+                          {distinto && (
+                            <p className="text-xs text-slate-400 dark:text-slate-500 tabular-nums">
+                              esperado {mxn(pago.montoEsperado)}
+                            </p>
+                          )}
+                          {/* Comisión que generó este recibo, con el % de su año de póliza. */}
+                          <p className="text-xs tabular-nums">
+                            {pago.comisionMonto != null ? (
+                              <span className="money-earned">Comisión {mxn(pago.comisionMonto)}</span>
+                            ) : pago.comisionPct == null && pago.anioPoliza ? (
+                              <span className="text-slate-400">Sin comisión registrada</span>
+                            ) : (
+                              <span className="text-amber-600 dark:text-amber-400">Comisión por convertir</span>
+                            )}
+                            {pago.anioPoliza && <span className="text-slate-400 dark:text-slate-500"> · año {pago.anioPoliza}{pago.comisionPct != null ? ` (${pago.comisionPct}%)` : ''}</span>}
                           </p>
+                        </div>
+                        {!readOnly && (
+                          <MenuAcciones small label="Acciones del pago" items={[{ label: 'Borrar (capturado por error)', danger: true, onClick: () => borrarPago(pago) }]} />
                         )}
                       </div>
                     </div>
@@ -554,6 +650,35 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
             <button type="submit" disabled={cobro.saving} className="btn-primary">
               {cobro.saving ? 'Registrando…' : 'Confirmar pago'}
             </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Pago anterior: recibos que el cliente ya pagó antes de capturar la
+          póliza. No mueve el próximo pago (eso es "Registrar pago"). */}
+      <Modal open={pagoHist.open} onClose={() => setPagoHist(PAGO_VACIO)} title="Registrar pago anterior">
+        <form onSubmit={guardarPagoHistorico} className="space-y-3">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Para recibos que el cliente pagó antes de que la póliza estuviera en el CRM. La comisión se calcula con el % del año de póliza en que cae el recibo.
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Fecha del recibo (periodo)*">
+              <DatePicker value={pagoHist.periodo} onChange={(v) => setPagoHist((x) => ({ ...x, periodo: v }))} />
+            </Field>
+            <Field label="Fecha en que pagó">
+              <DatePicker value={pagoHist.fechaPago} onChange={(v) => setPagoHist((x) => ({ ...x, fechaPago: v }))} placeholder="Igual al recibo" />
+            </Field>
+          </div>
+          <Field label="Monto pagado">
+            <NumeroFormateado value={pagoHist.monto} onChange={(v) => setPagoHist((x) => ({ ...x, monto: v }))} />
+          </Field>
+          <Field label="Nota (opcional)">
+            <input className="input" value={pagoHist.justificacion} onChange={(e) => setPagoHist((x) => ({ ...x, justificacion: e.target.value }))} />
+          </Field>
+          {pagoHist.err && <p className="text-sm text-red-600">{pagoHist.err}</p>}
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setPagoHist(PAGO_VACIO)} className="btn-secondary">Cancelar</button>
+            <button type="submit" disabled={pagoHist.saving} className="btn-primary">{pagoHist.saving ? 'Guardando…' : 'Registrar pago'}</button>
           </div>
         </form>
       </Modal>

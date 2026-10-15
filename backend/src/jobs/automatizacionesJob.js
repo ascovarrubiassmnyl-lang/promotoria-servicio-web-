@@ -2,6 +2,7 @@ import { prisma } from '../prisma.js';
 import { notificar } from '../utils/notificaciones.js';
 import { sincronizarClinicaDeAsesor } from '../utils/clinica.js';
 import { resolverPrima } from '../utils/prima.js';
+import { reconciliarComisionesPendientes, asignarEsquemasFaltantes } from '../utils/comisionesPoliza.js';
 
 // Automatizaciones "cableadas" del CRM: reglas fijas, no un motor configurable
 // (un motor tipo n8n quedó como pendiente/experimento, no como requisito).
@@ -234,8 +235,13 @@ async function correr() {
       llenarClinica(),
       reconciliarPrimasPendientes(),
     ]);
-    if (estancados || metas || clinica || primas) {
-      console.log(`[automatizaciones] ${estancados} prospecto(s) estancados · ${metas} aviso(s) de meta · ${clinica} a clínica · ${primas} prima(s) convertida(s)`);
+    // Regla 5: comisión de recibos que quedaron sin ella (sin tipo de cambio
+    // en su momento o capturados antes del esquema de comisiones). Va después
+    // de las primas porque depende de que la póliza ya tenga prima en pesos.
+    await asignarEsquemasFaltantes();
+    const comisiones = await reconciliarComisionesPendientes();
+    if (estancados || metas || clinica || primas || comisiones) {
+      console.log(`[automatizaciones] ${estancados} prospecto(s) estancados · ${metas} aviso(s) de meta · ${clinica} a clínica · ${primas} prima(s) convertida(s) · ${comisiones} comisión(es) completada(s)`);
     }
   } catch (err) {
     console.error('[automatizaciones] error:', err.message);

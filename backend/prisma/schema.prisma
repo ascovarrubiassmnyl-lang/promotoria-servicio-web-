@@ -828,6 +828,12 @@ model Venta {
   tipoCambio           Float?
   comisionPct          Float              @default(10)
   comisionMonto        Float?
+  // Esquema de comisión de toda la vida de la póliza que le tocó al guardarse
+  // (utils/comisiones.js: producto + variante por moneda/SA/edad). Foto, no
+  // referencia: { producto, variante, tramos:[{desde,hasta,pct}], aniosPago,
+  // hastaEdad, supuestos[] }. Null = producto sin tabla (GMM, SeguBeca,
+  // personalizado): solo aplica `comisionPct` al año 1.
+  esquemaComision      Json?
   estado               EstadoVenta        @default(PENDIENTE_PAGAR)
   validadoPor          String?
   validador            Usuario?           @relation("ventasValidador", fields: [validadoPor], references: [id])
@@ -947,9 +953,17 @@ model PagoPoliza {
   justificacion String?
   registradoPor String?
   registrador   Usuario?         @relation("pagosRegistrados", fields: [registradoPor], references: [id])
+  // Comisión ganada con este recibo (utils/comisiones.js): año de póliza en
+  // que cae el periodo, % de ese año y monto en MXN con el tipo de cambio del
+  // día del pago. comisionMonto null = pendiente (sin TC o sin tabla).
+  anioPoliza    Int?
+  comisionPct   Float?
+  comisionMonto Float?
+  tipoCambio    Float?
   creadoEn      DateTime         @default(now())
 
   @@index([ventaId, periodo])
+  @@index([fechaPago])
 }
 
 // Eventos de actividad estructurados: tipo canónico (ver TIPOS_ACTIVIDAD en

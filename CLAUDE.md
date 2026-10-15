@@ -869,6 +869,64 @@ capturar a mano abre el formulario de siempre, sin cambios.
 - Las tablas de pólizas llevan fila de totales (prima total; comisión desglosada
   en "ganada · pipeline").
 
+### Comisiones de toda la vida de la póliza y pagos por recibo (2026-10-15)
+
+Pedido del usuario: medir la comisión de cada asesor con el esquema real de
+SMNYL (validado por él), año por año durante toda la vida de la póliza y
+según la forma de pago, y llevar el historial de cada recibo pagado.
+**Información interna del asesor: nunca se muestra al cliente.**
+
+- **El esquema vive en código**: `backend/src/utils/comisiones.js`
+  (`ESQUEMAS_COMISION`, funciones puras), igual que `popEstandar.js` — es dato
+  de la compañía, no se captura y llega a producción sin sembrar nada. Por
+  producto (nombre del catálogo) con **variantes** por moneda, suma asegurada
+  (umbral de 1.5M UDI de Orvi) y edad al contratar (Orvi Edad 60). Si faltan
+  datos para elegir variante se usa la **tasa menor** y se avisa en
+  `supuestos`. Fuente: manuales de la bóveda (`02_Productos/Manuales`). Star
+  Dotal 5 años trae el año 3 en 0% tal como se validó (la celda del PDF viene
+  vacía; confirmar si en realidad es 4%). **GMM (Alfa Medical) y SeguBeca no
+  tienen tabla**: ahí manda el `comisionPct` capturado y solo para el año 1.
+- **`Venta.esquemaComision`** (Json, foto de la variante que le tocó) se
+  calcula al crear y en cada PATCH (`esquemaParaPoliza()` en
+  `utils/comisionesPoliza.js`). Con tabla, **`comisionPct` = % del año 1 del
+  esquema y manda sobre lo que mande el formulario**; `comisionMonto` sigue
+  siendo prima anual × % año 1 (lo que ya usan "ganada/pipeline"). Pólizas
+  anteriores reciben su esquema solas (`asignarEsquemasFaltantes()`, regla 5
+  del job horario).
+- **La comisión se gana por recibo pagado**: `PagoPoliza` ganó `anioPoliza`,
+  `comisionPct`, `comisionMonto` (MXN) y `tipoCambio`. Base del recibo = prima
+  anual básica (moneda original) / recibos por año — **los recargos por pago
+  fraccionado no comisionan**, así que no se usa lo que cobró el banco; un
+  pago parcial comisiona en proporción. En USD/UDI se convierte con el TC
+  vigente al registrar (para pagos históricos es una aproximación: el asesor
+  nunca captura TC). Sin TC queda `comisionMonto: null` y el job lo completa
+  (`reconciliarComisionesPendientes()`).
+- **Puntos de registro** (todos por `registrarPagoConComision()`, que no
+  duplica un periodo ya PAGADO → 409): "Confirmar cobro" (`POST
+  /ventas/:id/cobroconfirmado`, recibo en curso, mueve `fechaProximoPago`),
+  **pago anterior** (`POST /ventas/:id/pagos`, histórico, no mueve el próximo
+  pago), y **primer recibo automático** al crear o pasar una póliza a
+  PAGADA/APROBADA sin pagos (`registrarPrimerPagoSiAplica()`; periodo = inicio
+  de vigencia y, si no había próximo pago, fija el siguiente). Borrar un pago
+  mal capturado: `DELETE /ventas/:id/pagos/:pagoId`.
+- **Lecturas**: `GET /ventas/:id/comisiones` (proyección año por año, anual y
+  por recibo, lo cobrado y el historial), `POST /ventas/comisiones/preview`
+  (lo usa `PolizaFormModal` mientras se captura — el frontend **no
+  re-declara la tabla**) y `GET /ventas/comisiones/resumen?anio&asesorId`
+  (mes a mes: esperada por recibos que vencen en pólizas activas, cobrada por
+  `fechaPago`, ISR RESICO estimado). Las tres con alcance por rol de siempre.
+  Rutas de segmento fijo declaradas antes de `/:id`.
+- **ISR RESICO = ESTIMADO** (`isrResicoMensual()`, tabla mensual 1%–2.5%
+  sobre todo lo cobrado del mes, sin deducir gastos, tope 3.5M anual). El
+  usuario es RESICO. Falta confirmar con su contador y saber qué retiene SMNYL;
+  la UI lo dice siempre. La comisión se cuenta en el mes en que el cliente
+  paga, no en el que la compañía la deposita.
+- UI: `components/polizas/TablaComisiones.jsx` (años consecutivos con el mismo
+  % agrupados), tarjeta "Comisión de la póliza" + "Registrar pago anterior" en
+  `PolicyDetail`, vista previa en la sección 4 de `PolizaFormModal` y
+  `ComisionesMensuales.jsx` arriba de la lista en `PolizasView`.
+- Tests: `backend/test/comisiones.test.js`.
+
 ## Sección Actividad (rediseño 2026-07)
 
 **Eventos estructurados, nunca strings pre-renderizados.** El modelo `Actividad`
@@ -1116,6 +1174,19 @@ clínica). Ahora:
   redirigir al Dashboard en silencio.
 - **`EmptyState` acepta `accion`** ({label, onClick}): los vacíos llevan el
   botón de lo que toca hacer.
+- **Lista del CRM ordenable, filtrable y paginada** (2026-10-15): lógica pura
+  en `components/clientes/lista.js` sobre lo que ya devuelve `GET /clientes`
+  (sin endpoint nuevo). Orden por defecto **"Próxima acción"** (vencidos →
+  hoy → futuros → sin acción, estos últimos los más nuevos primero) y además
+  recientes / más tiempo sin llamar / nombre. **Filtros rápidos** (vencidos,
+  para hoy, sin próxima acción, nunca llamados, nuevos 7 días) + selector de
+  fuente, combinables con etapa y segmento. **25 por página**. Todo vive en la
+  URL (`?orden=&rapido=&fuente=&pagina=`) y cambiar cualquier filtro regresa a
+  la página 1. Tabla: nombre con teléfono y fuente debajo, etapa solo como
+  chip (sin la barra de segmentos), próxima acción y "Última llamada"; Citas y
+  Ventas salieron de la tabla (viven en la ficha). En celular (< md) son
+  **tarjetas** con Llamar / WhatsApp / Registrar llamada. El popover de etapa
+  usa portal, igual que `MenuAcciones`.
 - Tests: `backend/test/seguimiento.test.js` cubre el agrupado de avisos y
   `GET /hoy`.
 

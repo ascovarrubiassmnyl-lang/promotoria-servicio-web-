@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, handleError } from '../../api/client.js';
 import PolicyList from './PolicyList.jsx';
+import ComisionesMensuales from './ComisionesMensuales.jsx';
 import PolicyDetail from './PolicyDetail.jsx';
 import PolizaFormModal from './PolizaFormModal.jsx';
 import { avisar } from '../../lib/toast.js';
@@ -48,6 +49,7 @@ export default function PolizasView({ asesorId = null, readOnly = false, titulo 
             )}
           </div>
           {banner}
+          <ComisionesMensuales asesorId={asesorId} />
           <PolicyList ventas={ventas} loading={isLoading} onOpen={(v) => setPolizaSel(v.id)} onNueva={readOnly ? null : () => { setVentaEdit(null); setFormOpen(true); }} />
         </>
       )}

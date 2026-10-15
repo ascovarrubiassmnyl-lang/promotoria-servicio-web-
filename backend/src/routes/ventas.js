@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma.js';
 import { authenticate, tieneRolAdmin } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
@@ -12,6 +13,11 @@ import { registrarActividad } from '../utils/actividad.js';
 import { analizarPolizaPdf, extraccionDisponible } from '../services/extraccionPoliza.js';
 import { tiposDeCambioVigentes } from '../services/tipoCambio.js';
 import { MONEDAS, resolverPrima } from '../utils/prima.js';
+import {
+  esquemaParaPoliza, registrarPagoConComision, registrarPrimerPagoSiAplica,
+  resumenComisionPoliza, proyeccionPoliza, siguientePeriodo, montoEsperadoDeRecibo,
+} from '../utils/comisionesPoliza.js';
+import { pctDelAnio, isrResicoMensual, TOPE_RESICO_ANUAL, PAGOS_POR_ANIO as RECIBOS_POR_ANIO, anioDePoliza } from '../utils/comisiones.js';
 
 const router = Router();
 router.use(authenticate);
@@ -303,6 +309,115 @@ function motivoAnalisisFallido(e) {
 // formulario usa esto para prellenar y para mostrar el equivalente en pesos,
 // pero la captura manual del tipo de cambio sigue siendo el camino válido —
 // no se bloquea el registro de una póliza porque una API externa falle.
+// Comisiones por mes del año (cobradas, esperadas e ISR RESICO estimado).
+// Declarada antes de /:id. Alcance: un ASESOR solo lo suyo; un promotor el
+// equipo o un asesor con ?asesorId.
+//  - cobrada: comisión de los recibos pagados en ese mes (PagoPoliza).
+//  - esperada: comisión de los recibos que VENCEN ese mes en pólizas activas,
+//    según el esquema de cada una (proyección, en pesos al TC del día).
+//  - ISR RESICO: estimado sobre lo cobrado (utils/comisiones.js).
+router.get('/comisiones/resumen', asyncHandler(async (req, res) => {
+  const anio = Number(req.query.anio) || new Date().getFullYear();
+  const whereVenta = {};
+  if (req.user.rol === 'ASESOR') whereVenta.asesorId = req.user.id;
+  else if (req.query.asesorId) whereVenta.asesorId = String(req.query.asesorId);
+  const desde = new Date(anio, 0, 1);
+  const hasta = new Date(anio + 1, 0, 1);
+
+  const meses = Array.from({ length: 12 }, (_, i) => ({ mes: i + 1, cobrada: 0, esperada: 0, recibosCobrados: 0, recibosEsperados: 0, pendientesDeConvertir: 0 }));
+
+  const pagos = await prisma.pagoPoliza.findMany({
+    where: { estado: 'PAGADO', fechaPago: { gte: desde, lt: hasta }, venta: whereVenta },
+    select: { fechaPago: true, comisionMonto: true },
+  });
+  for (const p of pagos) {
+    const m = meses[new Date(p.fechaPago).getMonth()];
+    m.recibosCobrados += 1;
+    if (p.comisionMonto == null) m.pendientesDeConvertir += 1;
+    else m.cobrada += p.comisionMonto;
+  }
+
+  const vigentes = await tiposDeCambioVigentes().catch(() => ({}));
+  const tcs = { USD: vigentes?.USD?.valor || null, UDI: vigentes?.UDI?.valor || null };
+  const activas = await prisma.venta.findMany({
+    where: { ...whereVenta, estado: { in: ['PAGADA', 'FIRMADA', 'APROBADA'] } },
+    select: {
+      moneda: true, primaAnual: true, primaMoneda: true, tipoCambio: true, formaPago: true, comisionPct: true,
+      esquemaComision: true, fechaInicioVigencia: true, fechaEmision: true, creadoEn: true, fechaFinVigencia: true,
+    },
+  });
+  for (const v of activas) {
+    const inicio = v.fechaInicioVigencia || v.fechaEmision || v.creadoEn;
+    const divisa = v.moneda && v.moneda !== 'MXN';
+    const prima = divisa ? v.primaMoneda : v.primaAnual;
+    const tc = divisa ? (tcs[v.moneda] || v.tipoCambio) : 1;
+    if (prima == null || !tc) continue;
+    const n = RECIBOS_POR_ANIO[v.formaPago] || 1;
+    const tramos = v.esquemaComision?.tramos || [{ desde: 1, hasta: 1, pct: v.comisionPct || 0 }];
+    // Recibos desde el inicio, avanzando por la forma de pago, hasta el fin del año consultado.
+    let r = new Date(inicio);
+    for (let i = 0; i < 12 * 60 && r < hasta; i += 1) {
+      if (v.fechaFinVigencia && r > new Date(v.fechaFinVigencia)) break;
+      if (r >= desde) {
+        const pct = pctDelAnio(tramos, anioDePoliza(inicio, r));
+        const m = meses[r.getMonth()];
+        m.recibosEsperados += 1;
+        m.esperada += (prima / n) * (pct / 100) * tc;
+      }
+      if (v.formaPago === 'UNICO') break;
+      r = siguientePeriodo(r, v.formaPago);
+    }
+  }
+
+  let acumulado = 0;
+  const filas = meses.map((m) => {
+    acumulado += m.cobrada;
+    const isr = isrResicoMensual(m.cobrada);
+    return { ...m, cobrada: +m.cobrada.toFixed(2), esperada: +m.esperada.toFixed(2), isrResico: isr.isr, tasaResico: isr.tasa };
+  });
+  res.json({
+    anio,
+    meses: filas,
+    totales: {
+      cobrada: +acumulado.toFixed(2),
+      esperada: +filas.reduce((s, m) => s + m.esperada, 0).toFixed(2),
+      isrResico: +filas.reduce((s, m) => s + m.isrResico, 0).toFixed(2),
+    },
+    topeResico: TOPE_RESICO_ANUAL,
+    excedeTopeResico: acumulado > TOPE_RESICO_ANUAL,
+  });
+}));
+
+// Vista previa del esquema de comisión mientras se captura la póliza (el
+// formulario no re-declara la tabla: la pide aquí). No guarda nada.
+router.post('/comisiones/preview', asyncHandler(async (req, res) => {
+  const b = req.body || {};
+  const catalogo = b.productoCatalogoId
+    ? await prisma.productoCatalogo.findUnique({ where: { id: b.productoCatalogoId }, select: { nombre: true } })
+    : null;
+  const cliente = b.clienteId
+    ? await prisma.cliente.findUnique({ where: { id: b.clienteId }, select: { fechaNacimiento: true, asesorId: true } })
+    : null;
+  if (cliente && req.user.rol === 'ASESOR' && cliente.asesorId !== req.user.id) return res.status(403).json({ error: 'Sin acceso a este cliente' });
+  const ventaLike = {
+    producto: b.producto,
+    moneda: moneda(b.moneda),
+    primaAnual: b.primaAnual != null && b.primaAnual !== '' ? +b.primaAnual : null,
+    primaMoneda: b.primaMoneda != null && b.primaMoneda !== '' ? +b.primaMoneda : null,
+    tipoCambio: null,
+    formaPago: Object.keys(RECIBOS_POR_ANIO).includes(b.formaPago) ? b.formaPago : 'ANUAL',
+    comisionPct: b.comisionPct != null && b.comisionPct !== '' ? +b.comisionPct : null,
+    sumaAsegurada: b.sumaAsegurada != null && b.sumaAsegurada !== '' ? +b.sumaAsegurada : null,
+    sumaAseguradaMoneda: moneda(b.sumaAseguradaMoneda || b.moneda),
+    asegurados: limpiarAsegurados(b.asegurados),
+    fechaInicioVigencia: b.fechaInicioVigencia ? new Date(b.fechaInicioVigencia) : null,
+    fechaFinVigencia: b.fechaFinVigencia ? new Date(b.fechaFinVigencia) : null,
+  };
+  ventaLike.esquemaComision = esquemaParaPoliza(ventaLike, { nombreProducto: catalogo?.nombre, cliente });
+  if (ventaLike.esquemaComision) ventaLike.comisionPct = pctDelAnio(ventaLike.esquemaComision.tramos, 1);
+  res.json(await proyeccionPoliza(ventaLike, cliente));
+}));
+
 router.get('/tipo-cambio', asyncHandler(async (_req, res) => {
   res.json(await tiposDeCambioVigentes());
 }));
@@ -370,7 +485,16 @@ router.post('/', asyncHandler(async (req, res) => {
   }
   const divisa = await resolverPrima({ moneda: monedaBody, primaAnual, primaMoneda, tipoCambio });
   if (divisa.error) return res.status(400).json({ error: divisa.error });
-  const pctFinal = comisionPct ?? (catalogo?.comisionPct ?? 10);
+  // Esquema de comisión de toda la vida de la póliza (utils/comisiones.js).
+  // Si el producto tiene tabla, el % del año 1 sale de ahí (variante por
+  // moneda, suma asegurada y edad) y manda sobre lo que mande el formulario;
+  // sin tabla (GMM, SeguBeca, personalizado) se usa el % capturado.
+  const esquema = esquemaParaPoliza({
+    producto, moneda: divisa.moneda, sumaAsegurada, sumaAseguradaMoneda: moneda(sumaAseguradaMoneda),
+    asegurados: limpiarAsegurados(asegurados),
+    fechaInicioVigencia: fechaInicioVigencia ? new Date(fechaInicioVigencia) : null,
+  }, { nombreProducto: catalogo?.nombre, cliente });
+  const pctFinal = esquema ? pctDelAnio(esquema.tramos, 1) : (comisionPct ?? (catalogo?.comisionPct ?? 10));
   const comisionMontoFinal = +(divisa.primaAnual * pctFinal / 100).toFixed(2);
 
   // Los documentos vienen de POST /ventas/analizar-documento: los archivos ya
@@ -395,6 +519,7 @@ router.post('/', asyncHandler(async (req, res) => {
         primaAnual: divisa.primaAnual,
         moneda: divisa.moneda, primaMoneda: divisa.primaMoneda, tipoCambio: divisa.tipoCambio,
         comisionPct: pctFinal, comisionMonto: comisionMontoFinal,
+        esquemaComision: esquema || undefined,
         estado: estado || 'PENDIENTE_PAGAR',
         notas: notas || null,
         productoCatalogoId: productoCatalogoId || null,
@@ -456,15 +581,19 @@ router.post('/', asyncHandler(async (req, res) => {
       include: { cliente: { select: { id: true, nombre: true, apellidoP: true } } },
     });
   });
+  // Dada de alta ya pagada: el primer recibo queda registrado con su comisión
+  // (y fija el siguiente recibo si no se capturó).
+  await registrarPrimerPagoSiAplica(venta, { registradoPor: req.user.id });
   // Sincroniza recordatorio de pago
-  await sincronizarRecordatorioPago(venta);
+  const ventaFinal = await prisma.venta.findUnique({ where: { id: venta.id }, include: { cliente: { select: { id: true, nombre: true, apellidoP: true } } } });
+  await sincronizarRecordatorioPago(ventaFinal);
   await registrarActividad(asesorId, 'POLIZA_CREADA', {
     ventaId: venta.id,
     clienteId: venta.cliente?.id || clienteId,
     cliente: venta.cliente ? `${venta.cliente.nombre} ${venta.cliente.apellidoP}` : null,
     producto, ramo, prima: divisa.primaAnual,
   });
-  res.status(201).json(venta);
+  res.status(201).json(ventaFinal);
 }));
 
 router.patch('/:id', asyncHandler(async (req, res) => {
@@ -565,10 +694,26 @@ router.patch('/:id', asyncHandler(async (req, res) => {
     }
   }
   if (notas !== undefined) data.notas = notas || null;
-  const venta = await prisma.venta.update({ where: { id }, data });
+  let venta = await prisma.venta.update({ where: { id }, data, include: { productoCatalogo: { select: { nombre: true } }, cliente: { select: { fechaNacimiento: true } } } });
+  // El esquema de comisión se recalcula con los datos ya guardados (cambiar
+  // moneda, suma asegurada, producto o asegurados puede cambiar la variante).
+  // Con tabla, el % del año 1 sale del esquema; sin tabla, se respeta el
+  // capturado.
+  const esquema = esquemaParaPoliza(venta, { nombreProducto: venta.productoCatalogo?.nombre, cliente: venta.cliente });
+  const pctAnio1 = esquema ? pctDelAnio(esquema.tramos, 1) : venta.comisionPct;
+  venta = await prisma.venta.update({
+    where: { id },
+    data: {
+      esquemaComision: esquema || Prisma.DbNull,
+      comisionPct: pctAnio1,
+      comisionMonto: +(venta.primaAnual * pctAnio1 / 100).toFixed(2),
+    },
+  });
+  // Pasó a pagada/aprobada sin ningún recibo registrado: el primero ya se cobró.
+  const primerPago = await registrarPrimerPagoSiAplica(venta, { registradoPor: req.user.id });
   // Sincroniza recordatorio si cambió fechaProximoPago, formaPago o la
   // domiciliación (domiciliar una póliza debe borrar su recordatorio abierto).
-  if (fechaProximoPago !== undefined || formaPago !== undefined || domiciliada !== undefined) {
+  if (primerPago || fechaProximoPago !== undefined || formaPago !== undefined || domiciliada !== undefined) {
     const ventaConCliente = await prisma.venta.findUnique({ where: { id }, include: { cliente: { select: { nombre: true, apellidoP: true } } } });
     await sincronizarRecordatorioPago(ventaConCliente);
   }
@@ -613,6 +758,59 @@ router.post('/:id/documento', uploadPoliza.single('archivo'), asyncHandler(async
   res.status(201).json(venta);
 }));
 
+// Acceso dueño-o-admin a una póliza (mismo criterio que el resto del router).
+async function polizaConAcceso(req, res) {
+  const venta = await prisma.venta.findUnique({ where: { id: req.params.id }, include: { cliente: { select: { fechaNacimiento: true } } } });
+  if (!venta) { res.status(404).json({ error: 'Póliza no encontrada' }); return null; }
+  if (venta.asesorId !== req.user.id && !tieneRolAdmin(req.user)) { res.status(403).json({ error: 'Sin acceso a esta póliza' }); return null; }
+  return venta;
+}
+
+// Comisión de la póliza en toda su vida: esquema, proyección año por año
+// (anual y por recibo según la forma de pago), lo cobrado y el historial de
+// recibos pagados.
+router.get('/:id/comisiones', asyncHandler(async (req, res) => {
+  const venta = await polizaConAcceso(req, res);
+  if (!venta) return;
+  const resumen = await resumenComisionPoliza(venta, venta.cliente);
+  const pagos = await prisma.pagoPoliza.findMany({
+    where: { ventaId: venta.id },
+    orderBy: { periodo: 'desc' },
+    include: { registrador: { select: { nombre: true, apellidoP: true } } },
+  });
+  res.json({ ...resumen, pagos, montoEsperado: montoEsperadoDeRecibo(venta) });
+}));
+
+// Registrar un pago HISTÓRICO (o cualquier recibo puntual): para pólizas que
+// ya llevaban tiempo cuando se capturaron. No mueve fechaProximoPago — eso lo
+// hace "Confirmar cobro" con el recibo en curso.
+router.post('/:id/pagos', asyncHandler(async (req, res) => {
+  const venta = await polizaConAcceso(req, res);
+  if (!venta) return;
+  const { periodo, fechaPago, montoPagado, justificacion } = req.body || {};
+  const p = periodo ? new Date(periodo) : null;
+  if (!p || Number.isNaN(p.getTime())) return res.status(400).json({ error: 'Indica el periodo (fecha del recibo)' });
+  const f = fechaPago ? new Date(fechaPago) : p;
+  if (Number.isNaN(f.getTime()) || f > new Date(Date.now() + 86400000)) return res.status(400).json({ error: 'La fecha de pago no puede ser futura' });
+  const monto = montoPagado === undefined || montoPagado === null || montoPagado === '' ? null : +montoPagado;
+  if (monto != null && (Number.isNaN(monto) || monto < 0)) return res.status(400).json({ error: 'Monto pagado inválido' });
+  const { pago, duplicado } = await registrarPagoConComision(venta, {
+    periodo: p, fechaPago: f, montoPagado: monto, justificacion, registradoPor: req.user.id,
+  });
+  if (duplicado) return res.status(409).json({ error: 'Ese recibo ya estaba registrado como pagado' });
+  res.status(201).json(pago);
+}));
+
+// Borrar un recibo capturado por error (dueño o admin). Físico: es un
+// registro de cobro mal hecho, no historia que conservar.
+router.delete('/:id/pagos/:pagoId', asyncHandler(async (req, res) => {
+  const venta = await polizaConAcceso(req, res);
+  if (!venta) return;
+  const r = await prisma.pagoPoliza.deleteMany({ where: { id: req.params.pagoId, ventaId: venta.id } });
+  if (!r.count) return res.status(404).json({ error: 'Pago no encontrado' });
+  res.json({ ok: true });
+}));
+
 // Confirma el pago del período actual: registra el cobro en el historial
 // (PagoPoliza), marca la nota RECORDATORIO_PAGO como completada y genera
 // automáticamente la siguiente, sumando un periodo a fechaProximoPago.
@@ -627,26 +825,22 @@ router.post('/:id/cobroconfirmado', asyncHandler(async (req, res) => {
   if (!esDueno && !isAdmin) return res.status(403).json({ error: 'Sin acceso a esta póliza' });
 
   const { montoPagado, justificacion } = req.body || {};
-  const montoEsperado = venta.montoPago ?? montoEsperadoDePoliza(venta);
   const pagado = montoPagado === undefined || montoPagado === null || montoPagado === ''
-    ? montoEsperado
+    ? null
     : +montoPagado;
   if (pagado != null && (Number.isNaN(pagado) || pagado < 0)) {
     return res.status(400).json({ error: 'Monto pagado inválido' });
   }
 
-  // Historial de cobros: fuente del semáforo de pagos por cliente.
-  await prisma.pagoPoliza.create({
-    data: {
-      ventaId: id,
-      periodo: venta.fechaProximoPago ? new Date(venta.fechaProximoPago) : new Date(),
-      estado: 'PAGADO',
-      montoEsperado: montoEsperado ?? null,
-      montoPagado: pagado ?? null,
-      justificacion: String(justificacion || '').trim().slice(0, 300) || null,
-      registradoPor: req.user.id,
-    },
+  // Historial de cobros (fuente del semáforo de pagos) con la comisión que
+  // generó este recibo según el año de póliza (utils/comisionesPoliza.js).
+  const { duplicado } = await registrarPagoConComision(venta, {
+    periodo: venta.fechaProximoPago ? new Date(venta.fechaProximoPago) : new Date(),
+    montoPagado: pagado,
+    justificacion,
+    registradoPor: req.user.id,
   });
+  if (duplicado) return res.status(409).json({ error: 'Ese recibo ya estaba registrado como pagado' });
 
   // Marca como completadas las notas RECORDATORIO_PAGO vencidas o pendientes para esta venta
   await prisma.nota.updateMany({

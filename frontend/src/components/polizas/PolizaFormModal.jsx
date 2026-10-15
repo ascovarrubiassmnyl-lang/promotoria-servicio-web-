@@ -16,6 +16,7 @@ import {
 } from './tipos.js';
 import MontoMoneda from './MontoMoneda.jsx';
 import SubirPolizaModal from './SubirPolizaModal.jsx';
+import TablaComisiones from './TablaComisiones.jsx';
 import { avisar } from '../../lib/toast.js';
 
 const VACIO = {
@@ -275,9 +276,43 @@ export default function PolizaFormModal({
   // servidor la deja pendiente y el job la convierte después (utils/prima.js).
   const sinConversion = necesitaTC && +form.primaMoneda > 0 && primaEnPesos == null;
 
-  const comisionEstimada = primaEnPesos != null && form.comisionPct !== '' && !Number.isNaN(+form.comisionPct)
-    ? primaEnPesos * (+form.comisionPct) / 100
-    : null;
+  // Esquema de comisión de toda la vida de la póliza: lo resuelve el servidor
+  // (utils/comisiones.js) con producto, moneda, suma asegurada y edad. Se pide
+  // con un retraso corto para no consultar en cada tecla.
+  const datosComision = {
+    productoCatalogoId: form.productoCatalogoId || null,
+    producto: form.producto,
+    clienteId: clienteId || form.clienteId || null,
+    moneda: form.moneda,
+    primaAnual: form.primaAnual,
+    primaMoneda: form.primaMoneda,
+    formaPago: form.formaPago,
+    comisionPct: form.comisionPct,
+    sumaAsegurada: form.sumaAsegurada,
+    sumaAseguradaMoneda: form.sumaAseguradaMoneda,
+    asegurados: form.asegurados,
+    fechaInicioVigencia: form.fechaInicioVigencia || null,
+    fechaFinVigencia: form.fechaFinVigencia || null,
+  };
+  const claveComision = JSON.stringify(datosComision);
+  const [claveDiferida, setClaveDiferida] = useState(claveComision);
+  useEffect(() => {
+    const t = setTimeout(() => setClaveDiferida(claveComision), 400);
+    return () => clearTimeout(t);
+  }, [claveComision]);
+  const { data: previewComision } = useQuery({
+    queryKey: ['comision-preview', claveDiferida],
+    queryFn: async () => (await api.post('/ventas/comisiones/preview', JSON.parse(claveDiferida))).data,
+    enabled: open && Boolean(form.producto?.trim()),
+    placeholderData: (prev) => prev,
+  });
+  const conTabla = Boolean(previewComision?.esquema);
+
+  const comisionEstimada = conTabla
+    ? previewComision.anios?.[0]?.comisionAnualMXN ?? null
+    : primaEnPesos != null && form.comisionPct !== '' && !Number.isNaN(+form.comisionPct)
+      ? primaEnPesos * (+form.comisionPct) / 100
+      : null;
 
   // Validación de campos requeridos para el widget resumen
   const camposRequeridos = [
@@ -352,6 +387,8 @@ export default function PolizaFormModal({
       avisar(editando ? 'Póliza actualizada' : 'Póliza registrada');
       qc.invalidateQueries(['ventas']);
       qc.invalidateQueries(['equipo-resumen']);
+      qc.invalidateQueries(['poliza-comisiones']);
+      qc.invalidateQueries(['comisiones-resumen']);
       onSaved?.();
       onClose();
     } catch (e2) {
@@ -886,21 +923,29 @@ export default function PolizaFormModal({
                 <div className="sm:w-56 shrink-0">
                   <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">Comisión</h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                    El porcentaje viene del catálogo del producto y se puede ajustar.
+                    {conTabla
+                      ? 'Se calcula sola con el esquema SMNYL del producto, año por año y según la forma de pago.'
+                      : 'Sin tabla para este producto: captura el % del primer año.'}
                   </p>
                 </div>
                 <div className="flex-1 space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <Field label="Comisión (%)">
-                      <input
-                        type="number"
-                        step="0.1"
-                        className="input"
-                        value={form.comisionPct}
-                        onChange={(e) => set('comisionPct', e.target.value)}
-                      />
+                    <Field label="Comisión año 1 (%)">
+                      {conTabla ? (
+                        <ValorFijo title="Definido por el esquema SMNYL del producto (moneda, suma asegurada y edad).">
+                          <span className="tabular-nums font-semibold">{previewComision.anios?.[0]?.pct}%</span>
+                        </ValorFijo>
+                      ) : (
+                        <input
+                          type="number"
+                          step="0.1"
+                          className="input"
+                          value={form.comisionPct}
+                          onChange={(e) => set('comisionPct', e.target.value)}
+                        />
+                      )}
                     </Field>
-                    <Field label="Comisión estimada">
+                    <Field label="Comisión estimada del año 1">
                       <ValorFijo
                         title="Calculada sobre la prima anual en pesos."
                         vacio="Captura la prima anual"
@@ -918,6 +963,9 @@ export default function PolizaFormModal({
                       )}
                     </Field>
                   </div>
+                  {previewComision && (previewComision.anios?.length || 0) > 0 && (
+                    <TablaComisiones datos={previewComision} formaPago={form.formaPago} />
+                  )}
                 </div>
               </div>
             </div>
