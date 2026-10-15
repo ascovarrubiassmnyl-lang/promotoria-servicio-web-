@@ -3,6 +3,7 @@ import { prisma } from '../prisma.js';
 import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 import { inicioSemana } from '../utils/clinica.js';
+import { CITA_DE_TRABAJO } from '../utils/citas.js';
 import { hoyMx, rangoHoyMx } from '../utils/seguimiento.js';
 import { puntosDe, META_PUNTOS_DIARIA } from './puntos.js';
 
@@ -21,13 +22,17 @@ const DIAS_LEAD_NUEVO = 7;
 // Más atrás que esto ya no se pregunta: es historia, no pendiente.
 const DIAS_CITA_POR_CERRAR = 30;
 const clienteCorto = { select: { id: true, nombre: true, apellidoP: true, telefono: true, estado: true } };
+const citaInvitacion = {
+  id: true, titulo: true, fechaHoraInicio: true, fechaHoraFin: true, modalidad: true, tipo: true, ubicacion: true,
+  asesor: { select: { id: true, nombre: true, apellidoP: true } },
+};
 
 router.get('/', asyncHandler(async (req, res) => {
   const yo = req.user.id;
   const ahora = new Date();
   const { inicio, fin } = rangoHoyMx(ahora);
 
-  const [citas, porCerrar, recordatorios, leads, clinica, puntos] = await Promise.all([
+  const [citas, porCerrar, recordatorios, leads, clinica, puntos, invitado, acompanamientos] = await Promise.all([
     // Citas de hoy donde estoy: dueño, promotor que aceptó o invitado que aceptó.
     prisma.cita.findMany({
       where: {
@@ -50,7 +55,7 @@ router.get('/', asyncHandler(async (req, res) => {
         estado: { in: CITA_VIVA },
         fechaHoraFin: { lt: ahora },
         fechaHoraInicio: { gte: new Date(ahora.getTime() - DIAS_CITA_POR_CERRAR * 86400000) },
-        clasificacion: { not: 'PERSONAL' },
+        ...CITA_DE_TRABAJO,
       },
       include: { cliente: clienteCorto, candidato: { select: { id: true, nombre: true, apellidoP: true, telefono: true } } },
       orderBy: { fechaHoraInicio: 'desc' },
@@ -93,7 +98,28 @@ router.get('/', asyncHandler(async (req, res) => {
       take: 60,
     }),
     prisma.registroPuntos.findUnique({ where: { asesorId_fecha: { asesorId: yo, fecha: hoyMx() } } }),
+    // Invitaciones que esperan mi respuesta (2026-10-15): la campana no basta —
+    // si nadie la abre, la junta de arranque se queda sin respuestas. Las dos
+    // vías de invitación: invitado a cualquier cita (CitaInvitado) y promotor
+    // de un acompañamiento (Cita.promotorId). Solo citas vivas que no han pasado.
+    prisma.citaInvitado.findMany({
+      where: { usuarioId: yo, estado: 'PENDIENTE', cita: { estado: { in: CITA_VIVA }, fechaHoraFin: { gte: ahora } } },
+      include: { cita: { select: citaInvitacion } },
+      orderBy: { cita: { fechaHoraInicio: 'asc' } },
+      take: 30,
+    }),
+    prisma.cita.findMany({
+      where: { promotorId: yo, invitacionEstado: 'PENDIENTE', estado: { in: CITA_VIVA }, fechaHoraFin: { gte: ahora } },
+      select: citaInvitacion,
+      orderBy: { fechaHoraInicio: 'asc' },
+      take: 30,
+    }),
   ]);
+
+  const invitaciones = [
+    ...invitado.map((i) => ({ ...i.cita, invitadoId: i.id })),
+    ...acompanamientos.map((c) => ({ ...c, invitadoId: null })),
+  ].sort((a, b) => a.fechaHoraInicio - b.fechaHoraInicio);
 
   // Un contacto aparece una sola vez: si ya está en leads o tiene cita hoy, no
   // se repite en "a quién llamar".
@@ -118,6 +144,7 @@ router.get('/', asyncHandler(async (req, res) => {
     recordatorios: recordatorios.map((n) => ({ ...n, vencido: n.fechaAviso < ahora })),
     leads,
     porLlamar,
+    invitaciones,
     progreso: {
       puntos: puntos ? puntosDe(puntos) : 0,
       meta: META_PUNTOS_DIARIA,

@@ -7,7 +7,7 @@ import { Card } from '../components/ui.jsx';
 import { fechaHora, fechaCorta, hora } from '../lib/format.js';
 import { avisar } from '../lib/toast.js';
 import { infoEtapa } from '../components/clientes/etapas.js';
-import { infoCanal, MENSAJE_ESTADO_CITA } from '../components/citas/tipos.js';
+import { infoCanal, infoTipoCita, MENSAJE_ESTADO_CITA } from '../components/citas/tipos.js';
 import RegistrarLlamadaModal, { ligaWhatsApp } from '../components/clientes/RegistrarLlamadaModal.jsx';
 
 // "Hoy" (2026-10-13, auditoría de UI): la lista de trabajo del día. Lo que el
@@ -116,13 +116,34 @@ export default function Hoy() {
     } catch (e) { avisar(handleError(e), 'error'); }
   };
 
+  // Responder una invitación sin ir al calendario. Dos vías en el servidor:
+  // invitado a una cita (CitaInvitado) o promotor de un acompañamiento.
+  // Aceptar advierte si choca con otra cita (409), igual que en el calendario.
+  const [respondiendo, setRespondiendo] = useState(null);
+  const responderInvitacion = async (inv, respuesta) => {
+    const ruta = inv.invitadoId ? `/citas/${inv.id}/invitados/${inv.invitadoId}` : `/citas/${inv.id}/invitacion`;
+    setRespondiendo(inv.id);
+    try {
+      try {
+        await api.patch(ruta, { respuesta });
+      } catch (e) {
+        const otra = e?.response?.status === 409 && e.response.data?.empalme;
+        if (!otra) throw e;
+        if (!window.confirm(`Ya tienes "${otra.titulo}" a esa hora (${hora(otra.fechaHoraInicio)} – ${hora(otra.fechaHoraFin)}).\n\n¿Aceptar de todos modos?`)) return;
+        await api.patch(ruta, { respuesta, ignorarEmpalme: true });
+      }
+      avisar(respuesta === 'ACEPTADA' ? 'Invitación aceptada' : 'Invitación rechazada');
+      ['hoy', 'citas', 'citas-cal', 'notificaciones'].forEach((k) => qc.invalidateQueries([k]));
+    } catch (e) { avisar(handleError(e), 'error'); } finally { setRespondiendo(null); }
+  };
+
   const fecha = new Date().toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
 
   if (isLoading) return <div className="py-12 text-center text-sm text-slate-400">Cargando tu día…</div>;
   if (isError) return <div className="py-12 text-center text-sm text-red-600">{handleError(error)}</div>;
 
-  const { citas, porCerrar = [], recordatorios, leads, porLlamar, progreso } = data;
-  const pendientes = citas.length + porCerrar.length + recordatorios.length + leads.length + porLlamar.length;
+  const { citas, porCerrar = [], recordatorios, leads, porLlamar, progreso, invitaciones = [] } = data;
+  const pendientes = citas.length + porCerrar.length + recordatorios.length + leads.length + porLlamar.length + invitaciones.length;
 
   return (
     <div className="space-y-4">
@@ -134,6 +155,26 @@ export default function Hoy() {
             : `${user?.nombre || ''}, esto es lo que toca hoy.`}
         </p>
       </div>
+
+      {invitaciones.length > 0 && (
+        <Seccion title="Invitaciones por responder" conteo={invitaciones.length}>
+          {invitaciones.map((c) => (
+            <li key={`${c.id}-${c.invitadoId || 'promotor'}`} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+              <div className="min-w-0">
+                <Link to={`/citas?cita=${c.id}`} className="text-sm font-medium text-slate-800 dark:text-slate-100 hover:underline">{c.titulo}</Link>
+                <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                  {fechaCorta(c.fechaHoraInicio)}, {hora(c.fechaHoraInicio)} · {infoTipoCita(c.modalidad).label} · te invita {nombreDe(c.asesor)}
+                </p>
+              </div>
+              <div className="flex shrink-0 gap-1.5">
+                <button type="button" disabled={respondiendo === c.id} onClick={() => responderInvitacion(c, 'ACEPTADA')} className="rounded-lg border border-emerald-300 dark:border-emerald-700 px-2 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 disabled:opacity-50">✓ Aceptar</button>
+                <button type="button" disabled={respondiendo === c.id} onClick={() => responderInvitacion(c, 'RECHAZADA')} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 disabled:opacity-50">Rechazar</button>
+                <Link to={`/citas?cita=${c.id}`} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Ver</Link>
+              </div>
+            </li>
+          ))}
+        </Seccion>
+      )}
 
       <Progreso progreso={progreso} />
 

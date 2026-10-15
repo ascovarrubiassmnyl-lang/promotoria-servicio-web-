@@ -5,7 +5,7 @@ import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { mxn, num, nombreMes } from '../lib/format.js';
 import { diasPeriodo, claveRitmo, ESTADOS_RITMO, pctAvance } from '../components/metas/ritmo.js';
-import { infoTipoNotificacion } from '../components/notificaciones/tipos.jsx';
+import { infoTipoNotificacion, rutaNotificacion } from '../components/notificaciones/tipos.jsx';
 import { useListaNotificaciones, useMarcarLeida, useMarcarTodasLeidas } from '../hooks/useNotificaciones.js';
 import { RankingAsesores } from '../components/dashboard/Leaderboard.jsx';
 
@@ -371,13 +371,8 @@ function Atencion({ atencion, admin }) {
 
   const abrirNotificacion = (n) => {
     marcarLeida.mutate({ id: n.id, leida: true });
-    const url = n.datos?.url;
-    if (!url) return;
-    try {
-      navigate(url.startsWith('http') ? new URL(url).pathname : url);
-    } catch {
-      /* url inválida: no navegar, ya quedó marcada como leída */
-    }
+    const ruta = rutaNotificacion(n);
+    if (ruta) navigate(ruta);
   };
 
   // Notificaciones reales primero (más recientes = más arriba, ya vienen

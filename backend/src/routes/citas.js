@@ -9,6 +9,7 @@ import { notificar } from '../utils/notificaciones.js';
 import { crearEvento, borrarEvento, horarioLibre } from '../services/googleCalendar.js';
 import { marcarCitaObtenidaEnClinica } from '../utils/clinica.js';
 import { marcarCitaEnCliente, sumarEnPuntosDeHoy } from '../utils/seguimiento.js';
+import { fechaHoraAviso } from '../utils/fechas.js';
 
 const router = Router();
 router.use(authenticate);
@@ -246,10 +247,18 @@ function fechasRecurrencia(tipo, inicio, hasta, diasSemana) {
 }
 
 const CLASIFICACIONES = ['PRODUCTIVA', 'GESTION', 'PERSONAL'];
-// Agenda propia de reclutamiento del promotor: solo ADMIN/SUPERADMIN, sin
-// asesor ni cliente (equivalen a un evento personal, pero no bloquean la
-// agenda ni se pintan de rojo — su color lo da la clasificación elegida).
-const MODALIDADES_PROMOTOR = ['PRP', 'ENTREVISTA_INICIAL', 'ENTREVISTA_SELECCION', 'ENTREVISTA_CARRERA'];
+// Agenda propia de la promotoría: solo con alcance de administración (la
+// promotora o la secretaria por ella), sin asesor ni cliente (equivalen a un
+// evento personal, pero no se pintan de rojo — su color lo da la clasificación
+// elegida). Reclutamiento (PRP/entrevistas) y, desde 2026-10-15, la reunión de
+// equipo (junta de arranque, capacitación), que además exige invitados.
+const MODALIDADES_PROMOTOR = ['PRP', 'ENTREVISTA_INICIAL', 'ENTREVISTA_SELECCION', 'ENTREVISTA_CARRERA', 'REUNION_EQUIPO'];
+
+// Enlace directo a la cita: el calendario lee ?cita= y abre su ficha en la
+// fecha correcta. Antes todos los avisos llevaban a /citas a secas y el
+// invitado tenía que encontrar el evento a mano (si era de otra semana, no lo
+// veía y no respondía).
+const urlCita = (citaId) => `/citas?cita=${citaId}`;
 
 // Invitados adicionales de una cita (2026-09-25): cualquier usuario invitado
 // más allá del dueño y del promotor de acompañamiento (Cita.promotorId, que
@@ -332,6 +341,10 @@ router.post('/', asyncHandler(async (req, res) => {
       return res.status(400).json({ error: 'Alguno de los invitados no existe o no está activo' });
     }
   }
+  // Una reunión de equipo sin nadie invitado no es una reunión.
+  if (modalidad === 'REUNION_EQUIPO' && !invitadosValidos.length) {
+    return res.status(400).json({ error: 'Invita al menos a una persona a la reunión' });
+  }
 
   // Validar promotor si se asigna (debe ser admin/superadmin)
   let promotorFinal = null;
@@ -393,7 +406,7 @@ router.post('/', asyncHandler(async (req, res) => {
         titulo, descripcion: descripcion || null,
         tipo: tipo || 'TELEFONICA',
         modalidad: modalidad || 'CITA_UNICA',
-        clasificacion: clasificacion || ((clienteId || candidatoId) ? 'PRODUCTIVA' : 'PERSONAL'),
+        clasificacion: clasificacion || ((clienteId || candidatoId) ? 'PRODUCTIVA' : MODALIDADES_PROMOTOR.includes(modalidad) ? 'GESTION' : 'PERSONAL'),
         promotorId: promotorFinal,
         invitacionEstado,
         invitacionRespondidaEn: invitacionEstado === 'ACEPTADA' ? new Date() : null,
@@ -475,17 +488,17 @@ router.post('/', asyncHandler(async (req, res) => {
     const tituloAviso = 'Nueva invitación de acompañamiento';
     const cuerpo = creadas.length > 1
       ? `${quien} te invitó a ${creadas.length} citas: "${titulo}". Ábrelas para aceptar o rechazar.`
-      : `${quien} te invitó a "${titulo}" el ${primera.fechaHoraInicio.toLocaleString('es-MX')}. Ábrela para aceptar o rechazar.`;
+      : `${quien} te invitó a "${titulo}" el ${fechaHoraAviso(primera.fechaHoraInicio)}. Ábrela para aceptar o rechazar.`;
     try {
       await notificar(promotorFinal, 'CITA_INVITACION', {
         titulo: tituloAviso,
         cuerpo,
-        datos: { url: '/citas', citaId: primera.id },
+        datos: { url: urlCita(primera.id), citaId: primera.id },
         pushPayload: {
           title: tituloAviso,
           body: cuerpo,
           tag: `invitacion-cita-${primera.id}`,
-          data: { url: '/citas' },
+          data: { url: urlCita(primera.id) },
         },
       });
     } catch (err) {
@@ -496,28 +509,34 @@ router.post('/', asyncHandler(async (req, res) => {
   // Aviso a cada invitado adicional (2026-09-25): mismo criterio de "mejor
   // esfuerzo" que el promotor — si el push falla la invitación ya quedó
   // registrada, se avisa por separado a cada persona de la lista.
-  for (const u of invitadosValidos) {
-    const quien = `${req.user.nombre} ${req.user.apellidoP || ''}`.trim();
-    const tituloAviso = 'Nueva invitación a una cita';
-    const cuerpo = creadas.length > 1
-      ? `${quien} te invitó a ${creadas.length} citas: "${titulo}". Ábrelas para aceptar o rechazar.`
-      : `${quien} te invitó a "${titulo}" el ${primera.fechaHoraInicio.toLocaleString('es-MX')}. Ábrela para aceptar o rechazar.`;
+  // En paralelo: una junta de arranque invita a todo el equipo y, en serie,
+  // cada push (una llamada de red por dispositivo) alargaba la respuesta.
+  // Quien convoca es el dueño de la cita: si la secretaria agenda a nombre de
+  // la promotora, el aviso dice que invita la promotora (y quién lo agendó).
+  const nombreDe = (u) => `${u?.nombre || ''} ${u?.apellidoP || ''}`.trim();
+  const convoca = nombreDe(primera.asesor) || nombreDe(req.user);
+  const agendadaPor = primera.asesorId !== req.user.id ? ` (lo agendó ${nombreDe(req.user)})` : '';
+  const tituloInvitacion = modalidad === 'REUNION_EQUIPO' ? 'Nueva reunión de equipo' : 'Nueva invitación a una cita';
+  const cuerpoInvitacion = creadas.length > 1
+    ? `${convoca} te invitó a ${creadas.length} citas: "${titulo}"${agendadaPor}. Ábrelas para aceptar o rechazar.`
+    : `${convoca} te invitó a "${titulo}" el ${fechaHoraAviso(primera.fechaHoraInicio)}${agendadaPor}. Ábrela para aceptar o rechazar.`;
+  await Promise.all(invitadosValidos.map(async (u) => {
     try {
       await notificar(u.id, 'CITA_INVITACION', {
-        titulo: tituloAviso,
-        cuerpo,
-        datos: { url: '/citas', citaId: primera.id },
+        titulo: tituloInvitacion,
+        cuerpo: cuerpoInvitacion,
+        datos: { url: urlCita(primera.id), citaId: primera.id },
         pushPayload: {
-          title: tituloAviso,
-          body: cuerpo,
+          title: tituloInvitacion,
+          body: cuerpoInvitacion,
           tag: `invitacion-cita-${primera.id}-${u.id}`,
-          data: { url: '/citas' },
+          data: { url: urlCita(primera.id) },
         },
       });
     } catch (err) {
       console.error(`No se pudo notificar la invitación a ${u.id}:`, err.message);
     }
-  }
+  }));
 
   const primeraConInvitados = invitadosValidos.length
     ? await prisma.cita.findUnique({ where: { id: primera.id }, include: { invitados: INCLUDE_INVITADOS.invitados } })
@@ -641,17 +660,17 @@ router.patch('/:id/invitacion', asyncHandler(async (req, res) => {
     const cuerpos = {
       ACEPTADA: `${quien} aceptó acompañarte en "${cita.titulo}".`,
       RECHAZADA: `${quien} no podrá acompañarte en "${cita.titulo}". Agenda con otro promotor u horario.`,
-      SUGERIDA: `${quien} propuso otro horario para "${cita.titulo}": ${new Date(sugerenciaInicio).toLocaleString('es-MX')}. Revisa y responde.`,
+      SUGERIDA: `${quien} propuso otro horario para "${cita.titulo}": ${respuesta === 'SUGERIDA' ? fechaHoraAviso(sugerenciaInicio) : ''}. Revisa y responde.`,
     };
     await notificar(cita.asesorId, 'CITA_INVITACION_RESPUESTA', {
       titulo: titulos[respuesta],
       cuerpo: cuerpos[respuesta],
-      datos: { url: '/citas', citaId: cita.id, respuesta },
+      datos: { url: urlCita(cita.id), citaId: cita.id, respuesta },
       pushPayload: {
         title: titulos[respuesta],
         body: cuerpos[respuesta],
         tag: `respuesta-cita-${cita.id}`,
-        data: { url: '/citas' },
+        data: { url: urlCita(cita.id) },
       },
     });
   } catch (err) {
@@ -728,12 +747,12 @@ router.patch('/:id/invitacion/sugerencia', asyncHandler(async (req, res) => {
       await notificar(cita.promotorId, 'CITA_SUGERENCIA_RESPUESTA', {
         titulo: tituloAviso,
         cuerpo,
-        datos: { url: '/citas', citaId: cita.id, aceptada: aceptar },
+        datos: { url: urlCita(cita.id), citaId: cita.id, aceptada: aceptar },
         pushPayload: {
           title: tituloAviso,
           body: cuerpo,
           tag: `sugerencia-cita-${cita.id}`,
-          data: { url: '/citas' },
+          data: { url: urlCita(cita.id) },
         },
       });
     } catch (err) {
@@ -807,17 +826,17 @@ router.patch('/:id/invitados/:invitadoId', asyncHandler(async (req, res) => {
     const cuerpos = {
       ACEPTADA: `${quien} aceptó tu invitación a "${cita.titulo}".`,
       RECHAZADA: `${quien} no podrá asistir a "${cita.titulo}".`,
-      SUGERIDA: `${quien} propuso otro horario para "${cita.titulo}": ${new Date(sugerenciaInicio).toLocaleString('es-MX')}. Revisa y responde.`,
+      SUGERIDA: `${quien} propuso otro horario para "${cita.titulo}": ${respuesta === 'SUGERIDA' ? fechaHoraAviso(sugerenciaInicio) : ''}. Revisa y responde.`,
     };
     await notificar(cita.asesorId, 'CITA_INVITACION_RESPUESTA', {
       titulo: titulos[respuesta],
       cuerpo: cuerpos[respuesta],
-      datos: { url: '/citas', citaId: cita.id, respuesta },
+      datos: { url: urlCita(cita.id), citaId: cita.id, respuesta },
       pushPayload: {
         title: titulos[respuesta],
         body: cuerpos[respuesta],
         tag: `respuesta-invitado-${invitadoId}`,
-        data: { url: '/citas' },
+        data: { url: urlCita(cita.id) },
       },
     });
   } catch (err) {
@@ -870,12 +889,12 @@ router.patch('/:id/invitados/:invitadoId/sugerencia', asyncHandler(async (req, r
     await notificar(invitado.usuarioId, 'CITA_SUGERENCIA_RESPUESTA', {
       titulo: tituloAviso,
       cuerpo,
-      datos: { url: '/citas', citaId: cita.id, aceptada: aceptar },
+      datos: { url: urlCita(cita.id), citaId: cita.id, aceptada: aceptar },
       pushPayload: {
         title: tituloAviso,
         body: cuerpo,
         tag: `sugerencia-invitado-${invitadoId}`,
-        data: { url: '/citas' },
+        data: { url: urlCita(cita.id) },
       },
     });
   } catch (err) {

@@ -35,3 +35,14 @@ export function parseFechaEntrada(valor) {
   const fecha = new Date(valor);
   return Number.isNaN(fecha.getTime()) ? null : fecha;
 }
+
+// Fecha y hora legibles para el texto de una notificación ("jueves 16 oct,
+// 10:00 a.m."). Siempre en la zona de la promotoría: `toLocaleString()` a secas
+// usa la zona del servidor, y en Railway (UTC) los avisos salían con la hora
+// corrida seis horas.
+export function fechaHoraAviso(fecha) {
+  return new Intl.DateTimeFormat('es-MX', {
+    timeZone: TZ, weekday: 'long', day: 'numeric', month: 'short',
+    hour: 'numeric', minute: '2-digit',
+  }).format(new Date(fecha));
+}

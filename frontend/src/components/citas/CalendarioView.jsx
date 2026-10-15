@@ -8,6 +8,7 @@ import CitaFormModal from './CitaFormModal.jsx';
 import CalendarioMovil from './CalendarioMovil.jsx';
 import { MiniMes, GrupoVisibilidad } from './CalendarioSidebar.jsx';
 import useIsMobile from '../../hooks/useIsMobile.js';
+import useCitaDeEnlace from './useCitaDeEnlace.js';
 import { hora, nombreMes, fechaCorta } from '../../lib/format.js';
 import { avisar } from '../../lib/toast.js';
 
@@ -227,6 +228,9 @@ function FichaCita({ cita, onClose, onReagendar, onEliminar, onCambiarEstado, es
   const color = colorCita(cita);
   const viva = CITA_VIVA.includes(cita.estado);
   const soyElInvitado = !!usuarioId && cita.promotorId === usuarioId;
+  // Quien solo fue invitado (no es dueño ni administra) ve la cita en modo
+  // lectura: el PATCH le respondería 403. Responde su invitación arriba.
+  const puedeEditar = esAdmin || cita.asesorId === usuarioId;
   const sucio = (
     form.titulo !== (cita.titulo || '') ||
     form.fechaHoraInicio !== paraInput(cita.fechaHoraInicio) ||
@@ -445,9 +449,23 @@ function FichaCita({ cita, onClose, onReagendar, onEliminar, onCambiarEstado, es
               ◎ Acompañamiento{cita.promotor ? ` · ${cita.promotor.nombre} ${cita.promotor.apellidoP}` : ' · promotor por asignar'}
             </p>
           )}
-          {esAdmin && <p>Asesor: {cita.asesor?.nombre} {cita.asesor?.apellidoP}</p>}
+          {cita.modalidad === 'REUNION_EQUIPO'
+            ? <p>Convoca: {cita.asesor?.nombre} {cita.asesor?.apellidoP}</p>
+            : esAdmin && <p>Asesor: {cita.asesor?.nombre} {cita.asesor?.apellidoP}</p>}
         </div>
 
+        {!puedeEditar ? (
+          <div className="space-y-1 text-sm text-slate-700 dark:text-slate-200">
+            <p className="font-semibold text-slate-800 dark:text-slate-100">{cita.titulo}</p>
+            <p>{fechaCorta(cita.fechaHoraInicio)} · {hora(cita.fechaHoraInicio)} – {hora(cita.fechaHoraFin)} · {infoCanal(cita.tipo).label}</p>
+            {cita.ubicacion && <p>{infoCanal(cita.tipo).ubicacionLabel || 'Ubicación'}: {cita.ubicacion}</p>}
+            {cita.descripcion && <p className="whitespace-pre-line text-slate-500 dark:text-slate-400">{cita.descripcion}</p>}
+            {err && <p className="text-sm text-red-600 dark:text-red-400">{err}</p>}
+            <div className="flex justify-end pt-2">
+              <button type="button" onClick={onClose} className="btn-secondary">Cerrar</button>
+            </div>
+          </div>
+        ) : (<>
         <Field label="Título*">
           <input className="input" required value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} />
         </Field>
@@ -509,6 +527,7 @@ function FichaCita({ cita, onClose, onReagendar, onEliminar, onCambiarEstado, es
             </button>
           </div>
         </div>
+        </>)}
       </form>
     </Modal>
   );
@@ -717,10 +736,19 @@ function CalendarioEscritorio() {
 
   // La ficha se re-lee de la lista viva: tras completar/cancelar/reagendar el
   // panel refleja el estado nuevo en vez de quedarse con la copia del clic.
+  // Si aún no está en la lista (enlace directo mientras carga), se usa la copia
+  // que trajo useCitaDeEnlace.
   const citaDetalle = useMemo(
-    () => (detalle ? (citas || []).find((c) => c.id === detalle.id) || null : null),
+    () => (detalle ? (citas || []).find((c) => c.id === detalle.id) || (detalle.titulo ? detalle : null) : null),
     [detalle, citas]
   );
+
+  // /citas?cita=<id> (notificaciones): salta a la fecha de la cita y abre su ficha.
+  useCitaDeEnlace((c) => {
+    const d = new Date(c.fechaHoraInicio);
+    const dia = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    setRefDate(dia); setSelectedDay(dia); setDetalle(c);
+  });
 
   // ---------- Navegación ----------
   const step = (dir) => {

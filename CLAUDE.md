@@ -1408,6 +1408,49 @@ conservan sus nombres históricos; la traducción a UI vive en el **mapa único*
     `INVITACIONES` (`components/citas/tipos.js`) es compartido con
     `promotorId` — su label de `ACEPTADA` se generalizó de "Acompañamiento
     confirmado" a "Invitación aceptada" porque ya no es solo del promotor.
+- **Reunión de equipo + invitaciones que sí llegan (2026-10-15)**. Bug real:
+  la promotora invitó a todos los asesores a un evento y nadie respondió.
+  Causa: una junta no lleva cliente, y la única forma de agendar sin cliente
+  era "Evento personal", que **ocultaba** el campo de invitados (sin marcarlo,
+  el formulario exigía cliente). Contexto de negocio que lo decide: el CRM es
+  de **una sola promotoría — una promotora (ADMIN), una secretaria
+  (ASISTENTE) y asesores**; la secretaria agenda por la promotora.
+  - **`REUNION_EQUIPO`** (nuevo valor de `ModalidadCita`, migración
+    `20261015120000_cita_reunion_equipo`, label "Reunión de equipo") vive en
+    `MODALIDADES_PROMOTOR` (backend y `citas/tipos.js`), así que hereda sin
+    código nuevo: sin cliente, ASESOR → 403 en POST/PATCH, dueño elegible
+    (selector "¿Quién convoca?", autoselecciona a la promotora — la
+    secretaria agenda a su nombre y las respuestas le llegan a ella). Además
+    **exige al menos un invitado** (400) y nace `GESTION`.
+  - **No cuenta como cita en ninguna métrica**: `CITA_DE_TRABAJO`
+    (`utils/citas.js`, definición única = sin PERSONAL y sin REUNION_EQUIPO)
+    sustituyó al `clasificacion: { not: 'PERSONAL' }` suelto en metricas,
+    targets y "citas por cerrar" de Hoy. Una métrica de citas nueva debe usarlo.
+  - **`GET /usuarios/invitables`** (cualquier autenticado): todo el equipo
+    activo menos SUPERADMIN, ordenado promotora → secretaria → asesores. Antes
+    la lista salía de `/usuarios/asesores` (solo admin: un ASESOR recibía 403 y
+    no podía invitar a sus compañeros) + `/usuarios/promotores` (la secretaria
+    nunca aparecía). Con alcance de administración trae `pushActivo` y el
+    formulario marca "sin aviso al celular". Atajos "+ Todos los asesores" /
+    "+ Todo el equipo" / "Quitar todos" (solo promotora y secretaria).
+  - **Enlace directo `/citas?cita=<id>`** en campana, push y Hoy
+    (`urlCita()` en `routes/citas.js`; hook `citas/useCitaDeEnlace.js` en
+    escritorio y móvil: salta a la fecha y abre la ficha). Avisos viejos con
+    `/citas` + `citaId` se resuelven igual vía `rutaNotificacion()`
+    (`notificaciones/tipos.jsx`, única implementación del "a dónde lleva").
+  - **`GET /hoy` devuelve `invitaciones`** pendientes (CitaInvitado y
+    `promotorId`, solo citas vivas futuras) y Hoy las responde ahí mismo.
+  - Los avisos se mandan **en paralelo** y con la fecha en hora de México
+    (`fechaHoraAviso()` en `utils/fechas.js`): `toLocaleString()` a secas
+    usaba la zona del servidor y en Railway salía corrida seis horas.
+  - Quien solo es invitado ve la ficha **en solo lectura** (escritorio y
+    móvil): antes veía el formulario de edición y el PATCH le daba 403.
+  - `BannerActivarPush` ahora también avisa en **iPhone sin instalar** (push
+    "no soportado": hay que agregar a pantalla de inicio) y con **permiso
+    bloqueado** — antes en esos dos casos no se mostraba nada y la persona
+    nunca recibía la push. El push sigue dependiendo de que cada quien lo
+    active en su dispositivo: la notificación in-app siempre queda.
+  - Tests: `backend/test/invitaciones.test.js`.
 - **Bloquear un horario recurrente** (ej. "hora de comida"): no es un modelo
   aparte — se resuelve combinando el checkbox "Evento personal" con
   "Repetir" al agendar (ambos ya existían). El copy de `CitaFormModal` lo

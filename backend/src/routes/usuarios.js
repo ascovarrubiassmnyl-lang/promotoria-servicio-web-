@@ -2,7 +2,7 @@ import { Router } from 'express';
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../prisma.js';
-import { authenticate, esAdmin } from '../middleware/auth.js';
+import { authenticate, esAdmin, tieneRolAdmin } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion, logPermiso, ROLES_ASIGNABLES } from '../middleware/permisos.js';
 import { enviarInvitacion } from '../services/mailer.js';
@@ -97,6 +97,26 @@ router.get('/promotores', asyncHandler(async (_req, res) => {
     orderBy: { nombre: 'asc' },
   });
   res.json(promotores);
+}));
+
+// Personas que se pueden invitar a una cita (2026-10-15) — accesible para todo
+// autenticado. Antes el formulario armaba la lista con /asesores (solo admin:
+// un ASESOR recibía 403 y no podía invitar a sus compañeros) + /promotores
+// (solo ADMIN: la secretaria nunca aparecía). Aquí va todo el equipo activo
+// salvo SUPERADMIN, que es la cuenta de quien desarrolla el servicio.
+// `pushActivo` (solo para quien administra) dice si esa persona tiene el aviso
+// al celular activado: así la promotora sabe a quién pedirle que lo active.
+const ORDEN_ROL_INVITABLE = { ADMIN: 0, ASISTENTE: 1, ASESOR: 2 };
+router.get('/invitables', asyncHandler(async (req, res) => {
+  const usuarios = await prisma.usuario.findMany({
+    where: { activo: true, rol: { in: Object.keys(ORDEN_ROL_INVITABLE) } },
+    select: { id: true, nombre: true, apellidoP: true, apellidoM: true, rol: true, _count: { select: { pushSubs: true } } },
+    orderBy: { nombre: 'asc' },
+  });
+  const verPush = tieneRolAdmin(req.user);
+  res.json(usuarios
+    .sort((a, b) => ORDEN_ROL_INVITABLE[a.rol] - ORDEN_ROL_INVITABLE[b.rol])
+    .map(({ _count, ...u }) => (verPush ? { ...u, pushActivo: _count.pushSubs > 0 } : u)));
 }));
 
 // Lógica compartida del alta por invitación: crea la cuenta inactiva y su

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { EmptyState, MenuAcciones } from '../components/ui.jsx';
 import { hora, fechaCorta } from '../lib/format.js';
-import { TIPOS_NOTIFICACION, infoTipoNotificacion } from '../components/notificaciones/tipos.jsx';
+import { TIPOS_NOTIFICACION, infoTipoNotificacion, rutaNotificacion } from '../components/notificaciones/tipos.jsx';
 import {
   useListaNotificaciones, useMarcarLeida, useMarcarTodasLeidas, useEliminarNotificacion,
 } from '../hooks/useNotificaciones.js';
@@ -118,15 +118,8 @@ export default function Notificaciones() {
 
   const abrir = (n) => {
     if (!n.leida) marcarLeida.mutate({ id: n.id, leida: true });
-    // La url del payload es la misma que usa el service worker al tocar la
-    // push; puede venir absoluta (PUBLIC_URL) desde el job de recordatorios.
-    const url = n.datos?.url;
-    if (!url) return;
-    try {
-      navigate(url.startsWith('http') ? new URL(url).pathname : url);
-    } catch {
-      /* url inválida: no navegar */
-    }
+    const ruta = rutaNotificacion(n);
+    if (ruta) navigate(ruta);
   };
 
   const onLeida = (id, leida) => marcarLeida.mutate({ id, leida });

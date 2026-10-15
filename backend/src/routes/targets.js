@@ -4,6 +4,7 @@ import { authenticate, esAdmin } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion } from '../middleware/permisos.js';
 import { referidosObtenidos } from '../utils/referidos.js';
+import { CITA_DE_TRABAJO } from '../utils/citas.js';
 
 const router = Router();
 router.use(authenticate);
@@ -57,7 +58,7 @@ async function actualesPorMes(ini, fin, whereBase = {}) {
   const rango = { gte: ini, lte: fin };
   const [ventas, citas, prospectos, llamadas, referidos] = await Promise.all([
     prisma.venta.findMany({ where: { ...whereBase, ...GANADA, creadoEn: rango }, select: { asesorId: true, creadoEn: true, primaAnual: true } }),
-    prisma.cita.findMany({ where: { ...whereBase, estado: 'COMPLETADA', clasificacion: { not: 'PERSONAL' }, fechaHoraInicio: rango }, select: { asesorId: true, fechaHoraInicio: true } }),
+    prisma.cita.findMany({ where: { ...whereBase, estado: 'COMPLETADA', ...CITA_DE_TRABAJO, fechaHoraInicio: rango }, select: { asesorId: true, fechaHoraInicio: true } }),
     prisma.cliente.findMany({ where: { ...whereBase, creadoEn: rango, archivadoEn: null }, select: { asesorId: true, creadoEn: true } }),
     prisma.actividad.findMany({ where: { ...whereBase, tipo: 'LLAMADA', creadoEn: rango }, select: { asesorId: true, creadoEn: true } }),
     referidosObtenidos(rango, whereBase),

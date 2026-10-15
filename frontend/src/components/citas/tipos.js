@@ -52,10 +52,14 @@ export const TIPOS_CITA = {
   ENTREVISTA_INICIAL: { value: 'ENTREVISTA_INICIAL', label: 'Entrevista inicial' },
   ENTREVISTA_SELECCION: { value: 'ENTREVISTA_SELECCION', label: 'Entrevista de selección' },
   ENTREVISTA_CARRERA: { value: 'ENTREVISTA_CARRERA', label: 'Entrevista de carrera' },
+  // Junta de arranque, capacitación: la convoca la promotoría e invita al equipo.
+  REUNION_EQUIPO: { value: 'REUNION_EQUIPO', label: 'Reunión de equipo' },
 };
 
-// Solo el promotor las ve/usa (reclutamiento propio, sin asesor ni cliente).
-export const MODALIDADES_PROMOTOR = ['PRP', 'ENTREVISTA_INICIAL', 'ENTREVISTA_SELECCION', 'ENTREVISTA_CARRERA'];
+// Agenda propia de la promotoría (sin asesor ni cliente): solo la promotora y
+// la secretaria las ven/usan. Reclutamiento + reunión de equipo (que además
+// exige invitados). Espejo de MODALIDADES_PROMOTOR en backend/src/routes/citas.js.
+export const MODALIDADES_PROMOTOR = ['PRP', 'ENTREVISTA_INICIAL', 'ENTREVISTA_SELECCION', 'ENTREVISTA_CARRERA', 'REUNION_EQUIPO'];
 
 export const infoTipoCita = (modalidad) =>
   TIPOS_CITA[modalidad] || { value: modalidad, label: modalidad || '—' };

@@ -85,3 +85,23 @@ export function infoTipoNotificacion(tipo) {
     icon: <Icono d={ICONO_CAMPANA} />,
   };
 }
+
+// A dónde lleva una notificación al abrirla (bandeja y Dashboard). Única
+// implementación. La url puede venir absoluta (PUBLIC_URL, job de
+// recordatorios): se conserva ruta + query. Los avisos de citas anteriores al
+// 2026-10-15 apuntaban a /citas a secas; con su citaId se abre la cita directo.
+export function rutaNotificacion(n) {
+  const url = n?.datos?.url;
+  if (!url) return null;
+  let ruta;
+  try {
+    if (url.startsWith('http')) {
+      const u = new URL(url);
+      ruta = u.pathname + u.search;
+    } else ruta = url;
+  } catch {
+    return null;
+  }
+  if (ruta === '/citas' && n.datos.citaId) return `/citas?cita=${n.datos.citaId}`;
+  return ruta;
+}

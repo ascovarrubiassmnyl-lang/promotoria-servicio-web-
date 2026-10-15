@@ -6,6 +6,7 @@ import { Modal, Field, SelectorBuscable } from '../ui.jsx';
 import { CANALES, TIPOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, infoCanal, RECURRENCIAS, DIAS_SEMANA_LABEL } from './tipos.js';
 import { hora, fechaCorta, isoLocalInput } from '../../lib/format.js';
 import { avisar } from '../../lib/toast.js';
+import { ROLES_LABEL } from '../configuracion/secciones.js';
 
 const DURACION_DEFAULT_MIN = 30;
 
@@ -102,13 +103,20 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
   // de agenda propia del promotor (PRP, entrevistas) nunca lo requieren: son
   // eventos del propio promotor, no de un asesor.
   const necesitaAsesor = esAdmin() && !editando && !clienteId && !asesorId && !MODALIDADES_PROMOTOR.includes(form?.modalidad);
-  // También se necesita la lista de asesores para "Invitar a más personas"
-  // (ver selector más abajo), disponible para CUALQUIER rol al crear
-  // cualquier cita no personal — no solo cuando un admin elige dueño.
   const { data: asesores } = useQuery({
     queryKey: ['asesores-list'],
     queryFn: async () => (await api.get('/usuarios/asesores')).data,
-    enabled: open && (necesitaAsesor || (!editando && !form?.esPersonal)),
+    enabled: open && necesitaAsesor,
+  });
+
+  // Personas para "Invitar a más personas": todo el equipo activo (promotora,
+  // secretaria y asesores), para cualquier rol. Antes salía de /asesores (solo
+  // admin: un asesor recibía 403 y no podía invitar a sus compañeros) +
+  // /promotores (la secretaria nunca aparecía).
+  const { data: invitables } = useQuery({
+    queryKey: ['usuarios-invitables'],
+    queryFn: async () => (await api.get('/usuarios/invitables')).data,
+    enabled: open && !editando,
   });
 
   const { data: clientes } = useQuery({
@@ -137,22 +145,24 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
     enabled: open && !candidatoId && !form?.esPersonal && (MODALIDADES_PROMOTOR.includes(form?.modalidad) || (!editando && !clienteId)),
   });
 
-  // Opciones para "Invitar a más personas" (2026-09-25): cualquier asesor o
-  // promotora del sistema, salvo yo mismo, quien ya sea el dueño de esta
-  // cita, el promotor de acompañamiento (ya tiene su propio mecanismo de
-  // invitación) y quien ya esté en la lista.
-  const invitablesTodos = useMemo(() => [
-    ...(promotores || []).map((p) => ({ ...p, esPromotor: true })),
-    ...(asesores || []).map((p) => ({ ...p, esPromotor: false })),
-  ], [promotores, asesores]);
+  // Opciones para "Invitar a más personas": todo el equipo salvo el dueño de
+  // la cita (quien convoca), el promotor de acompañamiento (tiene su propio
+  // mecanismo de invitación) y quien ya esté en la lista. Si la secretaria
+  // agenda a nombre de la promotora, ella sí puede invitarse.
+  const duenoId = form?.asesorId || user?.id;
   const invitadosOpciones = useMemo(() => {
-    const excluidos = new Set([user?.id, form?.asesorId, form?.promotorId, ...(form?.invitadosIds || [])].filter(Boolean));
-    return invitablesTodos.filter((p) => !excluidos.has(p.id));
-  }, [invitablesTodos, user?.id, form?.asesorId, form?.promotorId, form?.invitadosIds]);
+    const excluidos = new Set([duenoId, form?.promotorId, ...(form?.invitadosIds || [])].filter(Boolean));
+    return (invitables || []).filter((p) => !excluidos.has(p.id));
+  }, [invitables, duenoId, form?.promotorId, form?.invitadosIds]);
   const invitadosElegidos = useMemo(
-    () => (form?.invitadosIds || []).map((iid) => invitablesTodos.find((p) => p.id === iid)).filter(Boolean),
-    [invitablesTodos, form?.invitadosIds]
+    () => (form?.invitadosIds || []).map((iid) => (invitables || []).find((p) => p.id === iid)).filter(Boolean),
+    [invitables, form?.invitadosIds]
   );
+  // Atajo para juntas y capacitaciones: agregar de un clic a todo un grupo.
+  const agregarInvitados = (filtro) => setForm((f) => ({
+    ...f,
+    invitadosIds: [...(f.invitadosIds || []), ...invitadosOpciones.filter(filtro).map((p) => p.id)],
+  }));
 
   // Detección de empalme en vivo: citas vivas del mismo asesor alrededor del inicio.
   const inicioValido = form?.fechaHoraInicio && !Number.isNaN(new Date(form.fechaHoraInicio).getTime());
@@ -255,11 +265,13 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
 
   const esPersonal = !!form.esPersonal;
   const modalidadPropia = MODALIDADES_PROMOTOR.includes(form.modalidad);
+  const esReunion = form.modalidad === 'REUNION_EQUIPO';
 
   const submit = async (e) => {
     e.preventDefault();
     if (!editando && !esPersonal && !modalidadPropia && !form.clienteId && !form.candidatoId) { setErr('Selecciona el cliente o el candidato'); return; }
-    if (!editando && modalidadPropia && esAdmin() && !form.asesorId) { setErr('Selecciona el promotor que entrevista'); return; }
+    if (!editando && modalidadPropia && esAdmin() && !form.asesorId) { setErr(esReunion ? 'Selecciona quién convoca la reunión' : 'Selecciona el promotor que entrevista'); return; }
+    if (!editando && esReunion && !form.invitadosIds?.length) { setErr('Invita al menos a una persona a la reunión'); return; }
     if (!form.titulo || !form.fechaHoraInicio) { setErr('Título e inicio son requeridos'); return; }
     if (!finDespuesDeInicio) { setErr('El fin debe ser posterior al inicio'); return; }
     if (promotorElegido && chocaConPromotor) { setErr('El promotor ya está ocupado a esa hora — elige otro horario libre.'); return; }
@@ -345,6 +357,9 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
         {esPersonal && !editando && (
           <p className="-mt-1 rounded-lg bg-slate-50 dark:bg-slate-700/40 px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
             Para bloquear un horario fijo (ej. la hora de comida todos los días), marca <strong>Repetir</strong> más abajo — cada día bloqueado queda como una cita independiente que puedes mover o borrar sin afectar a las demás.
+            {esAdmin() && (
+              <> ¿Es una junta o capacitación con el equipo? Desmarca esta casilla y elige <strong>Tipo de cita → Reunión de equipo</strong>: así puedes invitar a los asesores.</>
+            )}
           </p>
         )}
         {necesitaAsesor && !esPersonal && (
@@ -398,6 +413,9 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
                   setForm({
                     ...form,
                     modalidad: e.target.value,
+                    // Agenda propia (reclutamiento, reunión de equipo) no genera
+                    // dinero directo: pasa a Gestión, editable abajo.
+                    clasificacion: propia && form.clasificacion === 'PRODUCTIVA' ? 'GESTION' : form.clasificacion,
                     clienteId: propia ? '' : form.clienteId,
                     asesorId: propia ? '' : form.asesorId,
                     // candidatoId ya NO se limpia al cambiar de modalidad: desde
@@ -412,14 +430,16 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
                 {Object.values(TIPOS_CITA).filter((t) => esAdmin() || !MODALIDADES_PROMOTOR.includes(t.value)).map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
               <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
-                {modalidadPropia ? 'Agenda del promotor: no necesita asesor ni cliente.' : '"Acompañamiento" = el promotor asiste contigo a la cita.'}
+                {esReunion
+                  ? 'Junta de arranque o capacitación: no lleva cliente. Cada invitado recibe el aviso para aceptar o rechazar.'
+                  : modalidadPropia ? 'Agenda del promotor: no necesita asesor ni cliente.' : '"Acompañamiento" = el promotor asiste contigo a la cita.'}
               </p>
             </Field>
             {/* Reclutamiento: la cita vive en la agenda del promotor que
                 entrevista. Quien captura puede no ser esa persona (la asistente
                 agenda por la promotora), así que aquí se elige el dueño. */}
             {modalidadPropia && esAdmin() && !editando && (
-              <Field label="Promotor que entrevista*">
+              <Field label={esReunion ? '¿Quién convoca?*' : 'Promotor que entrevista*'}>
                 <select className="input" required value={form.asesorId} onChange={(e) => setForm({ ...form, asesorId: e.target.value })}>
                   <option value="">Selecciona…</option>
                   {promotores?.map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellidoP}</option>)}
@@ -427,7 +447,9 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
                       también puede quedarse la cita: ej. una PRP que dirige. */}
                   {!promotores?.some((p) => p.id === user?.id) && <option value={user?.id}>Mi agenda ({user?.nombre})</option>}
                 </select>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">La cita queda en su calendario y ocupa su agenda.</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                  {esReunion ? 'La reunión queda en su calendario y las respuestas de los invitados le llegan a esa persona.' : 'La cita queda en su calendario y ocupa su agenda.'}
+                </p>
               </Field>
             )}
             {form.modalidad === 'ACOMPANAMIENTO' && (
@@ -464,7 +486,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
                 )}
               </Field>
             )}
-            {modalidadPropia && !candidatoId && (
+            {modalidadPropia && !esReunion && !candidatoId && (
               <Field label="Candidato (opcional)">
                 <select className="input" value={form.candidatoId} onChange={(e) => setForm({ ...form, candidatoId: e.target.value })}>
                   <option value="">Sin candidato (ej. sesión grupal)</option>
@@ -487,7 +509,22 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
                 al crear: agregar o quitar invitados de una cita ya agendada
                 se hace desde su ficha en el calendario. */}
             {!editando && (
-              <Field label="Invitar a más personas (opcional)">
+              <Field label={esReunion ? 'Invitados*' : 'Invitar a más personas (opcional)'}>
+                {/* Atajos para juntas y capacitaciones (solo promotora y
+                    secretaria): toda la plantilla de un clic, en vez de
+                    agregar asesor por asesor. */}
+                {esAdmin() && invitadosOpciones.length > 0 && (
+                  <div className="mb-2 flex flex-wrap gap-1.5">
+                    {invitadosOpciones.some((p) => p.rol === 'ASESOR') && (
+                      <button type="button" onClick={() => agregarInvitados((p) => p.rol === 'ASESOR')} className="rounded-lg border border-brand-300 dark:border-brand-700 px-2.5 py-1 text-xs font-semibold text-brand-700 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/30">
+                        + Todos los asesores
+                      </button>
+                    )}
+                    <button type="button" onClick={() => agregarInvitados(() => true)} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                      + Todo el equipo
+                    </button>
+                  </div>
+                )}
                 <select
                   className="input"
                   value=""
@@ -497,31 +534,43 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
                     setForm((f) => ({ ...f, invitadosIds: [...(f.invitadosIds || []), iid] }));
                   }}
                 >
-                  <option value="">Agregar invitado…</option>
+                  <option value="">{invitadosOpciones.length ? 'Agregar invitado…' : 'Ya invitaste a todo el equipo'}</option>
                   {invitadosOpciones.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.nombre} {p.apellidoP}{p.esPromotor ? ' (promotora)' : ''}
+                      {p.nombre} {p.apellidoP}{p.rol !== 'ASESOR' ? ` (${ROLES_LABEL[p.rol]})` : ''}
                     </option>
                   ))}
                 </select>
                 {invitadosElegidos.length > 0 && (
-                  <ul className="mt-2 space-y-1">
-                    {invitadosElegidos.map((p) => (
-                      <li key={p.id} className="flex items-center justify-between rounded-lg bg-slate-50 dark:bg-slate-700/40 px-2.5 py-1.5 text-sm text-slate-600 dark:text-slate-300">
-                        <span>{p.nombre} {p.apellidoP}</span>
-                        <button
-                          type="button"
-                          onClick={() => setForm((f) => ({ ...f, invitadosIds: f.invitadosIds.filter((iid) => iid !== p.id) }))}
-                          className="text-xs font-semibold text-slate-400 hover:text-red-600 dark:text-slate-500 dark:hover:text-red-400"
-                        >
-                          Quitar
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                  <>
+                    <div className="mt-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                      <span>{invitadosElegidos.length === 1 ? '1 invitado' : `${invitadosElegidos.length} invitados`}</span>
+                      <button type="button" onClick={() => setForm((f) => ({ ...f, invitadosIds: [] }))} className="font-semibold hover:text-red-600 dark:hover:text-red-400">Quitar todos</button>
+                    </div>
+                    <ul className="mt-1 max-h-48 space-y-1 overflow-y-auto">
+                      {invitadosElegidos.map((p) => (
+                        <li key={p.id} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-700/40 px-2.5 py-1.5 text-sm text-slate-600 dark:text-slate-300">
+                          <span className="min-w-0 truncate">
+                            {p.nombre} {p.apellidoP}
+                            {/* pushActivo solo viaja para quien administra. */}
+                            {p.pushActivo === false && (
+                              <span className="ml-2 text-xs text-amber-600 dark:text-amber-400" title="Verá la invitación en el CRM, pero no le llegará al celular hasta que active las notificaciones">sin aviso al celular</span>
+                            )}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setForm((f) => ({ ...f, invitadosIds: f.invitadosIds.filter((iid) => iid !== p.id) }))}
+                            className="shrink-0 text-xs font-semibold text-slate-400 hover:text-red-600 dark:text-slate-500 dark:hover:text-red-400"
+                          >
+                            Quitar
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
                 )}
                 <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
-                  Cada invitado recibe un aviso para aceptar, rechazar o proponer otro horario.
+                  Cada invitado recibe un aviso en sus notificaciones y en el celular para aceptar, rechazar o proponer otro horario.
                 </p>
               </Field>
             )}

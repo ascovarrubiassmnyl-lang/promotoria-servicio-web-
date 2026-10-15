@@ -6,6 +6,7 @@ import { Modal, CitaBadge } from '../ui.jsx';
 import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, DISPONIBILIDAD_ESTILO, infoCanal, infoTipoCita, colorCita, infoInvitacion, MENSAJE_ESTADO_CITA } from './tipos.js';
 import CitaFormModal from './CitaFormModal.jsx';
 import { hora, fechaCorta, nombreMes, isoLocalInput } from '../../lib/format.js';
+import useCitaDeEnlace from './useCitaDeEnlace.js';
 import { avisar } from '../../lib/toast.js';
 
 // Calendario SOLO para móvil (< md). Paradigma distinto al de escritorio: nada
@@ -238,6 +239,14 @@ export default function CalendarioMovil() {
 
   useEffect(() => { setExpandido(new Set()); }, [selKey]);
   useEffect(() => { setSugiriendo(false); }, [detalle?.id]);
+
+  // /citas?cita=<id> (notificaciones): va al día de la cita y abre su detalle.
+  useCitaDeEnlace((c) => {
+    const d = new Date(c.fechaHoraInicio);
+    setSelDay(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
+    setView('dia');
+    setDetalle(c);
+  });
 
   // ---------- Navegación ----------
   const step = (dir) => {
@@ -889,6 +898,7 @@ export default function CalendarioMovil() {
               ) : (
                 <p className="text-slate-400 dark:text-slate-500">
                   {MODALIDADES_PROMOTOR.includes(detalle.modalidad) ? infoTipoCita(detalle.modalidad).label : 'Evento personal (sin cliente)'}
+                  {detalle.modalidad === 'REUNION_EQUIPO' && detalle.asesor ? ` · convoca ${detalle.asesor.nombre} ${detalle.asesor.apellidoP}` : ''}
                 </p>
               )}
               <p className="flex items-center gap-1.5">
@@ -1051,6 +1061,10 @@ export default function CalendarioMovil() {
                 })}
               </div>
             )}
+            {/* Quien solo fue invitado (no es dueño ni administra) no gestiona
+                la cita: responde su invitación arriba y nada más (el PATCH le
+                respondería 403). */}
+            {(esAdmin() || detalle.asesorId === user?.id) && (<>
             <div className="flex flex-wrap gap-2 pt-1">
               {detalleViva && (
                 <button onClick={() => cambiarEstado(detalle, 'COMPLETADA')} className={`${btnAccion} border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-400`}>✓ Completar</button>
@@ -1069,6 +1083,7 @@ export default function CalendarioMovil() {
             >
               Eliminar definitivamente
             </button>
+            </>)}
           </div>
         )}
       </Sheet>

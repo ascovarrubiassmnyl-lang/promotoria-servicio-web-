@@ -4,6 +4,7 @@ import { authenticate } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
 import { permiteAlguna } from '../middleware/permisos.js';
 import { referidosObtenidos } from '../utils/referidos.js';
+import { CITA_DE_TRABAJO } from '../utils/citas.js';
 
 const router = Router();
 router.use(authenticate);
@@ -59,16 +60,16 @@ router.get('/dashboard', asyncHandler(async (req, res) => {
   ] = await Promise.all([
     prisma.cliente.count({ where: { ...whereAsesor, archivadoEn: null } }),
     prisma.cliente.count({ where: { ...whereAsesor, archivadoEn: null, creadoEn: wherePeriodo.creadoEn } }),
-    // Los eventos personales (clasificacion PERSONAL, sin cliente) no cuentan
-    // como citas de trabajo en ninguna métrica.
-    prisma.cita.count({ where: { ...whereAsesor, clasificacion: { not: 'PERSONAL' }, fechaHoraInicio: { gte: ini, lte: fin } } }),
-    prisma.cita.count({ where: { ...whereAsesor, clasificacion: { not: 'PERSONAL' }, estado: 'COMPLETADA', fechaHoraInicio: { gte: ini, lte: fin } } }),
+    // Los eventos personales y las reuniones de equipo no cuentan como citas
+    // de trabajo en ninguna métrica (definición única: utils/citas.js).
+    prisma.cita.count({ where: { ...whereAsesor, ...CITA_DE_TRABAJO, fechaHoraInicio: { gte: ini, lte: fin } } }),
+    prisma.cita.count({ where: { ...whereAsesor, ...CITA_DE_TRABAJO, estado: 'COMPLETADA', fechaHoraInicio: { gte: ini, lte: fin } } }),
     prisma.venta.count({ where: { ...whereAsesor, estado: { in: GANADA }, ...wherePeriodo } }),
     prisma.venta.count({ where: { ...whereAsesor, estado: 'PENDIENTE_PAGAR' } }),
     prisma.venta.aggregate({ where: { ...whereAsesor, estado: { in: GANADA }, ...wherePeriodo }, _sum: { primaAnual: true, comisionMonto: true } }),
     prisma.venta.aggregate({ where: { ...whereAsesor, estado: { in: PIPELINE } }, _sum: { comisionMonto: true } }),
     prisma.venta.aggregate({ where: { ...whereAsesor, estado: 'PENDIENTE_PAGAR' }, _sum: { primaAnual: true } }),
-    prisma.cita.count({ where: { ...whereAsesor, clasificacion: { not: 'PERSONAL' }, estado: { in: ['PROGRAMADA', 'CONFIRMADA'] }, fechaHoraInicio: { gte: hoyIni, lte: hoyFin } } }),
+    prisma.cita.count({ where: { ...whereAsesor, ...CITA_DE_TRABAJO, estado: { in: ['PROGRAMADA', 'CONFIRMADA'] }, fechaHoraInicio: { gte: hoyIni, lte: hoyFin } } }),
     prisma.cliente.count({ where: { ...whereAsesor, archivadoEn: null, necesitaSeguimiento: true } }),
     prisma.venta.groupBy({ by: ['estado'], where: { ...whereAsesor, ...wherePeriodo }, _count: { _all: true } }),
     referidosObtenidos(wherePeriodo.creadoEn, whereAsesor),
@@ -138,7 +139,7 @@ router.get('/dashboard', asyncHandler(async (req, res) => {
         prisma.venta.count({ where: { asesorId: a.id, estado: { in: GANADA }, ...wherePeriodo } }),
         prisma.venta.aggregate({ where: { asesorId: a.id, estado: { in: GANADA }, ...wherePeriodo }, _sum: { primaAnual: true } }),
         prisma.cliente.count({ where: { asesorId: a.id, archivadoEn: null } }),
-        prisma.cita.count({ where: { asesorId: a.id, clasificacion: { not: 'PERSONAL' }, fechaHoraInicio: { gte: ini, lte: fin } } }),
+        prisma.cita.count({ where: { asesorId: a.id, ...CITA_DE_TRABAJO, fechaHoraInicio: { gte: ini, lte: fin } } }),
       ]);
       return { id: a.id, nombre: `${a.nombre} ${a.apellidoP}`, email: a.email, ventas, prima: prima._sum.primaAnual || 0, clientes, citas, metaPrima: metaPor[a.id] ?? null };
     }));
@@ -179,8 +180,8 @@ router.get('/tendencia', asyncHandler(async (req, res) => {
 // ningún conteo nuevo:
 //  1. Prospectos nuevos  = clientes creados en el mes (= métrica de Metas).
 //  2. Llamadas           = actividad LLAMADA del mes (= métrica de Metas).
-//  3. Citas obtenidas    = citas agendadas en el mes, sin PERSONAL (mismo
-//     criterio de exclusión que el resto de métricas de citas).
+//  3. Citas obtenidas    = citas agendadas en el mes, sin PERSONAL ni
+//     reuniones de equipo (CITA_DE_TRABAJO, mismo criterio que el resto).
 //  4. Cierres            = pólizas del mes ya firmadas por el cliente
 //     (FIRMADA/APROBADA/PAGADA) — el momento en que el prospecto dijo que sí.
 //  5. Emitidas y pagadas = las de arriba que ya cobró la compañía
@@ -197,11 +198,10 @@ router.get('/proceso-ventas', asyncHandler(async (req, res) => {
   const anio = parseInt(req.query.anio) || ahora.getFullYear();
   const rango = { gte: inicioMes(mes, anio), lte: finMes(mes, anio) };
 
-  const sinPersonal = { clasificacion: { not: 'PERSONAL' } };
-  const [prospectos, llamadas, citas, cierres, emitidas] = await Promise.all([
+    const [prospectos, llamadas, citas, cierres, emitidas] = await Promise.all([
     prisma.cliente.count({ where: { ...scope, creadoEn: rango, archivadoEn: null } }),
     prisma.actividad.count({ where: { ...scope, tipo: 'LLAMADA', creadoEn: rango } }),
-    prisma.cita.count({ where: { ...scope, ...sinPersonal, creadoEn: rango } }),
+    prisma.cita.count({ where: { ...scope, ...CITA_DE_TRABAJO, creadoEn: rango } }),
     prisma.venta.count({ where: { ...scope, creadoEn: rango, estado: { in: ['FIRMADA', ...GANADA] } } }),
     prisma.venta.count({ where: { ...scope, creadoEn: rango, estado: { in: GANADA } } }),
   ]);

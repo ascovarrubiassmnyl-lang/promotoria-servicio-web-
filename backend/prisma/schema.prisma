@@ -69,6 +69,9 @@ enum TipoCita {
 //  ENTREGA_POLIZA       = cita para entregar la póliza emitida al cliente.
 //  PRP/ENTREVISTA_*     = agenda propia de reclutamiento del promotor: no
 //                         llevan asesor ni cliente (ver backend/src/routes/citas.js).
+//  REUNION_EQUIPO       = junta de arranque / capacitación de la promotoría:
+//                         sin cliente, con invitados (CitaInvitado). La crea la
+//                         promotora o la secretaria; no cuenta en métricas de citas.
 enum ModalidadCita {
   CITA_UNICA
   ACOMPANAMIENTO
@@ -77,6 +80,7 @@ enum ModalidadCita {
   ENTREVISTA_INICIAL
   ENTREVISTA_SELECCION
   ENTREVISTA_CARRERA
+  REUNION_EQUIPO
 }
 
 // Clasificación de la agenda por lo que aporta al negocio (metodología de la
