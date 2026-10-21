@@ -6,6 +6,7 @@ import { Modal, Drawer, CitaBadge, EmptyState, MenuAcciones, Field } from '../ui
 import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, DISPONIBILIDAD_ESTILO, infoCanal, infoTipoCita, colorCita, infoInvitacion, MENSAJE_ESTADO_CITA } from './tipos.js';
 import CitaFormModal from './CitaFormModal.jsx';
 import CalendarioMovil from './CalendarioMovil.jsx';
+import HorariosPromotor, { HORA_INI, HORA_FIN } from './HorariosPromotor.jsx';
 import { MiniMes, GrupoVisibilidad } from './CalendarioSidebar.jsx';
 import useIsMobile from '../../hooks/useIsMobile.js';
 import useCitaDeEnlace from './useCitaDeEnlace.js';
@@ -13,8 +14,6 @@ import { hora, nombreMes, fechaCorta } from '../../lib/format.js';
 import { avisar } from '../../lib/toast.js';
 
 const DIAS_SEM = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-const HORA_INI = 8;
-const HORA_FIN = 20;
 const ALTO_HORA = 46; // px por hora en la vista Semana
 
 const startOfWeek = (d) => {
@@ -533,59 +532,6 @@ function FichaCita({ cita, onClose, onReagendar, onEliminar, onCambiarEstado, es
   );
 }
 
-// Franja horaria del calendario (8:00–20:00, ver HORA_INI/HORA_FIN) partida en
-// "ocupado" (bloques del promotor) y "libre" (huecos entre ellos, incluidos los
-// extremos del día). Cada hueco libre agenda directo un acompañamiento a esa
-// hora — el asesor no tiene que ir a buscar la celda vacía en la grilla.
-function BloquesOcupadosDelDia({ dia, bloques, promotor, onAgendar }) {
-  const segmentos = useMemo(() => {
-    const ini = new Date(dia); ini.setHours(HORA_INI, 0, 0, 0);
-    const fin = new Date(dia); fin.setHours(HORA_FIN, 0, 0, 0);
-    const ocupados = [...bloques]
-      .map((b) => ({ inicio: new Date(b.inicio), fin: new Date(b.fin) }))
-      .sort((a, b) => a.inicio - b.inicio);
-    const out = [];
-    let cursor = ini;
-    for (const b of ocupados) {
-      const bIni = b.inicio < ini ? ini : b.inicio;
-      const bFin = b.fin > fin ? fin : b.fin;
-      if (bFin <= cursor) continue; // fuera de rango o ya cubierto
-      if (bIni > cursor) out.push({ tipo: 'libre', inicio: cursor, fin: bIni });
-      out.push({ tipo: 'ocupado', inicio: bIni, fin: bFin });
-      cursor = bFin > cursor ? bFin : cursor;
-    }
-    if (cursor < fin) out.push({ tipo: 'libre', inicio: cursor, fin });
-    return out;
-  }, [dia, bloques]);
-
-  return (
-    <div className="mb-3 space-y-1.5 border-b border-slate-100 dark:border-slate-700 pb-3">
-      <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-        Horarios de {promotor ? `${promotor.nombre} ${promotor.apellidoP}` : 'el promotor'}
-      </p>
-      {segmentos.length === 0 ? (
-        <p className="text-xs text-slate-400 dark:text-slate-500">Sin información en el horario de 8:00 a 20:00.</p>
-      ) : (
-        <ul className="space-y-1">
-          {segmentos.map((s, i) => (
-            <li key={i} className="flex items-center justify-between gap-2 text-xs">
-              <span className={`inline-flex items-center gap-1.5 ${s.tipo === 'ocupado' ? 'text-slate-500 dark:text-slate-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
-                <span className={`w-2 h-2 rounded-full ${s.tipo === 'ocupado' ? 'bg-slate-400 dark:bg-slate-500' : 'bg-emerald-500'}`} />
-                {hora(s.inicio)} – {hora(s.fin)} · {s.tipo === 'ocupado' ? DISPONIBILIDAD_ESTILO.label : 'Libre'}
-              </span>
-              {s.tipo === 'libre' && (
-                <button type="button" onClick={() => onAgendar(s.inicio)} className="text-xs font-semibold text-brand-600 hover:underline dark:text-brand-400">
-                  Agendar
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
 function CalendarioEscritorio() {
   const { esAdmin, user } = useAuth();
   const qc = useQueryClient();
@@ -1069,7 +1015,7 @@ function CalendarioEscritorio() {
       {/* Horarios ocupados del promotor elegido, para este día: cada hueco libre
           agenda directo el acompañamiento. */}
       {fPromotor && selectedDay && (
-        <BloquesOcupadosDelDia
+        <HorariosPromotor
           dia={selectedDay}
           bloques={ocupadoPorDia[dayKey(selectedDay)] || []}
           promotor={promotorVisto}

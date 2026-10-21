@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { Modal, CitaBadge } from '../ui.jsx';
 import { CANALES, ESTADOS_CITA, CLASIFICACIONES, CITA_VIVA, MODALIDADES_PROMOTOR, DISPONIBILIDAD_ESTILO, infoCanal, infoTipoCita, colorCita, infoInvitacion, MENSAJE_ESTADO_CITA } from './tipos.js';
 import CitaFormModal from './CitaFormModal.jsx';
+import HorariosPromotor from './HorariosPromotor.jsx';
 import { hora, fechaCorta, nombreMes, isoLocalInput } from '../../lib/format.js';
 import useCitaDeEnlace from './useCitaDeEnlace.js';
 import { avisar } from '../../lib/toast.js';
@@ -227,7 +228,7 @@ export default function CalendarioMovil() {
   );
 
   const esHoy = (d) => d.toDateString() === hoy.toDateString();
-  const hayFiltros = !!(fCanal || fEstado || fClasif || fAsesor || fPromotor);
+  const hayFiltros = !!(fCanal || fEstado || fClasif || fAsesor);
   const selKey = dayKey(selDay);
   const listaDia = porDia[selKey] || [];
   // Memoizado (no un array nuevo por render): alimenta las dependencias del
@@ -636,15 +637,40 @@ export default function CalendarioMovil() {
         {/* La capa de disponibilidad necesita el timeline por hora, que solo
             existe en la vista Día: si se activa desde Mes/Agenda hay que
             decirlo, o parecería que el promotor no tiene nada ocupado. */}
-        {fPromotor && (
+        {/* Selector de disponibilidad (solo asesores): vive a la vista, no en
+            Filtros, porque es lo primero que se busca al invitar a la promotora. */}
+        {!esAdmin() && !!promotores?.length && (
+          promotores.length === 1 ? (
+            <button
+              type="button"
+              onClick={() => setFPromotor(fPromotor ? '' : promotores[0].id)}
+              aria-pressed={!!fPromotor}
+              className={`mb-3 flex min-h-[48px] w-full items-center gap-3 rounded-xl border px-3.5 text-left text-[13px] font-semibold transition ${focoAnillo} ${
+                fPromotor
+                  ? 'border-brand-500 bg-brand-50 text-brand-700 dark:border-brand-500 dark:bg-brand-900/40 dark:text-brand-300'
+                  : 'border-slate-200 bg-white text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300'
+              }`}
+            >
+              <span className={`inline-block h-3 w-5 shrink-0 rounded ${DISPONIBILIDAD_ESTILO.bloque}`} />
+              <span className="min-w-0 flex-1 truncate">
+                {fPromotor ? 'Viendo' : 'Ver'} disponibilidad de {promotores[0].nombre} {promotores[0].apellidoP}
+              </span>
+              <span className="shrink-0 text-xs font-bold">{fPromotor ? 'Quitar' : 'Ver'}</span>
+            </button>
+          ) : (
+            <div className="mb-3">
+              <label htmlFor="cal-disp-promotor" className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Ver disponibilidad de</label>
+              <select id="cal-disp-promotor" className="input min-h-[44px]" value={fPromotor} onChange={(e) => setFPromotor(e.target.value)}>
+                <option value="">Nadie</option>
+                {promotores.map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellidoP}</option>)}
+              </select>
+            </div>
+          )
+        )}
+        {fPromotor && view !== 'dia' && (
           <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11.5px] text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
-            <span className={`inline-block h-3 w-5 rounded ${DISPONIBILIDAD_ESTILO.bloque}`} />
-            <span>
-              Horarios ocupados de <strong className="font-semibold">{promotorVisto ? `${promotorVisto.nombre} ${promotorVisto.apellidoP}` : 'el promotor'}</strong>, sin el detalle.
-            </span>
-            {view !== 'dia' && (
-              <button onClick={() => setView('dia')} className={`font-bold text-brand-600 dark:text-brand-400 ${focoAnillo}`}>Ver en la vista Día</button>
-            )}
+            <span>Los horarios de <strong className="font-semibold">{promotorVisto ? `${promotorVisto.nombre} ${promotorVisto.apellidoP}` : 'el promotor'}</strong> se ven por día.</span>
+            <button onClick={() => setView('dia')} className={`font-bold text-brand-600 dark:text-brand-400 ${focoAnillo}`}>Ver en la vista Día</button>
           </div>
         )}
         {isLoading ? (
@@ -660,10 +686,21 @@ export default function CalendarioMovil() {
               </span>
             </div>
 
+            {fPromotor && (
+              <div>
+                <HorariosPromotor
+                  dia={selDay}
+                  bloques={ocupadoPorDia[selKey] || []}
+                  promotor={promotorVisto}
+                  onAgendar={(fecha) => abrirAgendar(fecha)}
+                />
+              </div>
+            )}
+
             {!tl ? (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center dark:border-slate-600 dark:bg-slate-800/60">
                 <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Sin citas este día</p>
-                <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">El día está libre.</p>
+                <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{fPromotor ? 'Tú no tienes nada agendado.' : 'El día está libre.'}</p>
                 <button onClick={() => abrirAgendar(selDay)} className="btn-primary mt-4 text-sm">Agendar para este día</button>
               </div>
             ) : (
@@ -837,18 +874,6 @@ export default function CalendarioMovil() {
               <option value={user?.id}>Mi agenda</option>
               {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
             </select>
-          </>
-        )}
-        {!esAdmin() && (
-          <>
-            <h4 className="mb-2 mt-2 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Ver disponibilidad de</h4>
-            <select className="input" value={fPromotor} onChange={(e) => setFPromotor(e.target.value)}>
-              <option value="">Nadie</option>
-              {promotores?.map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellidoP}</option>)}
-            </select>
-            <p className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">
-              Marca sus horarios ocupados en la vista Día, para invitarlo a un acompañamiento cuando esté libre.
-            </p>
           </>
         )}
         <h4 className="mb-2 mt-4 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Clasificación</h4>

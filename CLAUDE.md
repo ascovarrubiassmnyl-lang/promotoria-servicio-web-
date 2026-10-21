@@ -1399,6 +1399,14 @@ conservan sus nombres históricos; la traducción a UI vive en el **mapa único*
   formas" a una hora que ya no tiene libre. Al reagendar una cita ya
   ACEPTADA por ese promotor, su propio bloque original se excluye del choque
   para no bloquear "guardar sin cambiar el horario".
+- **Disponibilidad en el celular (2026-10-21)**: en `CalendarioMovil` el
+  selector "Ver disponibilidad de" ya no vive dentro del sheet de Filtros
+  (nadie lo encontraba): es un botón a la vista arriba del contenido (un solo
+  promotor → toggle "Ver disponibilidad de Diana"; varios → select). Con él
+  activo, la vista Día antepone la lista libre/ocupado de 8:00 a 20:00 con
+  "Agendar" en cada hueco — el mismo componente que el panel del día de
+  escritorio (`HorariosPromotor.jsx`, único; hoy solo ofrece huecos desde la
+  próxima media hora). Sigue siendo solo para no-admins.
 - **Sugerir otro horario (2026-08-12)**: además de Aceptar/Rechazar, el
   promotor invitado a un acompañamiento puede responder `PATCH
   /api/citas/:id/invitacion` con `respuesta: 'SUGERIDA'` +
