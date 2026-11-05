@@ -16,6 +16,7 @@ import { MONEDAS, resolverPrima } from '../utils/prima.js';
 import {
   esquemaParaPoliza, registrarPagoConComision, registrarPrimerPagoSiAplica,
   resumenComisionPoliza, proyeccionPoliza, siguientePeriodo, montoEsperadoDeRecibo,
+  anclaDeRecibos, conCandadoDePoliza, rangoDelDia,
   comisionAutomatica, recibosFaltantes,
 } from '../utils/comisionesPoliza.js';
 import { pctDelAnio, isrResicoMensual, TOPE_RESICO_ANUAL, PAGOS_POR_ANIO as RECIBOS_POR_ANIO, anioDePoliza } from '../utils/comisiones.js';
@@ -368,7 +369,7 @@ router.get('/comisiones/resumen', asyncHandler(async (req, res) => {
         m.esperada += (prima / n) * (pct / 100) * tc;
       }
       if (v.formaPago === 'UNICO') break;
-      r = siguientePeriodo(r, v.formaPago);
+      r = siguientePeriodo(r, v.formaPago, inicio);
     }
   }
 
@@ -859,7 +860,18 @@ router.patch('/:id/pagos/:pagoId', asyncHandler(async (req, res) => {
     }));
   }
 
-  const actualizado = await prisma.pagoPoliza.update({ where: { id: pago.id }, data });
+  // Mover el periodo encima de otro recibo ya pagado lo duplicaría: se valida
+  // dentro del mismo candado que usa el alta de pagos.
+  const actualizado = await conCandadoDePoliza(venta.id, async (tx) => {
+    if (data.periodo && pago.estado === 'PAGADO') {
+      const choque = await tx.pagoPoliza.findFirst({
+        where: { ventaId: venta.id, estado: 'PAGADO', id: { not: pago.id }, periodo: rangoDelDia(data.periodo) },
+      });
+      if (choque) return null;
+    }
+    return tx.pagoPoliza.update({ where: { id: pago.id }, data });
+  });
+  if (!actualizado) return res.status(409).json({ error: 'Ya hay otro recibo pagado en ese periodo' });
   res.json(actualizado);
 }));
 
@@ -903,7 +915,7 @@ router.post('/:id/pagos/completar', asyncHandler(async (req, res) => {
     });
     const actual = venta.fechaProximoPago ? new Date(venta.fechaProximoPago) : null;
     if (ultimo && (!actual || actual <= new Date(ultimo.periodo))) {
-      const sig = siguientePeriodo(ultimo.periodo, venta.formaPago);
+      const sig = siguientePeriodo(ultimo.periodo, venta.formaPago, anclaDeRecibos(venta));
       const fin = venta.fechaFinVigencia ? new Date(venta.fechaFinVigencia) : null;
       const proxima = sig && (!fin || sig <= fin) ? sig : null;
       // Los avisos de cobro de recibos que ya quedaron pagados se cierran.
@@ -968,15 +980,12 @@ router.post('/:id/cobroconfirmado', asyncHandler(async (req, res) => {
     data: { completada: true, notificacionEnviada: true, avisoPrevioEnviado: true },
   });
 
-  // Calcula la próxima fecha según formaPago
+  // Próximo recibo: misma serie anclada al inicio de vigencia que usan
+  // "Completar desde la emisión" y el resumen mensual (siguientePeriodo).
   const fp = venta.formaPago;
   const base = venta.fechaProximoPago ? new Date(venta.fechaProximoPago) : new Date();
-  const proxima = new Date(base);
-  if (fp === 'MENSUAL') proxima.setMonth(proxima.getMonth() + 1);
-  else if (fp === 'TRIMESTRAL') proxima.setMonth(proxima.getMonth() + 3);
-  else if (fp === 'SEMESTRAL') proxima.setMonth(proxima.getMonth() + 6);
-  else if (fp === 'ANUAL') proxima.setFullYear(proxima.getFullYear() + 1);
-  else if (fp === 'UNICO') {
+  const proxima = siguientePeriodo(base, fp, anclaDeRecibos(venta));
+  if (!proxima) {
     // Pago único: no hay siguiente; solo actualizamos estado a PAGADA.
     await prisma.venta.update({ where: { id }, data: { fechaPago: new Date(), estado: 'PAGADA' } });
     return res.json({ ok: true, siguienteFecha: null });

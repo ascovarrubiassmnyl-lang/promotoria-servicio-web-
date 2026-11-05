@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import app from '../src/app.js';
 import { prisma } from '../src/prisma.js';
 import { signToken } from '../src/utils/tokens.js';
+import { sumarMeses } from '../src/utils/comisionesPoliza.js';
 import {
   resolverEsquema, pctDelAnio, anioDePoliza, comisionDeRecibo, isrResicoMensual, proyeccionComision,
 } from '../src/utils/comisiones.js';
@@ -201,7 +202,8 @@ test('API: póliza capturada tarde — completar recibos desde la emisión y cor
   assert.ok(pagos.every((p) => p.comisionMonto === 400));
   // El próximo pago queda en el primer recibo que todavía no vence.
   const venta = await prisma.venta.findUnique({ where: { id: v.id } });
-  const sig = new Date(inicio); sig.setMonth(sig.getMonth() + 4);
+  // Topado a fin de mes: un inicio el 31 de julio da 30 de noviembre, no 1 de diciembre.
+  const sig = sumarMeses(inicio, 4);
   assert.equal(new Date(venta.fechaProximoPago).toISOString(), sig.toISOString());
   // Idempotente: ya no falta nada.
   assert.equal((await (await api(`/api/ventas/${v.id}/pagos/faltantes`)).json()).periodos.length, 0);

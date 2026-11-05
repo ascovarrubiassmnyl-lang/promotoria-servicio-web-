@@ -941,6 +941,41 @@ según la forma de pago, y llevar el historial de cada recibo pagado.
   `ComisionesMensuales.jsx` arriba de la lista en `PolizasView`.
 - Tests: `backend/test/comisiones.test.js`.
 
+### Ciclo de cobro: el job solo avisa, el pago avanza (2026-11-05)
+
+Bug real encontrado en la auditoría del 5-nov: al vencer un
+`RECORDATORIO_PAGO`, `reminderJob.js` buscaba "la nota pendiente" para crear
+la del siguiente periodo, encontraba **esa misma**, la movía al mes siguiente
+y luego la marcaba `notificacionEnviada: true` — el aviso no volvía a sonar
+nunca — y además adelantaba `Venta.fechaProximoPago` sin que nadie cobrara
+(semáforo siempre verde, y "Confirmar cobro" guardaba el recibo un periodo
+adelante).
+
+- **El job SOLO avisa** (`procesarNotaVencida()`): ni reprograma la nota ni
+  toca `fechaProximoPago`. La nota queda abierta y vencida (Hoy, ficha) con el
+  semáforo en ámbar hasta que se registra el pago. **No reintroducir** la
+  generación del siguiente recordatorio en el job.
+- **El ciclo avanza solo al registrar un pago**: `cobroconfirmado` y
+  `pagos/completar` cierran las notas abiertas, mueven `fechaProximoPago` y
+  crean la siguiente con `sincronizarRecordatorioPago()`.
+- **Recibos anclados al inicio de vigencia**: `siguientePeriodo(fecha,
+  formaPago, ancla)` calcula ancla + k periodos con `sumarMeses()` (topado a
+  fin de mes): 31 ene → 28 feb → 31 mar, nunca 3 mar → 3 abr. `cobroconfirmado`
+  ya no tiene su propia aritmética de fechas; `recibosFaltantes` y el resumen
+  mensual usan lo mismo. `anclaDeRecibos(venta)` = inicio de vigencia o emisión.
+- **Sin pagos duplicados**: toda escritura de `PagoPoliza` (alta y corrección
+  de periodo) pasa por `conCandadoDePoliza()` — `pg_advisory_xact_lock` por
+  póliza — y el chequeo de "ya pagado ese día" va dentro del candado. Se eligió
+  candado y no índice único porque el índice tumbaría el deploy si producción
+  ya tiene duplicados. Mover un pago encima de otro recibo pagado → 409.
+- **Datos dañados en producción**: `backend/scripts/reparar-ciclo-cobro.mjs`
+  (simula por defecto; `--aplicar` escribe). Busca la huella (nota de cobro
+  abierta, enviada y con fecha futura, con la póliza en el mismo día) y
+  regresa póliza y nota tantos periodos como `PAGO_RECORDADO` haya desde el
+  último `PAGO_CONFIRMADO`. Lo que no puede explicar solo lo reactiva sin
+  mover fechas.
+- Tests: `backend/test/cobros.test.js`.
+
 ## Sección Actividad (rediseño 2026-07)
 
 **Eventos estructurados, nunca strings pre-renderizados.** El modelo `Actividad`

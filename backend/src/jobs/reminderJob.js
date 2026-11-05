@@ -7,58 +7,6 @@ const INTERVALO_MS = 60 * 1000;
 let corriendo = false;
 let timer = null;
 
-// Suma un periodo (mes, trimestre, semestre, año) a un Date según FormaPago
-function sumarPeriodo(base, formaPago) {
-  const d = new Date(base);
-  if (formaPago === 'MENSUAL') d.setMonth(d.getMonth() + 1);
-  else if (formaPago === 'TRIMESTRAL') d.setMonth(d.getMonth() + 3);
-  else if (formaPago === 'SEMESTRAL') d.setMonth(d.getMonth() + 6);
-  else if (formaPago === 'ANUAL') d.setFullYear(d.getFullYear() + 1);
-  else return null; // UNICO o desconocido
-  return d;
-}
-
-// Genera (si no existe otra pendiente) el SIguiente recordatorio de pago
-// asociado a una venta dada, sumando un periodo a partir de `base`.
-async function generarSiguienteRecordatorioPago(venta, base) {
-  if (!venta) return;
-  if (venta.formaPago === 'UNICO') return;
-  // Póliza domiciliada: el cargo es automático, no se recuerda el cobro.
-  if (venta.domiciliada) return;
-
-  const proxima = sumarPeriodo(base, venta.formaPago);
-  if (!proxima) return;
-  // Si la fecha fin de vigencia ya está definida y la próxima supera el fin, stop
-  if (venta.fechaFinVigencia && proxima > new Date(venta.fechaFinVigencia)) {
-    await prisma.venta.update({ where: { id: venta.id }, data: { fechaProximoPago: null } }).catch(() => {});
-    return;
-  }
-
-  const texto = `Pago de póliza: ${venta.producto} (${venta.formaPago.toLowerCase()}) · ${venta.cliente?.nombre ?? ''} ${venta.cliente?.apellidoP ?? ''}`.trim();
-  // Evitar duplicados: si ya existe una nota pendiente para misma venta, simplemente la reusamos
-  const pendiente = await prisma.nota.findFirst({
-    where: { ventaId: venta.id, tipo: 'RECORDATORIO_PAGO', completada: false },
-  });
-  if (pendiente) {
-    await prisma.nota.update({
-      where: { id: pendiente.id },
-      data: { fechaAviso: proxima, texto, notificacionEnviada: false, avisoPrevioEnviado: false },
-    });
-  } else {
-    await prisma.nota.create({
-      data: {
-        clienteId: venta.clienteId,
-        asesorId: venta.asesorId,
-        ventaId: venta.id,
-        tipo: 'RECORDATORIO_PAGO',
-        texto,
-        fechaAviso: proxima,
-      },
-    });
-  }
-  await prisma.venta.update({ where: { id: venta.id }, data: { fechaProximoPago: proxima } }).catch(() => {});
-}
-
 // Aviso anticipado: recordatorios cuyo `fechaAviso` cae dentro de las próximas
 // 24h y que aún no han recibido su aviso previo. Es una ventana aparte de la
 // del día (por eso son dos banderas y no un contador): un recordatorio creado
@@ -90,8 +38,50 @@ async function procesarAvisosPrevios(ahora) {
   return enviados;
 }
 
-// Busca recordatorios vencidos (cualquier tipo) y dispara notificaciones push.
-// Para RECORDATORIO_PAGO además genera automáticamente la siguiente nota.
+// Avisa UNA nota vencida. Devuelve true si el aviso quedó persistido.
+//
+// Un RECORDATORIO_PAGO solo se AVISA: no se reprograma ni mueve
+// `Venta.fechaProximoPago` (bug corregido 2026-11-05). Antes el job buscaba
+// "la nota de pago pendiente" para crear la del siguiente periodo, encontraba
+// esta misma, la movía al mes siguiente y luego la marcaba enviada: el
+// recordatorio no volvía a sonar nunca, la póliza parecía al corriente sin
+// que nadie hubiera cobrado y "Confirmar cobro" registraba el recibo en el
+// periodo equivocado. El ciclo de cobro avanza SOLO al registrar un pago
+// (cobroconfirmado / completar), que cierran esta nota y crean la siguiente
+// con sincronizarRecordatorioPago(). Mientras tanto la nota queda vencida a
+// la vista (Hoy, ficha) y el semáforo de pagos en ámbar.
+export async function procesarNotaVencida(nota) {
+  // "Notificado" = la notificación in-app quedó persistida (eso es lo que el
+  // asesor verá en su campana), NO que la push haya llegado: el push es mejor
+  // esfuerzo y antes un fallo suyo marcaba la nota como enviada, perdiendo el
+  // recordatorio para siempre.
+  try {
+    await notificarRecordatorioNota(nota);
+  } catch (err) {
+    // Si no se pudo persistir (BD caída, etc.) la nota sigue pendiente y se
+    // reintenta en la próxima corrida.
+    console.warn(`[reminder-job] error al notificar nota ${nota.id}: ${err.message}`);
+    return false;
+  }
+  await prisma.nota.update({ where: { id: nota.id }, data: { notificacionEnviada: true } });
+  if (nota.tipo === 'RECORDATORIO_PAGO' && nota.ventaId) {
+    const venta = await prisma.venta.findUnique({
+      where: { id: nota.ventaId },
+      include: { cliente: { select: { nombre: true, apellidoP: true } } },
+    });
+    if (venta) {
+      await registrarActividad(venta.asesorId, 'PAGO_RECORDADO', {
+        ventaId: venta.id,
+        clienteId: venta.clienteId,
+        cliente: venta.cliente ? `${venta.cliente.nombre} ${venta.cliente.apellidoP}` : null,
+        producto: venta.producto,
+      }).catch(() => {});
+    }
+  }
+  return true;
+}
+
+// Busca recordatorios vencidos (cualquier tipo) y dispara notificaciones.
 async function procesarRecordatoriosVencidos() {
   if (corriendo) return;
   corriendo = true;
@@ -112,38 +102,7 @@ async function procesarRecordatoriosVencidos() {
 
     let enviados = 0;
     for (const nota of vencidos) {
-      // "Notificado" = la notificación in-app quedó persistida (eso es lo que
-      // el asesor verá en su campana), NO que la push haya llegado: el push es
-      // mejor esfuerzo y antes un fallo suyo marcaba la nota como enviada,
-      // perdiendo el recordatorio para siempre.
-      let notificacionPersistida = false;
-      try {
-        await notificarRecordatorioNota(nota);
-        notificacionPersistida = true;
-        enviados += 1;
-        // Si es de pago, genera el siguiente recordatorio automáticamente
-        if (nota.tipo === 'RECORDATORIO_PAGO' && nota.ventaId) {
-          const venta = await prisma.venta.findUnique({
-            where: { id: nota.ventaId },
-            include: { cliente: { select: { nombre: true, apellidoP: true } } },
-          });
-          if (venta) {
-            await generarSiguienteRecordatorioPago(venta, nota.fechaAviso || ahora);
-            await registrarActividad(venta.asesorId, 'PAGO_RECORDADO', {
-              ventaId: venta.id,
-              cliente: venta.cliente ? `${venta.cliente.nombre} ${venta.cliente.apellidoP}` : null,
-              producto: venta.producto,
-            }).catch(() => {});
-          }
-        }
-      } catch (err) {
-        console.warn(`[reminder-job] error al notificar nota ${nota.id}: ${err.message}`);
-      }
-      // Solo si el aviso quedó guardado. Si no se pudo persistir (BD caída,
-      // etc.) la nota sigue pendiente y se reintenta en la próxima corrida.
-      if (notificacionPersistida) {
-        await prisma.nota.update({ where: { id: nota.id }, data: { notificacionEnviada: true } });
-      }
+      if (await procesarNotaVencida(nota)) enviados += 1;
     }
     if (enviados > 0) console.log(`[reminder-job] ${enviados} recordatorio(s) notificados`);
   } catch (err) {

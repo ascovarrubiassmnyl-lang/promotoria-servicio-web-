@@ -47,24 +47,62 @@ export function montoEsperadoDeRecibo(venta) {
   return venta.primaAnual != null ? +(venta.primaAnual / n).toFixed(2) : null;
 }
 
-export function siguientePeriodo(fecha, formaPago) {
-  const d = new Date(fecha);
-  if (formaPago === 'UNICO') return null;
-  d.setMonth(d.getMonth() + (MESES_POR_PAGO[formaPago] || 12));
+// Suma meses topando al último día del mes: 31 ene + 1 = 28/29 feb, no el
+// 3 de marzo que da `setMonth` a secas.
+export function sumarMeses(base, meses) {
+  const d = new Date(base);
+  const dia = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + meses);
+  const ultimo = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(dia, ultimo));
   return d;
+}
+
+const DIA_MS = 86400000;
+
+// Recibo siguiente a `fecha`. Con `ancla` (inicio de vigencia) los recibos se
+// calculan siempre como ancla + k periodos, así un 31 nunca se recorre
+// (31 ene → 28 feb → 31 mar, no 31 ene → 3 mar → 3 abr) y aunque `fecha` ya
+// venga corrida de un cálculo viejo se regresa a la serie correcta. Sin ancla,
+// un periodo topado al fin de mes.
+export function siguientePeriodo(fecha, formaPago, ancla = null) {
+  if (formaPago === 'UNICO') return null;
+  const meses = MESES_POR_PAGO[formaPago] || 12;
+  if (!ancla) return sumarMeses(fecha, meses);
+  const k = Math.round((new Date(fecha) - new Date(ancla)) / (meses * 30.4375 * DIA_MS));
+  return sumarMeses(ancla, (Math.max(k, 0) + 1) * meses);
+}
+
+// Inicio de la serie de recibos de una póliza (misma regla que recibosFaltantes).
+export const anclaDeRecibos = (venta) => venta.fechaInicioVigencia || venta.fechaEmision || null;
+
+// Día calendario de un periodo (mismo criterio de "mismo recibo" en todo el flujo).
+export function rangoDelDia(fecha) {
+  const dia = new Date(fecha); dia.setHours(0, 0, 0, 0);
+  return { gte: dia, lt: new Date(dia.getTime() + DIA_MS) };
+}
+
+// Serializa las escrituras de pagos de UNA póliza: candado de Postgres que se
+// libera solo al terminar la transacción. Sin esto, dos "Confirmar cobro"
+// simultáneos (doble clic, reintento de red) pasaban ambos el chequeo de
+// duplicado y creaban dos recibos con su comisión. Un candado y no un índice
+// único porque un índice fallaría el deploy si producción ya tiene duplicados.
+// `$executeRaw` y no `$queryRaw`: la función devuelve `void` y Prisma no sabe
+// deserializarlo.
+export function conCandadoDePoliza(ventaId, fn) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'pago:' + ventaId}))`;
+    return fn(tx);
+  });
 }
 
 // Registra un recibo pagado con su comisión. No duplica: si ya hay un pago
 // PAGADO para el mismo periodo (mismo día), devuelve { duplicado }.
 export async function registrarPagoConComision(venta, { periodo, fechaPago, montoPagado, justificacion, registradoPor }) {
   const p = new Date(periodo);
-  const dia = new Date(p); dia.setHours(0, 0, 0, 0);
-  const finDia = new Date(dia.getTime() + 86400000);
-  const ya = await prisma.pagoPoliza.findFirst({
-    where: { ventaId: venta.id, estado: 'PAGADO', periodo: { gte: dia, lt: finDia } },
-  });
-  if (ya) return { duplicado: ya };
-
+  // El tipo de cambio puede ir a Banxico (hasta 6 s): se resuelve antes de
+  // tomar el candado para no tener la transacción abierta esperando la red.
   const montoEsperado = montoEsperadoDeRecibo(venta);
   const pagado = montoPagado == null ? montoEsperado : +montoPagado;
   const com = comisionDeRecibo({
@@ -75,20 +113,26 @@ export async function registrarPagoConComision(venta, { periodo, fechaPago, mont
     montoPagado: pagado,
     tipoCambio: await tcParaRecibo(venta),
   });
-  const pago = await prisma.pagoPoliza.create({
-    data: {
-      ventaId: venta.id,
-      periodo: p,
-      fechaPago: fechaPago ? new Date(fechaPago) : new Date(),
-      estado: 'PAGADO',
-      montoEsperado: montoEsperado ?? null,
-      montoPagado: pagado ?? null,
-      justificacion: String(justificacion || '').trim().slice(0, 300) || null,
-      registradoPor: registradoPor || null,
-      ...com,
-    },
+  return conCandadoDePoliza(venta.id, async (tx) => {
+    const ya = await tx.pagoPoliza.findFirst({
+      where: { ventaId: venta.id, estado: 'PAGADO', periodo: rangoDelDia(p) },
+    });
+    if (ya) return { duplicado: ya };
+    const pago = await tx.pagoPoliza.create({
+      data: {
+        ventaId: venta.id,
+        periodo: p,
+        fechaPago: fechaPago ? new Date(fechaPago) : new Date(),
+        estado: 'PAGADO',
+        montoEsperado: montoEsperado ?? null,
+        montoPagado: pagado ?? null,
+        justificacion: String(justificacion || '').trim().slice(0, 300) || null,
+        registradoPor: registradoPor || null,
+        ...com,
+      },
+    });
+    return { pago };
   });
-  return { pago };
 }
 
 // Comisión automática (según la tabla) de un recibo ya registrado: se usa al
@@ -124,11 +168,9 @@ export async function recibosFaltantes(venta, hasta = new Date()) {
     const cubierto = pagos.some((x) => Math.abs(new Date(x.periodo) - p) < tolerancia);
     if (!cubierto) faltan.push(new Date(p));
     if (venta.formaPago === 'UNICO') break;
-    // Siempre desde el inicio (no encadenado) para no arrastrar el corrimiento
-    // de fin de mes: 31 ene + 1 mes = 3 mar.
-    const sig = new Date(inicio);
-    sig.setMonth(sig.getMonth() + (i + 1) * (MESES_POR_PAGO[venta.formaPago] || 12));
-    p = sig;
+    // Siempre desde el inicio (no encadenado) y topado al fin de mes para no
+    // arrastrar el corrimiento: 31 ene + 1 mes = 28 feb, no 3 mar.
+    p = sumarMeses(inicio, (i + 1) * (MESES_POR_PAGO[venta.formaPago] || 12));
   }
   return faltan;
 }
@@ -148,7 +190,7 @@ export async function registrarPrimerPagoSiAplica(venta, { registradoPor } = {})
     justificacion: 'Primer recibo (registrado al dar de alta la póliza como pagada)',
   });
   if (!venta.fechaProximoPago && venta.formaPago !== 'UNICO') {
-    const sig = siguientePeriodo(periodo, venta.formaPago);
+    const sig = siguientePeriodo(periodo, venta.formaPago, anclaDeRecibos(venta));
     const fin = venta.fechaFinVigencia ? new Date(venta.fechaFinVigencia) : null;
     if (sig && (!fin || sig <= fin)) {
       await prisma.venta.update({ where: { id: venta.id }, data: { fechaProximoPago: sig } });
