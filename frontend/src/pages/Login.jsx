@@ -36,7 +36,7 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      await login(email, password);
+      await login(email.trim(), password);
       // Se entra a "Hoy" (2026-10-13): la lista de trabajo, no los KPIs.
       navigate('/hoy');
     } catch (err) {
@@ -85,6 +85,9 @@ export default function Login() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               placeholder="tu@correo.com"
               required
               autoFocus

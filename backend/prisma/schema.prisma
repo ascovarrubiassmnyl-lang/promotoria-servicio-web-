@@ -226,6 +226,11 @@ model Usuario {
   // copia a `Venta` (se lee siempre del asesor dueño).
   claveAgente   String?
   fotoUrl       String?
+  // Marca de "todas las sesiones anteriores quedan cerradas": un token con
+  // `iat` anterior se rechaza en middleware/auth.js. La mueven cambiar la
+  // contraseña, "Cerrar sesión en los demás dispositivos" y redimir una
+  // invitación. null = nunca se ha cerrado nada (todas valen).
+  sesionesDesde DateTime?
   // LEGACY, sin uso: las excepciones por usuario se eliminaron (el acceso es
   // solo por rol, ver PoliticaRol). Nadie lee ni escribe este campo.
   permisos      Json?

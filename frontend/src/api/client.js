@@ -29,15 +29,24 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Token con el que salió ESTA petición (no el que haya en localStorage cuando
+// vuelve la respuesta: entre una cosa y otra pudo haberse iniciado sesión).
+const tokenDeLaPeticion = (err) => {
+  const h = err?.config?.headers?.Authorization || err?.config?.headers?.authorization || '';
+  return h.startsWith('Bearer ') ? h.slice(7) : null;
+};
+
 api.interceptors.response.use(
   (r) => r,
   (err) => {
-    // Solo es "sesión expirada" si había un token que el servidor rechazó.
-    // Peticiones anónimas (login, invitaciones) también pueden responder 401
-    // por credenciales inválidas — eso lo debe mostrar la propia pantalla,
-    // no una redirección forzada a /login que se traga el mensaje de error.
-    const habiaSesion = !!localStorage.getItem('token');
-    if (err.response?.status === 401 && habiaSesion) {
+    // Solo es "sesión expirada" si la petición llevaba un token y el servidor
+    // lo rechazó. Un 401 sin token es otra cosa: en el login significa
+    // "correo o contraseña incorrectos" y lo muestra la propia pantalla.
+    const rechazado = err.response?.status === 401 ? tokenDeLaPeticion(err) : null;
+    // Y solo se borra si el token rechazado es el que sigue guardado: un 401
+    // tardío de un token viejo no debe tumbar la sesión que se acaba de abrir
+    // (eso dejaba al usuario en un ciclo de "tu sesión expiró").
+    if (rechazado && localStorage.getItem('token') === rechazado) {
       localStorage.removeItem('token');
       if (!window.location.pathname.startsWith('/login')) {
         // La sesión venció (o el token dejó de ser válido). Se avisa en la
@@ -54,8 +63,10 @@ api.interceptors.response.use(
 export const handleError = (err) => {
   // Los errores de token son de mecánica interna: al usuario se le dice que
   // su sesión venció (el interceptor ya lo mandó a /login), nunca el texto
-  // crudo del servidor.
-  if (err?.response?.status === 401) {
+  // crudo del servidor. Solo aplica si la petición llevaba token: antes
+  // cualquier 401 decía "tu sesión expiró", también una contraseña
+  // equivocada en el login, y la persona no tenía forma de saber qué pasaba.
+  if (err?.response?.status === 401 && tokenDeLaPeticion(err)) {
     return 'Tu sesión expiró. Vuelve a iniciar sesión.';
   }
   // Los errores de transporte de axios llegan en inglés y con milisegundos

@@ -5,6 +5,7 @@ import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../prisma.js';
 import { authenticate } from '../middleware/auth.js';
+import { JWT_ALGORITMO } from '../utils/tokens.js';
 import { asyncHandler } from '../middleware/error.js';
 import {
   googleCalendarConfigurado, urlDeConsentimiento, conectarCuenta, desconectar,
@@ -33,7 +34,7 @@ router.post('/conectar', authenticate, asyncHandler(async (req, res) => {
   if (!googleCalendarConfigurado()) {
     return res.status(503).json({ error: 'Google Calendar no está configurado en el servidor' });
   }
-  const state = jwt.sign({ sub: req.user.id, uso: 'google-calendar' }, process.env.JWT_SECRET, { expiresIn: '10m' });
+  const state = jwt.sign({ sub: req.user.id, uso: 'google-calendar' }, process.env.JWT_SECRET, { algorithm: JWT_ALGORITMO, expiresIn: '10m' });
   res.json({ url: urlDeConsentimiento(state) });
 }));
 
@@ -51,7 +52,7 @@ router.get('/callback', asyncHandler(async (req, res) => {
 
   let usuarioId;
   try {
-    const payload = jwt.verify(String(state), process.env.JWT_SECRET);
+    const payload = jwt.verify(String(state), process.env.JWT_SECRET, { algorithms: [JWT_ALGORITMO] });
     if (payload.uso !== 'google-calendar') throw new Error('state inválido');
     usuarioId = payload.sub;
   } catch {

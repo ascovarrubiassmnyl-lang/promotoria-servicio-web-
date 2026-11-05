@@ -11,7 +11,11 @@ export function errorHandler(err, _req, res, _next) {
     return res.status(404).json({ error: 'Registro no encontrado' });
   }
   const status = err.status || 500;
-  res.status(status).json({ error: err.message || 'Error interno del servidor' });
+  // Un 500 sin `status` explícito es un error inesperado (Prisma, librerías):
+  // su mensaje puede traer nombres de tablas o rutas internas. En producción
+  // se queda en el log y al usuario le llega un texto genérico.
+  const interno = !err.status && process.env.NODE_ENV === 'production';
+  res.status(status).json({ error: interno ? 'Error interno del servidor' : (err.message || 'Error interno del servidor') });
 }
 
 export function asyncHandler(fn) {

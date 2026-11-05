@@ -2,9 +2,10 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { OAuth2Client } from 'google-auth-library';
 import { prisma } from '../prisma.js';
-import { signToken } from '../utils/tokens.js';
+import { signToken, marcaCierreSesiones } from '../utils/tokens.js';
 import { asyncHandler } from '../middleware/error.js';
 import { accesosDe, logPermiso } from '../middleware/permisos.js';
+import { errorPassword } from '../utils/password.js';
 
 // Router público (sin `authenticate`): el asesor todavía no tiene sesión
 // cuando abre su link de invitación. La única puerta de entrada es el
@@ -48,7 +49,8 @@ router.post('/:token/google', asyncHandler(async (req, res) => {
 
   const { credential, password } = req.body || {};
   if (!credential) return res.status(400).json({ error: 'Falta la credencial de Google' });
-  if (!password || password.length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+  const invalida = errorPassword(password);
+  if (invalida) return res.status(400).json({ error: invalida });
 
   let payload;
   try {
@@ -68,7 +70,7 @@ router.post('/:token/google', asyncHandler(async (req, res) => {
   const [usuario] = await prisma.$transaction([
     prisma.usuario.update({
       where: { id: invitacion.usuario.id },
-      data: { activo: true, password: hash, ...(payload.picture ? { fotoUrl: payload.picture } : {}) },
+      data: { activo: true, password: hash, sesionesDesde: marcaCierreSesiones(), ...(payload.picture ? { fotoUrl: payload.picture } : {}) },
     }),
     prisma.invitacionUsuario.update({ where: { token: req.params.token }, data: { usadaEn: new Date() } }),
   ]);

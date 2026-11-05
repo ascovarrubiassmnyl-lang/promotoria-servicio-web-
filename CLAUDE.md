@@ -54,8 +54,8 @@ entrada es el botón **"Invitar"** en el footer del sidebar (y en la hoja
 Equipo, que sí mezcla alta y edición y sigue con su propio gate).
 
 El asesor/promotor abre `/invitacion/:token` (`pages/Invitacion.jsx`, pública,
-fuera de `ProtectedRoute`): ahí **crea su propia contraseña** (mínimo 6
-caracteres, con confirmación) y solo cuando es válida aparece el botón de
+fuera de `ProtectedRoute`): ahí **crea su propia contraseña** (mínimo 8
+caracteres desde 2026-10-21, `utils/password.js`, con confirmación) y solo cuando es válida aparece el botón de
 Google — que sirve **únicamente para verificar identidad**, no como login
 recurrente. `POST /invitaciones/:token/google` (`routes/invitaciones.js`, sin
 `authenticate`) exige que el correo de la credencial coincida **exactamente**
@@ -2368,6 +2368,63 @@ respondía 410 ("Request failed with status code 410", porque con
   Alcance: un asesor solo ve sus clientes; con alcance de administración, todo.
   UI: `pages/RecuperarArchivos.jsx` (`/recuperar-archivos`, sección
   `clientes`) y el estado "perdido" de `VisorDocumento`.
+
+## Inicio de sesión y seguridad de cuentas (2026-10-21)
+
+Origen: un asesor con la app instalada en el escritorio veía "Tu sesión
+expiró" al meter correo y contraseña, y no podía entrar. Dos causas reales:
+
+- **`handleError` traducía CUALQUIER 401 a "Tu sesión expiró"**, también
+  "Credenciales inválidas" del login: con la contraseña mal, la persona leía
+  que su sesión había caducado y nunca se enteraba del error real. Ahora el
+  texto de sesión solo aplica si **la petición llevaba token**
+  (`tokenDeLaPeticion()` en `api/client.js`); el interceptor además solo borra
+  el token si es **el mismo** que el servidor rechazó (un 401 tardío de un
+  token viejo ya no tumba una sesión recién abierta).
+- **`AuthContext.refresh()` borraba el token ante cualquier error** de
+  `/auth/me`, no solo 401: abrir la app sin señal o durante un deploy en
+  Railway cerraba la sesión. Ahora solo un 401 la cierra; cualquier otro error
+  deja `sinConexion` y `ProtectedRoute` muestra "Reintentar".
+
+Seguridad (no relajar):
+
+- **Login** (`routes/auth.js`): mismo mensaje para correo inexistente y
+  contraseña mal ("Correo o contraseña incorrectos"), con `HASH_RELLENO` para
+  que el tiempo de respuesta no delate cuentas; "cuenta desactivada" (403)
+  solo **después** de una contraseña correcta. Tipos validados (un objeto en
+  `password` es 400, no 500).
+- **Freno de fuerza bruta** `utils/limiteLogin.js` (en memoria, un solo
+  servicio): 5 fallos por correo+IP o 30 por IP en 15 min → 429 con
+  `Retry-After`. Un login correcto limpia los fallos de esa cuenta. También
+  protege `/auth/cambiar-password`.
+- **JWT**: algoritmo fijo `HS256` al firmar y verificar (`JWT_ALGORITMO` en
+  `utils/tokens.js`); `authenticate` rechaza tokens con claim `uso` (el
+  `state` de Google Calendar usa el mismo secreto y no es una sesión). En
+  producción el arranque grita en el log si `JWT_SECRET` mide < 32 o es el de
+  ejemplo.
+- **`PATCH /usuarios/:id` ya NO acepta `password`** (400). Antes cualquier
+  admin/asistente podía ponerle contraseña a otra cuenta —incluido el Súper
+  Admin— y entrar como esa persona sin dejar rastro. La contraseña solo la
+  crea la persona (invitación) o la cambia ella misma. **Recuperar un acceso
+  olvidado = desactivar → "Invitar" → la persona crea una nueva.** Además: la
+  cuenta SUPERADMIN no se edita por nadie más (403) y nadie se desactiva a sí
+  mismo (400).
+- **Cierre de sesiones a distancia** (`Usuario.sesionesDesde`, migración
+  `20261021120000_usuario_sesiones_desde`): `authenticate` rechaza todo token
+  con `iat` anterior a la marca. La mueven `POST /auth/cambiar-password`,
+  `POST /auth/cerrar-otras-sesiones` y redimir una invitación; las dos
+  primeras devuelven un token nuevo para que el dispositivo actual siga
+  dentro. La marca va redondeada al segundo (`marcaCierreSesiones()`) porque
+  `iat` es en segundos. Nunca se expone en `/auth/me`. UI: **"Mi cuenta"**
+  (`components/usuarios/MiCuentaModal.jsx`), al tocar el nombre en el sidebar
+  o en la hoja "Más" — cualquier rol.
+- **Headers** en `app.js` (sin helmet): nosniff, `X-Frame-Options:
+  SAMEORIGIN`, `Referrer-Policy`, `Permissions-Policy`, HSTS en producción,
+  sin `X-Powered-By`. **CSP pendiente**: hay que inventariar Google Identity,
+  recharts y three antes de activarla.
+- Errores 500 sin `status` explícito responden texto genérico en producción
+  (el detalle queda en el log).
+- Tests: `backend/test/auth.test.js`.
 
 ## Seguridad operativa
 

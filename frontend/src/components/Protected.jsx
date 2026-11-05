@@ -16,8 +16,22 @@ const DESTINOS = [
 ];
 
 export function ProtectedRoute({ children, adminOnly, seccion }) {
-  const { user, loading, esAdmin, puede } = useAuth();
+  const { user, loading, sinConexion, refresh, logout, esAdmin, puede } = useAuth();
   if (loading) return <div className="p-10 text-center text-slate-400">Cargando…</div>;
+  // La sesión sigue guardada pero el servidor no respondió: mandar al login
+  // haría creer que la sesión se cerró. Se ofrece reintentar.
+  if (!user && sinConexion) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 p-6 text-center">
+        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">No se pudo conectar con el servidor.</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400">Tu sesión sigue abierta. Revisa tu conexión e inténtalo de nuevo.</p>
+        <div className="flex gap-2">
+          <button onClick={refresh} className="btn-primary text-sm">Reintentar</button>
+          <button onClick={logout} className="btn-secondary text-sm">Ir al inicio de sesión</button>
+        </div>
+      </div>
+    );
+  }
   if (!user) return <Navigate to="/login" replace />;
   if ((adminOnly && !esAdmin()) || (seccion && !puede(seccion))) {
     const destino = DESTINOS.find(([s]) => s !== seccion && puede(s));

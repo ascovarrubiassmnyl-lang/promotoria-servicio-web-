@@ -39,6 +39,28 @@ const app = express();
 // rate limit por IP de /api/captura contaría a todos como una sola persona.
 app.set('trust proxy', 1);
 
+// Encabezados de seguridad básicos, sin dependencia nueva (lo que haría helmet
+// sin CSP — una CSP necesita inventariar Google Identity, recharts y three
+// antes de activarse, o rompería pantallas en silencio):
+//  - nosniff: el navegador no "adivina" tipos (un archivo subido no se
+//    ejecuta como script);
+//  - SAMEORIGIN: otra página no puede meter el CRM en un iframe para engañar
+//    clics (clickjacking); el visor de documentos usa blob: y no se afecta;
+//  - Referrer-Policy: tokens de invitación/POP en la URL no se filtran a
+//    sitios externos;
+//  - HSTS (solo producción, que siempre va por HTTPS en Railway).
+app.disable('x-powered-by');
+app.use((_req, res, next) => {
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('X-Frame-Options', 'SAMEORIGIN');
+  res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  if (process.env.NODE_ENV === 'production') {
+    res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
+
 // Captura de leads desde landing pages: PÚBLICA y montada ANTES del CORS y
 // del parser JSON globales, porque necesita su propio CORS (cualquier origen)
 // y su propio parser (text/plain con JSON adentro, límite 10 KB). Ver

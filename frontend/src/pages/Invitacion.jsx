@@ -23,9 +23,9 @@ export default function Invitacion() {
   const [confirmar, setConfirmar] = useState('');
   const [conWebGL] = useState(soportaWebGL);
 
-  const passwordCorta = password.length > 0 && password.length < 6;
+  const passwordCorta = password.length > 0 && password.length < 8;
   const passwordNoCoincide = confirmar.length > 0 && password !== confirmar;
-  const passwordValida = password.length >= 6 && password === confirmar;
+  const passwordValida = password.length >= 8 && password === confirmar;
 
   useEffect(() => {
     let activo = true;
@@ -96,7 +96,7 @@ export default function Invitacion() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="new-password"
-                  placeholder="Mínimo 6 caracteres"
+                  placeholder="Mínimo 8 caracteres"
                 />
               </div>
               <div>
@@ -111,7 +111,7 @@ export default function Invitacion() {
                   placeholder="Repite la contraseña"
                 />
               </div>
-              {passwordCorta && <p className="text-xs text-amber-400">La contraseña debe tener al menos 6 caracteres.</p>}
+              {passwordCorta && <p className="text-xs text-amber-400">La contraseña debe tener al menos 8 caracteres.</p>}
               {passwordNoCoincide && <p className="text-xs text-amber-400">Las contraseñas no coinciden.</p>}
             </div>
 

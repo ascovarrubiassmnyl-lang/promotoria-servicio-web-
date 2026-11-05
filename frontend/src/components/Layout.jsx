@@ -6,6 +6,7 @@ import { soportaWebGL, Silencioso } from './decor/util3d.jsx';
 import BannerActivarPush from './notificaciones/BannerActivarPush.jsx';
 import { Toasts } from './ui.jsx';
 import InvitarUsuarioModal from './usuarios/InvitarUsuarioModal.jsx';
+import MiCuentaModal from './usuarios/MiCuentaModal.jsx';
 import CampanaNotificaciones from './notificaciones/CampanaNotificaciones.jsx';
 import { useNoLeidas } from '../hooks/useNotificaciones.js';
 import { useLeadsSinVer } from '../hooks/useLeadsLanding.js';
@@ -198,6 +199,7 @@ export default function Layout() {
   // ninguna sección con gate propio, así que el punto de entrada es global,
   // en el footer del sidebar / hoja "Más".
   const [openInvitar, setOpenInvitar] = useState(false);
+  const [openCuenta, setOpenCuenta] = useState(false);
   useEffect(() => {
     const v = localStorage.getItem(STORAGE_KEY);
     if (v === '1') setColapsado(true);
@@ -383,7 +385,12 @@ export default function Layout() {
           />
 
           {user && (
-            <div className="mt-1 flex items-center gap-2.5 px-2 py-1.5" title={colapsado ? `${user.nombre} ${user.apellidoP}` : undefined}>
+            <button
+              type="button"
+              onClick={() => setOpenCuenta(true)}
+              className="mt-1 flex w-full items-center gap-2.5 rounded-[10px] px-2 py-1.5 text-left transition hover:bg-slate-900/[0.04] dark:hover:bg-white/[0.06]"
+              title={colapsado ? `${user.nombre} ${user.apellidoP} · Mi cuenta` : 'Mi cuenta'}
+            >
               <span className="avatar !h-7 !w-7 !text-[11px]">
                 {(user.nombre?.[0] || '') + (user.apellidoP?.[0] || '')}
               </span>
@@ -391,7 +398,7 @@ export default function Layout() {
                 <span className="block truncate text-[13px] font-medium leading-tight text-slate-800 dark:text-slate-100">{user.nombre} {user.apellidoP}</span>
                 <span className="block truncate text-[11px] leading-tight text-slate-400 dark:text-slate-500">{ROLES_LABEL[user.rol] || user.rol}</span>
               </span>
-            </div>
+            </button>
           )}
 
           <BotonSidebar
@@ -553,10 +560,16 @@ export default function Layout() {
               </button>
 
               {user && (
-                <div className="px-3 py-2">
-                  <p className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{user.nombre} {user.apellidoP}</p>
-                  <p className="text-xs text-slate-400 dark:text-slate-500">{user.rol}</p>
-                </div>
+                <button
+                  onClick={() => { setMenuAbierto(false); setOpenCuenta(true); }}
+                  className="flex w-full items-center justify-between gap-3 rounded-lg px-3 min-h-[48px] text-left hover:bg-slate-100 dark:hover:bg-slate-700/60 transition"
+                >
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{user.nombre} {user.apellidoP}</span>
+                    <span className="block text-xs text-slate-400 dark:text-slate-500">{ROLES_LABEL[user.rol] || user.rol}</span>
+                  </span>
+                  <span className="shrink-0 text-xs font-semibold text-brand-600 dark:text-brand-400">Mi cuenta</span>
+                </button>
               )}
 
               <button
@@ -572,6 +585,7 @@ export default function Layout() {
       )}
 
       <InvitarUsuarioModal open={openInvitar} onClose={() => setOpenInvitar(false)} />
+      <MiCuentaModal open={openCuenta} onClose={() => setOpenCuenta(false)} />
     </div>
   );
 }

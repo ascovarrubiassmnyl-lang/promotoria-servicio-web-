@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { prisma } from '../prisma.js';
+import { JWT_ALGORITMO } from '../utils/tokens.js';
 
 export async function authenticate(req, res, next) {
   try {
@@ -7,16 +8,25 @@ export async function authenticate(req, res, next) {
     const token = header.startsWith('Bearer ') ? header.slice(7) : null;
     if (!token) return res.status(401).json({ error: 'Token no proporcionado' });
 
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: [JWT_ALGORITMO] });
+    // Un token de propósito específico (p. ej. el `state` de Google Calendar,
+    // que lleva `uso`) se firma con el mismo secreto pero no es una sesión.
+    if (payload.uso) return res.status(401).json({ error: 'Token inválido o expirado' });
     const usuario = await prisma.usuario.findUnique({
       where: { id: payload.sub },
       // claveAgente viaja en /auth/me: la ficha de póliza la muestra sola
       // para el asesor que captura (es un dato suyo, no de la póliza).
-      select: { id: true, nombre: true, apellidoP: true, email: true, rol: true, activo: true, claveAgente: true },
+      select: { id: true, nombre: true, apellidoP: true, email: true, rol: true, activo: true, claveAgente: true, sesionesDesde: true },
     });
     if (!usuario || !usuario.activo) return res.status(401).json({ error: 'Usuario inválido o inactivo' });
+    // Sesión cerrada a distancia (cambio de contraseña o "cerrar en los demás
+    // dispositivos"): el token se emitió antes de la marca.
+    const { sesionesDesde, ...datos } = usuario;
+    if (sesionesDesde && payload.iat * 1000 < sesionesDesde.getTime()) {
+      return res.status(401).json({ error: 'Sesión cerrada' });
+    }
 
-    req.user = usuario;
+    req.user = datos;
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Token inválido o expirado' });

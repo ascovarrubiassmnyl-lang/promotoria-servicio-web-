@@ -205,6 +205,25 @@ router.patch('/:id', esAdmin, permiteSeccion('asesores'), asyncHandler(async (re
   // No existen excepciones de permisos por usuario (el acceso es por rol, ver
   // /api/configuracion); este PATCH ignora `permisos` si llega.
   const { nombre, apellidoP, apellidoM, telefono, rol, activo, password, claveAgente } = req.body || {};
+  // La contraseña la crea cada persona (invitación) y solo ella la cambia
+  // (/auth/cambiar-password). Antes este PATCH la aceptaba: cualquier
+  // admin/asistente podía ponerle contraseña a otra cuenta —incluido el
+  // Súper Admin— y entrar como esa persona sin dejar rastro. Para recuperar
+  // un acceso: desactivar → "Invitar" → la persona crea una nueva.
+  if (password !== undefined) {
+    return res.status(400).json({ error: 'La contraseña no se cambia desde aquí: desactiva al usuario y mándale una invitación nueva para que cree la suya.' });
+  }
+  const objetivo = await prisma.usuario.findUnique({ where: { id }, select: { rol: true } });
+  if (!objetivo) return res.status(404).json({ error: 'Usuario no encontrado' });
+  // La cuenta de Súper Admin (quien desarrolla el servicio) no se edita desde
+  // la app por nadie más: ni datos, ni activo.
+  if (objetivo.rol === 'SUPERADMIN' && req.user.id !== id) {
+    return res.status(403).json({ error: 'La cuenta de Súper Admin no se puede modificar desde la app' });
+  }
+  // Anti-lockout: nadie se desactiva a sí mismo.
+  if (id === req.user.id && activo !== undefined && !(activo === true || activo === 'true')) {
+    return res.status(400).json({ error: 'No puedes desactivar tu propia cuenta' });
+  }
   const data = {};
   if (nombre) data.nombre = nombre;
   if (apellidoP) data.apellidoP = apellidoP;
@@ -231,10 +250,6 @@ router.patch('/:id', esAdmin, permiteSeccion('asesores'), asyncHandler(async (re
     }
   }
   if (activo !== undefined) data.activo = activo === true || activo === 'true';
-  if (password) {
-    if (password.length < 6) return res.status(400).json({ error: 'Password mínimo 6 caracteres' });
-    data.password = await bcrypt.hash(password, 10);
-  }
   const usuario = await prisma.usuario.update({
     where: { id },
     data,
