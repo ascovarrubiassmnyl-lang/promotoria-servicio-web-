@@ -380,6 +380,15 @@ filtro de etapas. **Cero dependencias nuevas.**
   (misma lista/detalle con **control total**: crear/editar/eliminar/registrar
   pago sobre la cartera del asesor, con banner de alcance). `/ventas` redirige
   a `/equipo` para admins.
+- **La promotora (ADMIN) también tiene cartera propia** (2026-11-13, pedido
+  del usuario: Diana fue asesora antes de promotora y sigue vendiendo).
+  `GET /ventas/equipo/resumen` incluye a los `ADMIN` (primero, con `rol`)
+  además de los `ASESOR`; en Equipo aparece como "Promotora · cartera propia"
+  y tiene el botón **"Mis pólizas"** (`/equipo/<su id>`, sin banner de
+  alcance). En CRM (`ClientesView`) el filtro ofrece **"Mi cartera"** y el
+  alta asigna por defecto "Mi cartera (yo)". Solo `ADMIN`: ni `ASISTENTE`
+  ni `SUPERADMIN`. Rankings, metas y `/usuarios/asesores` siguen filtrando
+  `rol: 'ASESOR'` a propósito — su cartera no compite en el ranking.
 - **Validación**: en `PolicyDetail`, los promotores (`esAdmin()`) ven botones
   Aprobar/Rechazar mientras el estado no sea `APROBADA`/`RECHAZADA`/`CANCELADA`;
   el backend registra `validadoPor` + `fechaValidacion` en el PATCH de estado.

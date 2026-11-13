@@ -170,7 +170,7 @@ export default function PolizaFormModal({
 
   const claveAgente = editando
     ? (venta.asesor?.claveAgente || '')
-    : (asesorId
+    : (asesorId && asesorId !== user?.id
       ? (asesoresEquipo?.find((a) => a.id === asesorId)?.claveAgente || '')
       : (user?.claveAgente || ''));
 

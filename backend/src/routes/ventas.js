@@ -174,10 +174,14 @@ router.get('/equipo/resumen', asyncHandler(async (req, res) => {
   const isAdmin = tieneRolAdmin(req.user);
   if (!isAdmin) return res.status(403).json({ error: 'Solo promotores pueden consultar el equipo' });
   const [asesores, ventas] = await Promise.all([
+    // La promotora (ADMIN) también tiene cartera propia: antes de promotora
+    // fue asesora y sigue vendiendo. Entra al roster para poder gestionarla;
+    // va primero y con su rol para que la UI la distinga. SUPERADMIN no
+    // (es la cuenta de quien desarrolla el servicio).
     prisma.usuario.findMany({
-      where: { rol: 'ASESOR', activo: true },
-      select: { id: true, nombre: true, apellidoP: true, apellidoM: true, fotoUrl: true },
-      orderBy: { nombre: 'asc' },
+      where: { rol: { in: ['ADMIN', 'ASESOR'] }, activo: true },
+      select: { id: true, nombre: true, apellidoP: true, apellidoM: true, fotoUrl: true, rol: true },
+      orderBy: [{ rol: 'asc' }, { nombre: 'asc' }],
     }),
     prisma.venta.findMany({ select: { asesorId: true, primaAnual: true, comisionMonto: true, estado: true } }),
   ]);

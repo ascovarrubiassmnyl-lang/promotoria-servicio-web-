@@ -131,7 +131,10 @@ function EtapaCell({ cliente, onCambiarEtapa }) {
 }
 
 export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitulo = null, banner = null }) {
-  const { esAdmin } = useAuth();
+  const { esAdmin, user } = useAuth();
+  // La promotora (ADMIN) también vende y tiene cartera propia: puede filtrar
+  // "Mi cartera" y asignarse los clientes que da de alta.
+  const conCarteraPropia = user?.rol === 'ADMIN';
   const qc = useQueryClient();
   const navigate = useNavigate();
   const scoped = !!asesorId; // cartera de un asesor concreto (vista de promotor)
@@ -289,7 +292,7 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
 
   const abrirCrear = () => {
     setEditId(null); setErr('');
-    setForm(FORM_VACIO); setFormAsesorId('');
+    setForm(FORM_VACIO); setFormAsesorId(conCarteraPropia ? user.id : '');
     setOpen(true);
   };
 
@@ -425,7 +428,7 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
         <div>
           <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">{titulo}</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            {filas.length !== (clientes?.length || 0) ? `${filas.length} de ${clientes?.length || 0}` : filas.length} contacto{(clientes?.length || 0) === 1 ? '' : 's'} · {subtitulo || (esAdmin() ? 'cartera del equipo' : 'tu cartera')}
+            {filas.length !== (clientes?.length || 0) ? `${filas.length} de ${clientes?.length || 0}` : filas.length} contacto{(clientes?.length || 0) === 1 ? '' : 's'} · {subtitulo || (!esAdmin() || (conCarteraPropia && asesorFiltro === user.id) ? 'tu cartera' : 'cartera del equipo')}
             {verArchivados && ' · archivados'}
           </p>
         </div>
@@ -439,6 +442,7 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
         {esAdmin() && !scoped && (
           <select className="input w-auto" value={asesorFiltro} onChange={(e) => setAsesorFiltro(e.target.value)}>
             <option value="">Todos los asesores</option>
+            {conCarteraPropia && <option value={user.id}>Mi cartera</option>}
             {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
           </select>
         )}
@@ -764,10 +768,12 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
               </div>
             </Field>
           )}
-          {esAdmin() && !scoped && asesores?.length > 0 && (
+          {esAdmin() && !scoped && (asesores?.length > 0 || conCarteraPropia) && (
             <Field label="Asesor asignado">
               <select className="input" value={formAsesorId} onChange={(e) => setFormAsesorId(e.target.value)}>
-                <option value="">Sin especificar</option>
+                {conCarteraPropia
+                  ? <option value={user.id}>Mi cartera (yo)</option>
+                  : <option value="">Sin especificar</option>}
                 {asesores.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
               </select>
             </Field>
