@@ -163,8 +163,10 @@ export default function PolizaFormModal({
   const productosPorRamo = useMemo(() => (catalogo || []).filter((p) => p.ramo === form.ramo), [catalogo, form.ramo]);
 
   const { data: asesoresEquipo } = useQuery({
-    queryKey: ['usuarios-asesores'],
-    queryFn: async () => (await api.get('/usuarios/asesores')).data,
+    // conPromotora: la clave de agente de la promotora cuando se captura
+    // sobre su cartera propia (p. ej. la secretaria a nombre de Diana).
+    queryKey: ['usuarios-asesores', 'con-promotora'],
+    queryFn: async () => (await api.get('/usuarios/asesores', { params: { conPromotora: 1 } })).data,
     enabled: open && !!asesorId && !editando,
   });
 

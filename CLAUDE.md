@@ -387,8 +387,15 @@ filtro de etapas. **Cero dependencias nuevas.**
   y tiene el botón **"Mis pólizas"** (`/equipo/<su id>`, sin banner de
   alcance). En CRM (`ClientesView`) el filtro ofrece **"Mi cartera"** y el
   alta asigna por defecto "Mi cartera (yo)". Solo `ADMIN`: ni `ASISTENTE`
-  ni `SUPERADMIN`. Rankings, metas y `/usuarios/asesores` siguen filtrando
-  `rol: 'ASESOR'` a propósito — su cartera no compite en el ranking.
+  ni `SUPERADMIN`. **La secretaria (Michelle) captura por Diana**: el
+  filtro y el selector "Asesor asignado" del CRM la listan como "Diana …
+  (promotora)" vía `GET /usuarios/asesores?conPromotora=1`, y para un
+  `ASISTENTE` el alta preselecciona a la promotora si hay una sola (con
+  "Sin especificar" el servidor asignaría el cliente a la secretaria).
+  `PolizaFormModal` usa el mismo parámetro para resolver la clave de agente
+  de Diana. Rankings, metas y `/usuarios/asesores` **sin** el parámetro
+  siguen filtrando `rol: 'ASESOR'` a propósito — su cartera no compite en
+  el ranking.
 - **Validación**: en `PolicyDetail`, los promotores (`esAdmin()`) ven botones
   Aprobar/Rechazar mientras el estado no sea `APROBADA`/`RECHAZADA`/`CANCELADA`;
   el backend registra `validadoPor` + `fechaValidacion` en el PATCH de estado.

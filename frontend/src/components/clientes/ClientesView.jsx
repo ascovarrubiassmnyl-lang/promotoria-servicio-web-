@@ -218,8 +218,11 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
   });
 
   const { data: asesores } = useQuery({
-    queryKey: ['asesores-list'],
-    queryFn: async () => (await api.get('/usuarios/asesores')).data,
+    // Incluye a la promotora (cartera propia): la secretaria le asigna
+    // clientes. Ella misma no se lista aquí: ya tiene "Mi cartera".
+    queryKey: ['asesores-list', 'con-promotora'],
+    queryFn: async () => (await api.get('/usuarios/asesores', { params: { conPromotora: 1 } })).data,
+    select: (lista) => lista.filter((a) => a.id !== user?.id),
     enabled: esAdmin() && !scoped,
   });
 
@@ -290,9 +293,21 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
   const visibles = filas.slice((paginaActual - 1) * POR_PAGINA, paginaActual * POR_PAGINA);
   const hayFiltros = Boolean(etapaActiva || q || segmento !== 'todos' || rapido || fuenteFiltro);
 
+  // Promotora → su propia cartera. Secretaria (ASISTENTE) → la promotora, si
+  // hay una sola: es para quien captura; "Sin especificar" dejaría el cliente
+  // en la cartera de la propia secretaria (el servidor asigna a quien guarda).
+  const asignacionPorDefecto = () => {
+    if (conCarteraPropia) return user.id;
+    if (user?.rol === 'ASISTENTE') {
+      const promotoras = (asesores || []).filter((a) => a.rol === 'ADMIN');
+      if (promotoras.length === 1) return promotoras[0].id;
+    }
+    return '';
+  };
+
   const abrirCrear = () => {
     setEditId(null); setErr('');
-    setForm(FORM_VACIO); setFormAsesorId(conCarteraPropia ? user.id : '');
+    setForm(FORM_VACIO); setFormAsesorId(asignacionPorDefecto());
     setOpen(true);
   };
 
@@ -443,7 +458,7 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
           <select className="input w-auto" value={asesorFiltro} onChange={(e) => setAsesorFiltro(e.target.value)}>
             <option value="">Todos los asesores</option>
             {conCarteraPropia && <option value={user.id}>Mi cartera</option>}
-            {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
+            {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}{a.rol === 'ADMIN' ? ' (promotora)' : ''}</option>)}
           </select>
         )}
         <label className="inline-flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 select-none cursor-pointer px-1">
@@ -774,7 +789,7 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
                 {conCarteraPropia
                   ? <option value={user.id}>Mi cartera (yo)</option>
                   : <option value="">Sin especificar</option>}
-                {asesores.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
+                {asesores.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}{a.rol === 'ADMIN' ? ' (promotora)' : ''}</option>)}
               </select>
             </Field>
           )}

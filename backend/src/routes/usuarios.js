@@ -72,13 +72,17 @@ router.get('/', esAdmin, permiteSeccion('asesores'), asyncHandler(async (req, re
   res.json(usuarios);
 }));
 
-router.get('/asesores', esAdmin, asyncHandler(async (_req, res) => {
+// ?conPromotora=1 agrega a la promotora (ADMIN), que también tiene cartera
+// propia: la secretaria le da de alta clientes y pólizas a su nombre. Sin el
+// parámetro sigue siendo solo ASESOR (rosters/rankings dependen de eso).
+router.get('/asesores', esAdmin, asyncHandler(async (req, res) => {
+  const conPromotora = req.query.conPromotora === '1';
   const asesores = await prisma.usuario.findMany({
-    where: { rol: 'ASESOR', activo: true },
+    where: { rol: conPromotora ? { in: ['ADMIN', 'ASESOR'] } : 'ASESOR', activo: true },
     // claveAgente: la usa la ficha de póliza cuando un promotor captura sobre
     // la cartera de un asesor (la clave que va en la póliza es la del dueño).
-    select: { id: true, nombre: true, apellidoP: true, apellidoM: true, email: true, telefono: true, claveAgente: true },
-    orderBy: { nombre: 'asc' },
+    select: { id: true, nombre: true, apellidoP: true, apellidoM: true, email: true, telefono: true, claveAgente: true, rol: true },
+    orderBy: [{ rol: 'asc' }, { nombre: 'asc' }],
   });
   res.json(asesores);
 }));
