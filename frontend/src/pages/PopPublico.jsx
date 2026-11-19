@@ -59,7 +59,7 @@ export default function PopPublico() {
   return (
     <div
       className="min-h-screen text-slate-100 px-4 py-8"
-      style={{ background: 'radial-gradient(120% 120% at 50% 0%, #131a52, #070a24)' }}
+      style={{ background: 'radial-gradient(120% 120% at 50% 0%, #1c1c1e, #000000)' }}
     >
       <div className="mx-auto w-full max-w-2xl">
         <p className="text-center text-xs uppercase tracking-[0.2em] text-slate-400 mb-6">Origen Promotoría</p>

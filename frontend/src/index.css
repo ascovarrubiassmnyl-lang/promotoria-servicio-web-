@@ -3,12 +3,21 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-optical-sizing: auto;
+  }
   body {
     @apply bg-slate-50 text-slate-900 transition-colors;
   }
+  /* Modo oscuro NEGRO (2026-11-19): antes era azul marino. */
   .dark body {
-    @apply text-slate-100;
-    background-color: #070a24;
+    @apply text-slate-100 bg-black;
+  }
+  /* Titulares: tracking negativo, como el texto grande de Apple. */
+  h1, h2, h3 {
+    letter-spacing: -0.015em;
   }
   /* Foco de teclado visible en toda la app (los inputs ya tienen su propio
      anillo de foco). Solo teclado: focus-visible, no en clic/touch. */
@@ -20,13 +29,10 @@
 }
 
 @layer components {
-  /* Fondo del shell de la app (Layout): claro = neutro; oscuro = gradiente
-     navy del login, sobre el que se monta el fondo 3D decorativo (FondoApp). */
+  /* Fondo del shell de la app (Layout): claro = gris neutro; oscuro = negro
+     puro, sin gradiente ni fondo 3D (el contenido manda). */
   .app-shell {
-    @apply bg-slate-50;
-  }
-  .dark .app-shell {
-    background: radial-gradient(120% 120% at 70% 0%, #131a52, #070a24);
+    @apply bg-slate-50 dark:bg-black;
   }
 
   /* Nav del sidebar: scrollbar invisible en reposo, visible solo mientras se
@@ -42,38 +48,42 @@
     border-radius: 9999px;
     transition: background-color 0.45s ease;
   }
-  .sidebar-nav.is-scrolling { scrollbar-color: rgba(15, 23, 42, 0.18) transparent; }
-  .sidebar-nav.is-scrolling::-webkit-scrollbar-thumb { background-color: rgba(15, 23, 42, 0.18); }
+  .sidebar-nav.is-scrolling { scrollbar-color: rgba(0, 0, 0, 0.18) transparent; }
+  .sidebar-nav.is-scrolling::-webkit-scrollbar-thumb { background-color: rgba(0, 0, 0, 0.18); }
   .dark .sidebar-nav.is-scrolling { scrollbar-color: rgba(255, 255, 255, 0.11) transparent; }
   .dark .sidebar-nav.is-scrolling::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.11); }
 
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition;
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-medium
+      transition-[background-color,color,border-color,opacity,transform] duration-150
+      active:scale-[0.97] motion-reduce:active:scale-100;
   }
   .btn-primary {
-    @apply btn bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50;
+    @apply btn bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50
+      dark:bg-brand-500 dark:hover:bg-brand-400;
   }
   .btn-secondary {
-    @apply btn bg-white text-slate-700 border border-slate-300 hover:bg-slate-50
-      dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 dark:hover:bg-slate-700;
+    @apply btn bg-slate-900/[0.06] text-slate-800 hover:bg-slate-900/[0.1] disabled:opacity-50
+      dark:bg-white/[0.1] dark:text-slate-100 dark:hover:bg-white/[0.16];
   }
   .btn-danger {
     @apply btn bg-red-600 text-white hover:bg-red-700;
   }
   .input {
-    @apply w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none
-      bg-white text-slate-900 placeholder-slate-400
-      focus:border-brand-500 focus:ring-1 focus:ring-brand-500
+    @apply w-full rounded-[10px] border border-slate-300 px-3 py-2 text-sm outline-none
+      bg-white text-slate-900 placeholder-slate-400 transition-shadow
+      focus:border-brand-500 focus:ring-4 focus:ring-brand-500/20
       dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100 dark:placeholder-slate-500;
   }
   .label {
     @apply block text-sm font-medium text-slate-700 mb-1 dark:text-slate-300;
   }
-  /* En oscuro la tarjeta es glass (translúcida + blur) para dejar ver el
-     fondo 3D navy del shell sin sacrificar legibilidad. */
+  /* Tarjeta: superficie sólida y elevada con sombra difusa. En claro, blanca
+     sobre el gris del shell; en oscuro, #1c1c1e sobre negro, con un borde
+     apenas visible (la separación la da el contraste, no la línea). */
   .card {
-    @apply bg-white rounded-xl border border-slate-200 shadow-sm
-      dark:bg-slate-800/75 dark:backdrop-blur-sm dark:border-slate-700/70;
+    @apply bg-white rounded-2xl border border-black/[0.04] shadow-card
+      dark:bg-slate-800 dark:border-white/[0.06] dark:shadow-none;
   }
   .badge {
     @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium;
@@ -81,29 +91,20 @@
 
   /* ---- Rediseño Pólizas: componentes base compartidos ---- */
 
-  /* KPI con barra de acento a la izquierda. Variantes: kpi-green (ganado),
+  /* KPI: tarjeta limpia, sin barra de acento (rediseño 2026-11-19). El
+     significado va en el color de la CIFRA. Variantes: kpi-green (ganado),
      kpi-amber (pipeline/pendiente), kpi-accent (marca). Nunca sumar ganado+pipeline. */
   .kpi {
-    @apply card relative overflow-hidden p-4 pl-5;
-  }
-  .kpi::before {
-    content: '';
-    @apply absolute left-0 top-0 bottom-0 w-1 bg-slate-300 dark:bg-slate-600;
-  }
-  .kpi-green::before {
-    @apply bg-emerald-500;
-  }
-  .kpi-amber::before {
-    @apply bg-amber-500;
-  }
-  .kpi-accent::before {
-    @apply bg-brand-500;
+    @apply card relative overflow-hidden p-5;
   }
   .kpi-label {
-    @apply text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400;
+    @apply text-[13px] font-medium text-slate-500 dark:text-slate-400;
   }
   .kpi-val {
-    @apply mt-1.5 text-2xl font-bold text-slate-800 dark:text-slate-100 tabular-nums;
+    @apply mt-1 text-[28px] leading-tight font-semibold tracking-tight text-slate-900 dark:text-slate-100 tabular-nums;
+  }
+  .kpi-accent .kpi-val {
+    @apply text-brand-600 dark:text-brand-400;
   }
   .kpi-green .kpi-val {
     @apply text-emerald-600 dark:text-emerald-400;
@@ -124,7 +125,7 @@
   /* Etiqueta rectangular neutra (forma de pago, ramo) */
   .tag {
     @apply inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold
-      bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300;
+      bg-slate-900/[0.06] text-slate-600 dark:bg-white/[0.1] dark:text-slate-300;
   }
 
   /* Montos de comisión: verde SOLO si la póliza está aprobada/pagada */
@@ -151,7 +152,18 @@
   /* Banner de alcance (promotor consultando cartera ajena) */
   .scope-banner {
     @apply flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm
-      border border-brand-200 bg-brand-50 text-brand-700
-      dark:border-brand-700/60 dark:bg-brand-900/30 dark:text-brand-300;
+      rounded-xl bg-brand-50 text-brand-700
+      dark:bg-brand-500/15 dark:text-brand-300;
   }
+}
+
+/* Accesibilidad: sin transparencia o con más contraste, las superficies
+   translúcidas (sidebar, barras) se vuelven sólidas. */
+@media (prefers-reduced-transparency: reduce) {
+  .material {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    background-color: #fff !important;
+  }
+  .dark .material { background-color: #1c1c1e !important; }
 }

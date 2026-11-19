@@ -38,7 +38,7 @@ export default function Login() {
     try {
       await login(email.trim(), password);
       // Se entra a "Hoy" (2026-10-13): la lista de trabajo, no los KPIs.
-      navigate('/hoy');
+      navigate('/');
     } catch (err) {
       setError(handleError(err));
     } finally {
@@ -51,7 +51,7 @@ export default function Login() {
   return (
     <div
       className="min-h-screen relative overflow-hidden flex items-center justify-center p-4"
-      style={{ background: 'radial-gradient(120% 120% at 50% 20%, #131a52, #070a24)' }}
+      style={{ background: 'radial-gradient(120% 120% at 50% 20%, #1c1c1e, #000000)' }}
     >
       {conWebGL && (
         <div className="absolute inset-0" aria-hidden="true">
@@ -63,7 +63,7 @@ export default function Login() {
         </div>
       )}
 
-      <div className="relative z-10 w-full max-w-md rounded-3xl border border-indigo-300/20 bg-slate-900/70 backdrop-blur-xl p-8 shadow-2xl shadow-black/40">
+      <div className="relative z-10 w-full max-w-md rounded-3xl border border-white/10 bg-slate-900/70 backdrop-blur-xl p-8 shadow-2xl shadow-black/40">
         <div className="flex justify-center mb-2">
           <img src="/origen-blanco.png" alt="Origen" className="h-20 w-auto object-contain" />
         </div>
@@ -81,7 +81,7 @@ export default function Login() {
             <input
               id="login-email"
               type="email"
-              className="w-full rounded-lg border border-indigo-300/20 bg-white/5 px-3 py-2 text-slate-100 placeholder-slate-500 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/30"
+              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-slate-100 placeholder-slate-500 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/30"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
@@ -99,7 +99,7 @@ export default function Login() {
               <input
                 id="login-password"
                 type={verPassword ? 'text' : 'password'}
-                className="w-full rounded-lg border border-indigo-300/20 bg-white/5 px-3 py-2 pr-11 text-slate-100 placeholder-slate-500 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/30"
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 pr-11 text-slate-100 placeholder-slate-500 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/30"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
@@ -134,7 +134,7 @@ export default function Login() {
         </form>
 
         {import.meta.env.DEV && (
-          <div className="mt-6 rounded-lg border border-indigo-300/15 bg-white/5 p-3 text-xs text-slate-400">
+          <div className="mt-6 rounded-lg border border-white/15 bg-white/5 p-3 text-xs text-slate-400">
             <p className="font-semibold mb-1 flex items-center gap-2">
               Cuentas demo
               <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold tracking-wide text-amber-400">SOLO DESARROLLO</span>

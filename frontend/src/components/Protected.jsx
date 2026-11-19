@@ -5,7 +5,6 @@ import { useAuth } from '../context/AuthContext.jsx';
 // que no puede ver la que pidió (evita el loop de mandar siempre a "/" cuando
 // justo es el dashboard lo bloqueado).
 const DESTINOS = [
-  ['dashboard', '/'],
   ['clientes', '/clientes'],
   ['citas', '/citas'],
   ['ventas', '/ventas'],
@@ -35,7 +34,8 @@ export function ProtectedRoute({ children, adminOnly, seccion }) {
   if (!user) return <Navigate to="/login" replace />;
   if ((adminOnly && !esAdmin()) || (seccion && !puede(seccion))) {
     const destino = DESTINOS.find(([s]) => s !== seccion && puede(s));
-    if (!destino) return <div className="p-10 text-center text-slate-400">Sin acceso a ninguna sección. Contacta a tu promotor.</div>;
+    // Sin ninguna sección permitida queda Inicio (`/`), que no exige sección.
+    if (!destino) return <Navigate to="/" replace />;
     const ruta = destino[0] === 'ventas' && esAdmin() ? '/equipo' : destino[1];
     return <Navigate to={ruta} replace />;
   }

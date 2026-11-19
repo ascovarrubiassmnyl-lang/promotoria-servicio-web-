@@ -24,9 +24,9 @@ import { mxn, mxnCompacto, num, nombreMes, RAMOS_LABEL, RAMOS_COLOR } from '../.
 function coloresGrafica(tema) {
   const oscuro = tema === 'dark';
   return {
-    grid: oscuro ? '#334155' : '#e2e8f0', // slate-700 / slate-200
-    eje: oscuro ? '#94a3b8' : '#64748b', // slate-400 / slate-500
-    meta: oscuro ? '#94a3b8' : '#64748b',
+    grid: oscuro ? '#3a3a3c' : '#e3e3e8', // slate-700 / slate-200
+    eje: oscuro ? '#98989d' : '#6e6e73', // slate-400 / slate-500
+    meta: oscuro ? '#98989d' : '#6e6e73',
     prima: '#2563eb', // brand-500
   };
 }
@@ -169,7 +169,7 @@ export function PrimaPorRamo({ data, mes, anio }) {
                   {ramos.map((r) => (
                     <Cell
                       key={r.ramo}
-                      fill={RAMOS_COLOR[r.ramo] || '#94a3b8'}
+                      fill={RAMOS_COLOR[r.ramo] || '#98989d'}
                       opacity={activo && activo !== r.ramo ? 0.25 : 1}
                     />
                   ))}
@@ -197,7 +197,7 @@ export function PrimaPorRamo({ data, mes, anio }) {
                     seleccionado ? 'bg-slate-100 dark:bg-slate-700/60' : 'hover:bg-slate-50 dark:hover:bg-slate-700/40'
                   }`}
                 >
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: RAMOS_COLOR[r.ramo] || '#94a3b8' }} />
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: RAMOS_COLOR[r.ramo] || '#98989d' }} />
                   <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-600 dark:text-slate-300">
                     {RAMOS_LABEL[r.ramo] || r.ramo}
                   </span>

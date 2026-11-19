@@ -1,16 +1,16 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, handleError } from '../api/client.js';
-import { useAuth } from '../context/AuthContext.jsx';
-import { Card } from '../components/ui.jsx';
-import { fechaHora, fechaCorta, hora } from '../lib/format.js';
-import { avisar } from '../lib/toast.js';
-import { infoEtapa } from '../components/clientes/etapas.js';
-import { infoCanal, infoTipoCita, MENSAJE_ESTADO_CITA } from '../components/citas/tipos.js';
-import RegistrarLlamadaModal, { ligaWhatsApp } from '../components/clientes/RegistrarLlamadaModal.jsx';
+import { api, handleError } from '../../api/client.js';
+import { Card } from '../ui.jsx';
+import { fechaHora, fechaCorta, hora } from '../../lib/format.js';
+import { avisar } from '../../lib/toast.js';
+import { infoEtapa } from '../clientes/etapas.js';
+import { infoCanal, infoTipoCita, MENSAJE_ESTADO_CITA } from '../citas/tipos.js';
+import RegistrarLlamadaModal, { ligaWhatsApp } from '../clientes/RegistrarLlamadaModal.jsx';
 
-// "Hoy" (2026-10-13, auditoría de UI): la lista de trabajo del día. Lo que el
+// "Mi día" (antes la página /hoy; desde 2026-11-19 es la mitad superior de
+// Inicio, pages/Dashboard.jsx): la lista de trabajo del día. Lo que el
 // asesor necesita a las 9 a.m. vivía en cuatro módulos (calendario,
 // recordatorios de cada ficha, leads y clínica). Aquí se ve todo junto y cada
 // fila se resuelve sin salir: llamar, WhatsApp, registrar la llamada o marcar
@@ -37,10 +37,10 @@ function AccionesContacto({ cliente, onLlamada }) {
   return (
     <div className="flex shrink-0 items-center gap-1.5">
       {wa && (
-        <a href={wa} target="_blank" rel="noreferrer" className="rounded-lg border border-slate-200 dark:border-slate-600 px-2 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">WhatsApp</a>
+        <a href={wa} target="_blank" rel="noreferrer" className="rounded-full border border-slate-200 dark:border-slate-600 px-2 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">WhatsApp</a>
       )}
       {cliente?.id && (
-        <button type="button" onClick={() => onLlamada(cliente)} className="inline-flex items-center gap-1 rounded-lg bg-amber-500 px-2 py-1 text-xs font-semibold text-white hover:bg-amber-600" title="Registrar llamada">
+        <button type="button" onClick={() => onLlamada(cliente)} className="inline-flex items-center gap-1 rounded-full bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-600" title="Registrar llamada">
           <IconoTel /> Llamada
         </button>
       )}
@@ -64,7 +64,7 @@ function Seccion({ title, conteo, children, vacio, accionVacio }) {
 function Progreso({ progreso }) {
   const pct = Math.min(100, Math.round((progreso.puntos / (progreso.meta || 25)) * 100));
   return (
-    <div className="card p-4">
+    <div className="card p-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">25 puntos de hoy</p>
@@ -86,8 +86,9 @@ function Progreso({ progreso }) {
   );
 }
 
-export default function Hoy() {
-  const { user } = useAuth();
+// `extra`: bloque que Inicio cuela arriba de la columna derecha (la bandeja
+// "Requiere tu atención").
+export default function MiDia({ extra = null }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [llamada, setLlamada] = useState(null);
@@ -137,25 +138,13 @@ export default function Hoy() {
     } catch (e) { avisar(handleError(e), 'error'); } finally { setRespondiendo(null); }
   };
 
-  const fecha = new Date().toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
-
   if (isLoading) return <div className="py-12 text-center text-sm text-slate-400">Cargando tu día…</div>;
   if (isError) return <div className="py-12 text-center text-sm text-red-600">{handleError(error)}</div>;
 
   const { citas, porCerrar = [], recordatorios, leads, porLlamar, progreso, invitaciones = [] } = data;
-  const pendientes = citas.length + porCerrar.length + recordatorios.length + leads.length + porLlamar.length + invitaciones.length;
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Hoy, {fecha}</h2>
-        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-          {pendientes === 0
-            ? `Todo al día, ${user?.nombre || ''}. Buen momento para prospectar.`
-            : `${user?.nombre || ''}, esto es lo que toca hoy.`}
-        </p>
-      </div>
-
       {invitaciones.length > 0 && (
         <Seccion title="Invitaciones por responder" conteo={invitaciones.length}>
           {invitaciones.map((c) => (
@@ -167,9 +156,9 @@ export default function Hoy() {
                 </p>
               </div>
               <div className="flex shrink-0 gap-1.5">
-                <button type="button" disabled={respondiendo === c.id} onClick={() => responderInvitacion(c, 'ACEPTADA')} className="rounded-lg border border-emerald-300 dark:border-emerald-700 px-2 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 disabled:opacity-50">✓ Aceptar</button>
-                <button type="button" disabled={respondiendo === c.id} onClick={() => responderInvitacion(c, 'RECHAZADA')} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 disabled:opacity-50">Rechazar</button>
-                <Link to={`/citas?cita=${c.id}`} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Ver</Link>
+                <button type="button" disabled={respondiendo === c.id} onClick={() => responderInvitacion(c, 'ACEPTADA')} className="rounded-full border border-emerald-300 dark:border-emerald-700 px-2 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 disabled:opacity-50">✓ Aceptar</button>
+                <button type="button" disabled={respondiendo === c.id} onClick={() => responderInvitacion(c, 'RECHAZADA')} className="rounded-full border border-slate-200 dark:border-slate-600 px-2 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 disabled:opacity-50">Rechazar</button>
+                <Link to={`/citas?cita=${c.id}`} className="rounded-full border border-slate-200 dark:border-slate-600 px-2 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Ver</Link>
               </div>
             </li>
           ))}
@@ -193,9 +182,9 @@ export default function Hoy() {
                       </p>
                     </div>
                     <div className="flex shrink-0 gap-1.5">
-                      <button type="button" onClick={() => cerrarCita(c, 'COMPLETADA')} className="rounded-lg border border-emerald-300 dark:border-emerald-700 px-2 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">✓ Se hizo</button>
-                      <button type="button" onClick={() => cerrarCita(c, 'NO_ASISTIO')} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">No asistió</button>
-                      {c.cliente && <Link to={`/clientes/${c.cliente.id}`} state={{ abrirCita: true }} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Reagendar</Link>}
+                      <button type="button" onClick={() => cerrarCita(c, 'COMPLETADA')} className="rounded-full border border-emerald-300 dark:border-emerald-700 px-2 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">✓ Se hizo</button>
+                      <button type="button" onClick={() => cerrarCita(c, 'NO_ASISTIO')} className="rounded-full border border-slate-200 dark:border-slate-600 px-2 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">No asistió</button>
+                      {c.cliente && <Link to={`/clientes/${c.cliente.id}`} state={{ abrirCita: true }} className="rounded-full border border-slate-200 dark:border-slate-600 px-2 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Reagendar</Link>}
                     </div>
                   </li>
                 );
@@ -246,7 +235,7 @@ export default function Hoy() {
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
                   {n.cliente && n.tipo === 'RECORDATORIO' && <AccionesContacto cliente={n.cliente} onLlamada={setLlamada} />}
-                  <button type="button" onClick={() => completar(n)} className="rounded-lg border border-emerald-300 dark:border-emerald-700 px-2 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">✓ Hecho</button>
+                  <button type="button" onClick={() => completar(n)} className="rounded-full border border-emerald-300 dark:border-emerald-700 px-2 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">✓ Hecho</button>
                 </div>
               </li>
             ))}
@@ -254,6 +243,7 @@ export default function Hoy() {
         </div>
 
         <div className="space-y-4">
+          {extra}
           <Seccion
             title="Leads nuevos sin llamar"
             conteo={leads.length}

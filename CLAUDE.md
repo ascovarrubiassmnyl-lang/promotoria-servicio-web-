@@ -1255,6 +1255,52 @@ clínica). Ahora:
 - Tests: `backend/test/seguimiento.test.js` cubre el agrupado de avisos y
   `GET /hoy`.
 
+## Estilo Apple, modo oscuro negro e Inicio unificado (2026-11-19)
+
+Pedido del usuario: UI "tipo Apple", modo oscuro **negro** en vez de azul, y
+fusionar Hoy con Dashboard. **Esta sección manda sobre lo que digan secciones
+anteriores** de fondo navy, fondo 3D del panel, tarjetas glass, barra de
+acento de los KPIs y `/hoy` como pantalla aparte.
+
+- **`slate` es ahora la escala de grises neutros de Apple** (redefinida en
+  `tailwind.config.js`: 50 `#f5f5f7` … 800 `#1c1c1e`, 900 `#121214`, 950
+  negro). Se redefinió el token en vez de renombrar ~1,500 clases: por eso
+  el oscuro pasó a negro sin tocar cada componente. `brand` es el azul del
+  sistema (`#0071e3` / `#0a84ff`). **No meter hex azulados sueltos** ni
+  volver a `dark:bg-*` con tinte azul.
+- **Oscuro = negro puro** (`.app-shell`, `body`), superficies `slate-800`
+  sólidas. **El fondo 3D del panel se eliminó** (`decor/FondoApp.jsx` ya no
+  existe); el 3D queda solo en el login, con luces y materiales neutros.
+  Login, invitación y POP público usan gradiente `#1c1c1e → #000`.
+- **Tokens** (`index.css`): `.card` = `rounded-2xl` + sombra difusa
+  `shadow-card` (borde casi invisible); botones en píldora (`rounded-full`)
+  con `active:scale-[0.97]`; `.btn-secondary` es un relleno gris translúcido,
+  sin borde; `.input` con anillo de foco suave; `.kpi` **sin barra lateral**
+  (el significado va en el color de la cifra). Tipografía del sistema (San
+  Francisco) con tracking negativo en titulares.
+- **Materiales**: sidebar, barra superior y barra inferior móvil son
+  translúcidos con `backdrop-blur-xl` (clase marcadora `.material`, que se
+  vuelve sólida con `prefers-reduced-transparency`). No apilar una superficie
+  translúcida sobre otra.
+- **Inicio (`/`) = Mi día + números.** `pages/Dashboard.jsx` pinta arriba
+  `components/inicio/MiDia.jsx` (la antigua página Hoy: invitaciones, 25
+  puntos, citas, recordatorios, leads, a quién llamar) con "Requiere tu
+  atención" en la columna derecha, y abajo "Tus números" (selector de
+  periodo, KPIs, gráficas, proceso, ranking). `/hoy` redirige a `/`; el login
+  navega a `/`. **La ruta `/` no exige sección RBAC** (el día es de todos,
+  `GET /hoy`); los números solo se piden y pintan con `puede('dashboard')`.
+  En el nav es un solo ítem, **"Inicio"** (`id: 'inicio'`). "Citas de hoy"
+  ya no se repite en "Requiere tu atención". No volver a separarlas.
+- **Calendario de escritorio** (misma estructura de siempre: riel + rejilla,
+  a pedido del usuario no se movió nada de lugar) con acabado de Calendario
+  de Apple: título "Mes" en negrita + año en gris, flechas circulares y "Hoy"
+  en píldora, **control segmentado** Mes/Semana/Agenda (riel gris + pastilla
+  elevada), número del día arriba a la derecha en círculo (hoy = marca, día
+  elegido = neutro), citas del mes como **punto de color + hora corta
+  ("10:00a") + nombre, sin caja** (punto hueco = invitación por confirmar),
+  bloques de Semana con barra de color a la izquierda, riel con fondo
+  tintado y separadores finos, casillas de filtro redondas.
+
 ## Exportar e importar la cartera en Excel (2026-11-19)
 
 Pedido de la promotora (toda la base de clientes en una hoja) y del usuario

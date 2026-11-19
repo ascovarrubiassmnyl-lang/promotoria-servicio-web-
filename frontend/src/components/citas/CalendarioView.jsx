@@ -510,10 +510,10 @@ function FichaCita({ cita, onClose, onReagendar, onEliminar, onCambiarEstado, es
 
         {viva && (
           <div className="flex flex-wrap gap-1.5 border-t border-slate-100 dark:border-slate-700 pt-3">
-            <button type="button" onClick={async () => { if (await onCambiarEstado(cita, 'COMPLETADA')) onClose(); }} className="rounded-lg border border-emerald-300 dark:border-emerald-700 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">✓ Completar</button>
-            <button type="button" onClick={async () => { if (await onCambiarEstado(cita, 'NO_ASISTIO')) onClose(); }} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">No asistió</button>
-            <button type="button" onClick={async () => { if (await onCambiarEstado(cita, 'CANCELADA')) onClose(); }} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Cancelar cita</button>
-            <button type="button" onClick={() => onReagendar(cita)} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Cambiar cliente / tipo…</button>
+            <button type="button" onClick={async () => { if (await onCambiarEstado(cita, 'COMPLETADA')) onClose(); }} className="rounded-full border border-emerald-300 dark:border-emerald-700 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">✓ Completar</button>
+            <button type="button" onClick={async () => { if (await onCambiarEstado(cita, 'NO_ASISTIO')) onClose(); }} className="rounded-full border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">No asistió</button>
+            <button type="button" onClick={async () => { if (await onCambiarEstado(cita, 'CANCELADA')) onClose(); }} className="rounded-full border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Cancelar cita</button>
+            <button type="button" onClick={() => onReagendar(cita)} className="rounded-full border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Cambiar cliente / tipo…</button>
           </div>
         )}
 
@@ -714,7 +714,7 @@ function CalendarioEscritorio() {
       const fin = new Date(desde); fin.setDate(fin.getDate() + 6);
       return `${desde.getDate()} ${nombreMes(desde.getMonth() + 1).slice(0, 3).toLowerCase()} – ${fin.getDate()} ${nombreMes(fin.getMonth() + 1).slice(0, 3).toLowerCase()} ${fin.getFullYear()}`;
     }
-    return `${nombreMes(refDate.getMonth() + 1)} ${refDate.getFullYear()}`;
+    return <>{nombreMes(refDate.getMonth() + 1)} <span className="font-normal text-slate-400 dark:text-slate-500">{refDate.getFullYear()}</span></>;
   }, [view, desde, refDate]);
 
   // ---------- Acciones de ciclo de vida ----------
@@ -774,11 +774,12 @@ function CalendarioEscritorio() {
         onClick={(e) => { e.stopPropagation(); setDetalle(c); }}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setDetalle(c); } }}
         title={`${c.titulo}${porConfirmar ? ' — invitación por confirmar' : ''} — clic para ver y editar`}
-        className={`flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium truncate cursor-pointer hover:ring-1 hover:ring-brand-400 ${color.chip} ${porConfirmar ? 'border border-dashed border-current opacity-70' : ''} ${cancelada ? 'line-through opacity-50' : ''} ${className}`}
+        className={`flex items-center gap-1 rounded-md px-1 py-[3px] text-[11px] truncate cursor-pointer transition-colors hover:bg-slate-900/[0.05] dark:hover:bg-white/[0.08] ${porConfirmar ? 'opacity-60' : ''} ${cancelada ? 'line-through opacity-50' : ''} ${className}`}
       >
-        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${color.dot}`} />
-        <span className="tabular-nums shrink-0">{hora(c.fechaHoraInicio)}</span>
-        <span className="truncate">{porConfirmar ? '⏳ ' : ''}{c.cliente?.nombre || c.titulo}</span>
+        {/* Invitación por confirmar: punto hueco (todavía no ocupa agenda). */}
+        <span className={`w-2 h-2 rounded-full shrink-0 ${porConfirmar ? `border-[1.5px] ${color.borde}` : color.dot}`} />
+        <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">{hora(c.fechaHoraInicio).replace(/\s?([ap])\.\s?m\./, '$1')}</span>
+        <span className="truncate font-medium text-slate-800 dark:text-slate-100">{porConfirmar ? '⏳ ' : ''}{c.cliente?.nombre || c.titulo}</span>
       </span>
     );
   };
@@ -800,9 +801,9 @@ function CalendarioEscritorio() {
   const VistaMes = () => (
     <div className="flex h-full flex-col">
       {/* Encabezado de días: fila con separadores, como el resto de la rejilla. */}
-      <div className="grid grid-cols-7 border-b border-slate-200 dark:border-slate-700">
+      <div className="grid grid-cols-7 border-b border-black/[0.06] dark:border-white/[0.08]">
         {DIAS_SEM.map((d) => (
-          <div key={d} className="border-r border-slate-200 py-2.5 text-center text-xs font-medium uppercase tracking-wide text-slate-500 last:border-r-0 dark:border-slate-700 dark:text-slate-400">
+          <div key={d} className="px-2.5 py-2 text-right text-[12px] font-medium text-slate-500 dark:text-slate-400">
             {d}
           </div>
         ))}
@@ -823,22 +824,25 @@ function CalendarioEscritorio() {
               key={i}
               onClick={() => setSelectedDay(d)}
               onDoubleClick={(e) => { e.preventDefault(); const dt = new Date(d); dt.setHours(0, 0, 0, 0); abrirAgendar(dt); }}
-              className={`relative overflow-hidden border-b border-slate-200 p-2 text-left align-top transition dark:border-slate-700 ${i % 7 === 6 ? '' : 'border-r'} ${
-                delMes ? 'hover:bg-slate-50 dark:hover:bg-slate-700/50' : 'bg-slate-50/70 dark:bg-slate-900/30'
-              } ${sel ? 'ring-2 ring-inset ring-brand-500 bg-brand-50/60 dark:bg-brand-900/20' : ''}`}
+              className={`relative overflow-hidden border-b border-black/[0.06] dark:border-white/[0.08] p-1.5 text-left align-top transition-colors ${i % 7 === 6 ? '' : 'border-r'} ${
+                sel ? 'bg-brand-500/[0.06] dark:bg-brand-500/[0.12]' : delMes ? 'hover:bg-slate-900/[0.02] dark:hover:bg-white/[0.03]' : 'bg-slate-900/[0.015] dark:bg-white/[0.015]'
+              }`}
               title="Doble clic para agendar"
             >
-              <div className="mb-1 flex items-center justify-between">
-                <span className={`text-xs font-medium ${
+              {/* Número arriba a la derecha, como Calendario de Apple: hoy en
+                  círculo de marca; el día elegido, en círculo neutro. */}
+              <div className="mb-0.5 flex items-center justify-between pl-1">
+                {items.length > 3 ? (
+                  <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500">+{items.length - 3}</span>
+                ) : <span />}
+                <span className={`flex h-7 min-w-[28px] items-center justify-center rounded-full px-1 text-[13px] tabular-nums ${
                   esHoy(d)
-                    ? 'flex h-6 w-6 items-center justify-center rounded-md bg-brand-600 font-semibold text-white'
-                    : delMes ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 dark:text-slate-500'
+                    ? 'bg-brand-600 font-semibold text-white dark:bg-brand-500'
+                    : sel ? 'bg-slate-900 font-semibold text-white dark:bg-white dark:text-black'
+                      : delMes ? 'font-medium text-slate-800 dark:text-slate-100' : 'text-slate-300 dark:text-slate-600'
                 }`}>{d.getDate()}</span>
-                {items.length > 3 && (
-                  <span className="text-[10px] text-slate-400 dark:text-slate-500">+{items.length - 3}</span>
-                )}
               </div>
-              <div className="space-y-1">
+              <div className="space-y-px">
                 {items.slice(0, 3).map((c) => <LineaCita key={c.id} c={c} />)}
               </div>
             </button>
@@ -859,7 +863,7 @@ function CalendarioEscritorio() {
       {/* Encabezado alineado con la vista Mes: mismos nombres de día en el
           mismo estilo (uppercase, xs, slate-500), con la fila de números
           debajo. La rejilla es la misma retícula de 7 columnas. */}
-      <div className="grid grid-cols-[52px_repeat(7,1fr)] sticky top-0 bg-white dark:bg-slate-800 z-10 border-b border-slate-100 dark:border-slate-700">
+      <div className="grid grid-cols-[52px_repeat(7,1fr)] sticky top-0 bg-white/85 backdrop-blur-md dark:bg-slate-800/85 z-10 border-b border-black/[0.06] dark:border-white/[0.08]">
         <div />
         {diasSemana.map((d) => {
           const sel = selectedDay && selectedDay.toDateString() === d.toDateString();
@@ -867,14 +871,14 @@ function CalendarioEscritorio() {
             <button
               key={dayKey(d)}
               onClick={() => setSelectedDay(d)}
-              className={`py-2 text-center border-l border-slate-100 dark:border-slate-700 transition ${
-                sel ? 'bg-brand-50 dark:bg-brand-900/30' : 'hover:bg-slate-50 dark:hover:bg-slate-700/60'
+              className={`py-2 text-center transition-colors ${
+                sel ? 'bg-brand-500/[0.06] dark:bg-brand-500/[0.12]' : 'hover:bg-slate-900/[0.03] dark:hover:bg-white/[0.04]'
               }`}
             >
-              <div className="text-xs uppercase text-slate-500 dark:text-slate-400">{DIAS_SEM[d.getDay()]}</div>
+              <div className="text-[12px] font-medium text-slate-500 dark:text-slate-400">{DIAS_SEM[d.getDay()]}</div>
               {/* Mismo indicador de "hoy" que la vista Mes (w-5 h-5): el
                   calendario se lee igual en ambas vistas. */}
-              <div className={`mt-0.5 mx-auto text-xs font-semibold ${esHoy(d) ? 'w-5 h-5 rounded-full bg-brand-600 text-white flex items-center justify-center' : 'text-slate-600 dark:text-slate-300'}`}>{d.getDate()}</div>
+              <div className={`mt-1 mx-auto flex h-7 w-7 items-center justify-center rounded-full text-[15px] tabular-nums ${esHoy(d) ? 'bg-brand-600 font-semibold text-white dark:bg-brand-500' : sel ? 'bg-slate-900 font-semibold text-white dark:bg-white dark:text-black' : 'font-medium text-slate-800 dark:text-slate-100'}`}>{d.getDate()}</div>
             </button>
           );
         })}
@@ -882,7 +886,7 @@ function CalendarioEscritorio() {
       <div className="grid grid-cols-[52px_repeat(7,1fr)]">
         <div>
           {Array.from({ length: HORA_FIN - HORA_INI + 1 }, (_, i) => HORA_INI + i).map((h) => (
-            <div key={h} className="text-[10px] text-slate-400 dark:text-slate-500 text-right pr-2" style={{ height: ALTO_HORA }}>
+            <div key={h} className="pr-2 text-right text-[10px] tabular-nums text-slate-400 dark:text-slate-500" style={{ height: ALTO_HORA }}>
               {h > 12 ? h - 12 : h} {h >= 12 ? 'pm' : 'am'}
             </div>
           ))}
@@ -893,12 +897,12 @@ function CalendarioEscritorio() {
           return (
             <div
               key={dayKey(d)}
-              className={`relative border-l border-slate-100 dark:border-slate-700 ${sel ? 'bg-brand-50/40 dark:bg-brand-900/15' : ''}`}
+              className={`relative border-l border-black/[0.06] dark:border-white/[0.08] ${sel ? 'bg-brand-500/[0.04] dark:bg-brand-500/[0.08]' : ''}`}
             >
               {Array.from({ length: HORA_FIN - HORA_INI + 1 }, (_, i) => HORA_INI + i).map((h) => (
                 <div
                   key={h}
-                  className="border-b border-slate-50 dark:border-slate-700/60 cursor-pointer transition hover:bg-slate-50 dark:hover:bg-slate-700/60"
+                  className="border-b border-black/[0.04] dark:border-white/[0.05] cursor-pointer transition-colors hover:bg-slate-900/[0.03] dark:hover:bg-white/[0.04]"
                   style={{ height: ALTO_HORA }}
                   onClick={() => { const dt = new Date(d); dt.setHours(h, 0, 0, 0); abrirAgendar(dt); }}
                   title="Clic para agendar a esta hora"
@@ -938,16 +942,13 @@ function CalendarioEscritorio() {
                     key={c.id}
                     onClick={(e) => { e.stopPropagation(); setSelectedDay(d); setDetalle(c); }}
                     title={`${c.titulo} — clic para ver y editar`}
-                    className={`absolute left-0.5 right-0.5 rounded px-1 py-0.5 text-left overflow-hidden text-[10px] font-medium cursor-pointer hover:ring-1 hover:ring-brand-400 ${color.chip} ${cancelada ? 'line-through opacity-50' : ''}`}
+                    className={`absolute left-0.5 right-1 rounded-md border-l-[3px] ${color.borde} px-1.5 py-0.5 text-left overflow-hidden text-[11px] font-medium cursor-pointer transition hover:brightness-95 dark:hover:brightness-125 ${color.chip} ${cancelada ? 'line-through opacity-50' : ''}`}
                     style={{ top, height: Math.max(alto, 20) }}
                   >
                     {/* Mismo lenguaje visual que LineaCita (vista Mes): punto de
                         color + hora tabular + título truncado. */}
-                    <div className="flex items-center gap-1">
-                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${color.dot}`} />
-                      <span className="tabular-nums shrink-0">{hora(c.fechaHoraInicio)}</span>
-                    </div>
-                    <div className="truncate">{c.titulo}</div>
+                    <div className="truncate font-semibold">{c.titulo}</div>
+                    <div className="tabular-nums opacity-80">{hora(c.fechaHoraInicio)}</div>
                   </button>
                 );
               })}
@@ -980,9 +981,9 @@ function CalendarioEscritorio() {
                 const color = colorCita(c);
                 const cancelada = c.estado === 'CANCELADA';
                 return (
-                  <button key={c.id} onClick={() => { setSelectedDay(d); setDetalle(c); }} className="w-full flex gap-3 items-start rounded-lg px-2 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                  <button key={c.id} onClick={() => { setSelectedDay(d); setDetalle(c); }} className="w-full flex gap-3 items-start rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-slate-900/[0.04] dark:hover:bg-white/[0.06]">
                     <span className="w-[120px] shrink-0 text-xs tabular-nums text-slate-500 dark:text-slate-400 pt-0.5">{hora(c.fechaHoraInicio)} – {hora(c.fechaHoraFin)}</span>
-                    <span className={`w-0.5 self-stretch rounded ${color.dot}`} />
+                    <span className={`w-[3px] self-stretch rounded-full ${color.dot}`} />
                     <span className="min-w-0">
                       <span className={`block text-sm font-medium text-slate-800 dark:text-slate-100 truncate ${cancelada ? 'line-through opacity-60' : ''}`}>{c.titulo}</span>
                       <span className="block text-xs text-slate-400 dark:text-slate-500 truncate">
@@ -1006,10 +1007,10 @@ function CalendarioEscritorio() {
   // cuelga del mini calendario, que es donde se elige el día.
   const panelDia = (
     <div className="p-3">
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      <p className="mb-2 px-1 text-[13px] font-semibold text-slate-500 dark:text-slate-400">
         {selectedDay ? `Citas · ${fechaCorta(selectedDay)}` : 'Selecciona un día'}
         {selectedDay && citasDiaSel.length > 0 && (
-          <span className="ml-1.5 font-medium normal-case text-slate-400 dark:text-slate-500">({citasDiaSel.length})</span>
+          <span className="ml-1.5 font-medium text-slate-400 dark:text-slate-500">({citasDiaSel.length})</span>
         )}
       </p>
       {/* Horarios ocupados del promotor elegido, para este día: cada hueco libre
@@ -1036,7 +1037,7 @@ function CalendarioEscritorio() {
               const color = colorCita(c);
               const viva = CITA_VIVA.includes(c.estado);
               return (
-                <li key={c.id} className={`rounded-lg border border-slate-100 dark:border-slate-700 border-l-[3px] ${color.borde} p-2.5`}>
+                <li key={c.id} className={`rounded-xl bg-white shadow-card border-l-[3px] ${color.borde} p-3 dark:bg-slate-800 dark:shadow-none`}>
                   {/* En el riel (320px) el título manda: el badge de estado baja
                       a la línea de la hora para no partirlo en tres renglones. */}
                   <div className="flex items-start justify-between gap-2">
@@ -1093,9 +1094,9 @@ function CalendarioEscritorio() {
                   </div>
                   {viva && (
                     <div className="mt-2.5 flex flex-wrap gap-1.5">
-                      <button onClick={() => cambiarEstado(c, 'COMPLETADA')} className="rounded-lg border border-emerald-300 dark:border-emerald-700 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">✓ Completar</button>
-                      <button onClick={() => abrirReagendar(c)} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Reagendar</button>
-                      <button onClick={() => cambiarEstado(c, 'CANCELADA')} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Cancelar cita</button>
+                      <button onClick={() => cambiarEstado(c, 'COMPLETADA')} className="rounded-full border border-emerald-300 dark:border-emerald-700 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30">✓ Completar</button>
+                      <button onClick={() => abrirReagendar(c)} className="rounded-full border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Reagendar</button>
+                      <button onClick={() => cambiarEstado(c, 'CANCELADA')} className="rounded-full border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">Cancelar cita</button>
                     </div>
                   )}
                 </li>
@@ -1122,12 +1123,12 @@ function CalendarioEscritorio() {
 
   const riel = (
     <>
-      <div className="border-b border-slate-200 p-4 dark:border-slate-700">
+      <div className="border-b border-black/[0.06] dark:border-white/[0.08] p-4">
         <button onClick={() => { setRielAbierto(false); abrirAgendar(selectedDay); }} className="btn-primary w-full">
           + Agendar cita
         </button>
       </div>
-      <div className="border-b border-slate-200 p-3 dark:border-slate-700">
+      <div className="border-b border-black/[0.06] dark:border-white/[0.08] p-3">
         <MiniMes
           mes={new Date(refDate.getFullYear(), refDate.getMonth(), 1)}
           onMes={(m) => setRefDate(m)}
@@ -1140,7 +1141,7 @@ function CalendarioEscritorio() {
           apiladas y, debajo, los filtros — el mismo apilado de siempre, sin
           recortarle alto a ninguno de los dos. El scroll vive aquí y no en la
           página, que es lo que mantiene estática la cuadrícula del mes. */}
-      <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-slate-200 dark:divide-slate-700">
+      <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-black/[0.06] dark:divide-white/[0.08]">
         {panelDia}
         {/* Filtros como "calendarios" que se muestran u ocultan: la casilla lleva
             el color del evento, así el riel es también la leyenda. */}
@@ -1171,7 +1172,7 @@ function CalendarioEscritorio() {
       </div>
       {/* Alcance: el promotor filtra por asesor; el asesor consulta la
           disponibilidad de un promotor (espejo, cada rol ve solo uno). */}
-      <div className="border-t border-slate-200 p-3 dark:border-slate-700">
+      <div className="border-t border-black/[0.06] dark:border-white/[0.08] p-3">
         {esAdmin() ? (
           <select className="input w-full" value={fAsesor} onChange={(e) => setFAsesor(e.target.value)}>
             <option value="">Todos los asesores</option>
@@ -1202,26 +1203,30 @@ function CalendarioEscritorio() {
             página. Antes cualquiera de los dos crecía sin tope y el calendario
             quedaba a varios scrolls de distancia. */}
         <div className="flex h-[calc(100vh-7rem)] max-h-[1000px] min-h-[620px]">
-          <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r border-slate-200 dark:border-slate-700 xl:flex">
+          <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r border-black/[0.06] dark:border-white/[0.08] bg-slate-50/70 dark:bg-slate-900 xl:flex">
             {riel}
           </aside>
 
           <div className="flex min-w-0 flex-1 flex-col">
             {/* Encabezado del panel principal */}
-            <div className="flex flex-col gap-3 border-b border-slate-200 p-4 dark:border-slate-700 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-col gap-3 border-b border-black/[0.06] dark:border-white/[0.08] px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex flex-wrap items-center gap-3">
                 <button
                   onClick={() => setRielAbierto(true)}
                   className="btn-secondary px-2.5 xl:hidden"
                   aria-label="Abrir mini calendario y filtros"
                 >☰</button>
-                <div className="inline-flex overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
-                  <button onClick={() => step(-1)} aria-label="Periodo anterior" className="px-2.5 py-1.5 text-sm text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700/60">←</button>
-                  <button onClick={goHoy} className="border-x border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700/60">Hoy</button>
-                  <button onClick={() => step(1)} aria-label="Periodo siguiente" className="px-2.5 py-1.5 text-sm text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700/60">→</button>
+                <h2 className="text-[26px] font-bold leading-none tracking-tight text-slate-900 dark:text-slate-100">{tituloPeriodo}</h2>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => step(-1)} aria-label="Periodo anterior" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-900/[0.06] hover:text-slate-900 active:scale-95 dark:text-slate-400 dark:hover:bg-white/[0.1] dark:hover:text-white">
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 6l-6 6 6 6" /></svg>
+                  </button>
+                  <button onClick={goHoy} className="btn-secondary px-3.5 py-1 text-[13px]">Hoy</button>
+                  <button onClick={() => step(1)} aria-label="Periodo siguiente" className="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-900/[0.06] hover:text-slate-900 active:scale-95 dark:text-slate-400 dark:hover:bg-white/[0.1] dark:hover:text-white">
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
+                  </button>
                 </div>
-                <h2 className="text-xl font-semibold capitalize text-slate-800 dark:text-slate-100 sm:text-2xl">{tituloPeriodo}</h2>
-              </div>
+                              </div>
 
               <div className="flex flex-wrap items-center gap-2">
                 <div className="relative">
@@ -1229,18 +1234,24 @@ function CalendarioEscritorio() {
                     <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" strokeLinecap="round" />
                   </svg>
                   <input
-                    className="input w-full pl-9 sm:w-56"
+                    className="w-full rounded-[10px] border-0 bg-slate-900/[0.05] py-1.5 pl-9 pr-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:ring-4 focus:ring-brand-500/20 dark:bg-white/[0.08] dark:text-slate-100 sm:w-56"
                     placeholder="Buscar citas…"
                     value={busqueda}
                     onChange={(e) => setBusqueda(e.target.value)}
                   />
                 </div>
-                <div className="inline-flex overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+                {/* Control segmentado (estilo Apple): riel gris y la opción
+                    elegida como "pastilla" blanca elevada. */}
+                <div className="inline-flex rounded-[10px] bg-slate-900/[0.06] p-0.5 dark:bg-white/[0.08]" role="tablist">
                   {[['mes', 'Mes'], ['semana', 'Semana'], ['agenda', 'Agenda']].map(([v, l]) => (
                     <button
                       key={v}
+                      role="tab"
+                      aria-selected={view === v}
                       onClick={() => setView(v)}
-                      className={`px-3 py-1.5 text-sm ${view === v ? 'bg-brand-600 text-white' : 'bg-transparent text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700/60'}`}
+                      className={`rounded-[8px] px-3.5 py-1 text-[13px] font-medium transition ${view === v
+                        ? 'bg-white text-slate-900 shadow-[0_1px_3px_rgba(0,0,0,0.12)] dark:bg-slate-600 dark:text-white'
+                        : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'}`}
                     >{l}</button>
                   ))}
                 </div>
@@ -1251,7 +1262,7 @@ function CalendarioEscritorio() {
                 existe en Semana: si el asesor la activa desde Mes/Agenda hay que
                 decírselo, o parecería que el promotor no tiene nada ocupado. */}
             {fPromotor && (
-              <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+              <div className="flex flex-wrap items-center gap-2 border-b border-black/[0.06] dark:border-white/[0.08] bg-slate-50 px-5 py-2 text-xs text-slate-600 dark:bg-slate-900 dark:text-slate-300">
                 <span className={`inline-block h-3 w-5 rounded ${DISPONIBILIDAD_ESTILO.bloque}`} />
                 <span>
                   Horarios ocupados de <strong className="font-semibold">{promotorVisto ? `${promotorVisto.nombre} ${promotorVisto.apellidoP}` : 'el promotor'}</strong>.

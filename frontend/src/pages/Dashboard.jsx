@@ -8,6 +8,7 @@ import { diasPeriodo, claveRitmo, ESTADOS_RITMO, pctAvance } from '../components
 import { infoTipoNotificacion, rutaNotificacion } from '../components/notificaciones/tipos.jsx';
 import { useListaNotificaciones, useMarcarLeida, useMarcarTodasLeidas } from '../hooks/useNotificaciones.js';
 import { RankingAsesores } from '../components/dashboard/Leaderboard.jsx';
+import MiDia from '../components/inicio/MiDia.jsx';
 
 // recharts pesa ~400 kB: las gráficas se cargan aparte para no cobrárselo al
 // bundle inicial de toda la app (misma convención que el 3D decorativo). Las
@@ -57,21 +58,55 @@ function GraficaCargando() {
 // lista ordenada por urgencia. Al ya no haber una bandeja histórica navegable,
 // "marcar como leída" aquí equivale a "ya lo atendí, quítalo de la lista".
 
+// Inicio (2026-11-19, a pedido del usuario): "Hoy" y "Dashboard" eran casi la
+// misma pantalla partida en dos pestañas. Ahora es una sola: arriba **Mi día**
+// (components/inicio/MiDia.jsx, lo que hay que hacer hoy) y abajo **Tus
+// números** (lo que lleva el mes). La ruta `/` ya no exige la sección
+// `dashboard`: el día es de todos; los números solo se piden y se pintan si
+// `puede('dashboard')`. "Requiere tu atención" vive dentro de Mi día.
 export default function Dashboard() {
   const { user, esAdmin, puede } = useAuth();
   const admin = esAdmin();
+  const verNumeros = puede('dashboard');
   const now = new Date();
   const [mes, setMes] = useState(now.getMonth() + 1);
   const [anio, setAnio] = useState(now.getFullYear());
-  const { fraccion } = diasPeriodo(mes, anio);
 
-  const { data, isLoading } = useQuery({
+  const { data } = useQuery({
     queryKey: ['dashboard', mes, anio],
     queryFn: async () => (await api.get('/metricas/dashboard', { params: { mes, anio } })).data,
+    enabled: verNumeros,
+    placeholderData: (previo) => previo,
   });
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-10">
+      <div className="space-y-4">
+        <Encabezado user={user} admin={admin} />
+        <MiDia extra={<Atencion atencion={data?.atencion} admin={admin} />} />
+      </div>
+
+      {verNumeros && (
+        <Numeros
+          data={data}
+          user={user}
+          admin={admin}
+          mes={mes}
+          anio={anio}
+          onCambiarPeriodo={(m, a) => { setMes(m); setAnio(a); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ---------- Tus números: KPIs, gráficas, proceso y ranking del periodo ---------- */
+
+function Numeros({ data, user, admin, mes, anio, onCambiarPeriodo }) {
+  const { puede } = useAuth();
+  const { fraccion } = diasPeriodo(mes, anio);
   // Proceso de ventas del mes: los 5 pasos del trabajo comercial, del
-  // prospecto nuevo a la póliza cobrada. Mide la tasa de cierre por el
-  // recorrido completo, no solo por las pólizas que ya entraron.
+  // prospecto nuevo a la póliza cobrada.
   const { data: proceso } = useQuery({
     queryKey: ['proceso-ventas', mes, anio],
     queryFn: async () => (await api.get('/metricas/proceso-ventas', { params: { mes, anio } })).data,
@@ -87,43 +122,50 @@ export default function Dashboard() {
     enabled: verTendencia,
   });
 
-  const cambiarPeriodo = (m, a) => { setMes(m); setAnio(a); };
-
-  if (isLoading || !data) return <div className="p-10 text-center text-slate-400 dark:text-slate-500">Cargando…</div>;
-
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <Encabezado user={user} admin={admin} mes={mes} anio={anio} onCambiarPeriodo={cambiarPeriodo} />
-
-      <KpiPrincipales data={data} admin={admin} fraccion={fraccion} historial={historial} />
-
-      <div className={`grid gap-6 ${verTendencia ? 'lg:grid-cols-2' : ''}`}>
-        <Suspense fallback={<GraficaCargando />}>
-          {verTendencia && <TendenciaVentas historial={historial} admin={admin} />}
-        </Suspense>
-        <Suspense fallback={<GraficaCargando />}>
-          <PrimaPorRamo data={data} mes={mes} anio={anio} />
-        </Suspense>
+    <section className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-[22px] font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+            {admin ? 'Números de la promotoría' : 'Tus números'}
+          </h2>
+          <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Ventas, cartera y proceso del periodo</p>
+        </div>
+        <PeriodoSelector mes={mes} anio={anio} onChange={onCambiarPeriodo} />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Atencion atencion={data.atencion} admin={admin} />
-        <ProcesoVentas proceso={proceso} />
-      </div>
+      {!data ? (
+        <div className="card p-10 text-center text-sm text-slate-400 dark:text-slate-500">Cargando números…</div>
+      ) : (
+        <>
+          <KpiPrincipales data={data} admin={admin} fraccion={fraccion} historial={historial} />
 
-      {/* Ranking: solo con alcance de administración. El servidor tampoco
-          incluye `data.ranking` cuando quien consulta es ASESOR. */}
-      {admin && (
-        <RankingAsesores
-          ranking={data.ranking}
-          fraccion={fraccion}
-          mes={mes}
-          anio={anio}
-          currentUserId={user?.id}
-          vacio={<>Aún no hay asesores activos. <Link to="/asesores" className="font-semibold text-brand-600 hover:underline dark:text-brand-400">Invita al primero</Link>.</>}
-        />
+          <div className={`grid gap-5 ${verTendencia ? 'lg:grid-cols-2' : ''}`}>
+            <Suspense fallback={<GraficaCargando />}>
+              {verTendencia && <TendenciaVentas historial={historial} admin={admin} />}
+            </Suspense>
+            <Suspense fallback={<GraficaCargando />}>
+              <PrimaPorRamo data={data} mes={mes} anio={anio} />
+            </Suspense>
+          </div>
+
+          <ProcesoVentas proceso={proceso} />
+
+          {/* Ranking: solo con alcance de administración. El servidor tampoco
+              incluye `data.ranking` cuando quien consulta es ASESOR. */}
+          {admin && (
+            <RankingAsesores
+              ranking={data.ranking}
+              fraccion={fraccion}
+              mes={mes}
+              anio={anio}
+              currentUserId={user?.id}
+              vacio={<>Aún no hay asesores activos. <Link to="/asesores" className="font-semibold text-brand-600 hover:underline dark:text-brand-400">Invita al primero</Link>.</>}
+            />
+          )}
+        </>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -135,25 +177,19 @@ function saludo(hora) {
   return 'Buenas noches';
 }
 
-function Encabezado({ user, admin, mes, anio, onCambiarPeriodo }) {
+function Encabezado({ user, admin }) {
   const ahora = new Date();
-  const fecha = ahora.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const fecha = ahora.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
   const fechaCap = fecha.charAt(0).toUpperCase() + fecha.slice(1);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-4">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-slate-100 sm:text-[28px]">
-          {saludo(ahora.getHours())}, {user?.nombre}
-        </h2>
-        <p className="mt-1.5 flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-          <span>{fechaCap}</span>
-          <span className="badge bg-slate-100 text-slate-500 dark:bg-slate-700/60 dark:text-slate-400">
-            {admin ? 'Promotoría' : 'Asesor'}
-          </span>
-        </p>
-      </div>
-      <PeriodoSelector mes={mes} anio={anio} onChange={onCambiarPeriodo} />
+    <div>
+      <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+        {fechaCap} · {admin ? 'Promotoría' : 'Asesor'}
+      </p>
+      <h1 className="mt-1 text-[28px] font-semibold leading-tight tracking-tight text-slate-900 dark:text-slate-100 sm:text-[34px]">
+        {saludo(ahora.getHours())}, {user?.nombre}
+      </h1>
     </div>
   );
 }
@@ -196,12 +232,12 @@ function PeriodoSelector({ mes, anio, onChange }) {
           Hoy
         </button>
       )}
-      <div className="flex items-center rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <div className="flex items-center rounded-full bg-white shadow-card dark:bg-slate-800 dark:shadow-none">
         <button
           type="button"
           onClick={() => mover(-1)}
           aria-label="Periodo anterior"
-          className="rounded-l-xl p-2 text-slate-400 transition hover:bg-slate-50 hover:text-slate-700 active:scale-90 dark:hover:bg-slate-700/60 dark:hover:text-slate-200"
+          className="rounded-l-full p-2 pl-3 text-slate-400 transition hover:bg-slate-50 hover:text-slate-700 active:scale-90 dark:hover:bg-slate-700/60 dark:hover:text-slate-200"
         >
           <IconChevron dir="left" />
         </button>
@@ -216,14 +252,14 @@ function PeriodoSelector({ mes, anio, onChange }) {
           type="button"
           onClick={() => mover(1)}
           aria-label="Periodo siguiente"
-          className="rounded-r-xl p-2 text-slate-400 transition hover:bg-slate-50 hover:text-slate-700 active:scale-90 dark:hover:bg-slate-700/60 dark:hover:text-slate-200"
+          className="rounded-r-full p-2 pr-3 text-slate-400 transition hover:bg-slate-50 hover:text-slate-700 active:scale-90 dark:hover:bg-slate-700/60 dark:hover:text-slate-200"
         >
           <IconChevron dir="right" />
         </button>
       </div>
 
       {open && (
-        <div className="absolute right-0 top-full z-30 mt-2 w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+        <div className="absolute right-0 top-full z-30 mt-2 w-64 rounded-2xl border border-black/[0.06] bg-white p-3 shadow-flotante dark:border-white/[0.1] dark:bg-slate-800">
           <div className="flex items-center justify-between pb-2">
             <button
               type="button"
@@ -389,20 +425,15 @@ function Atencion({ atencion, admin }) {
     };
   });
 
-  const pendientesItems = [
+  // Sin la sección `dashboard` (o mientras carga) solo hay notificaciones.
+  // "Citas de hoy" ya no se repite aquí: es su propia lista en Mi día.
+  const pendientesItems = !atencion ? [] : [
     atencion.pendientesPago.count > 0 && {
       key: 'pendientes-pago',
       color: 'bg-amber-500',
       to: admin ? '/equipo' : '/ventas',
       t: `${num(atencion.pendientesPago.count)} ${atencion.pendientesPago.count === 1 ? 'póliza pendiente' : 'pólizas pendientes'} de pago`,
       s: `${mxn(atencion.pendientesPago.prima)} en prima sin cobrar`,
-    },
-    atencion.citasHoy > 0 && {
-      key: 'citas-hoy',
-      color: 'bg-brand-500',
-      to: '/citas',
-      t: `${num(atencion.citasHoy)} ${atencion.citasHoy === 1 ? 'cita' : 'citas'} hoy`,
-      s: 'Revisa tu agenda del día',
     },
     atencion.seguimiento > 0 && {
       key: 'seguimiento',
@@ -422,11 +453,11 @@ function Atencion({ atencion, admin }) {
   const items = [...notifItems, ...pendientesItems];
 
   return (
-    <section className="card p-5 sm:p-7">
+    <section className="card p-5">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Requiere tu atención</h3>
-          <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">Notificaciones y pendientes de esta semana</p>
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Requiere tu atención</h3>
+          <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">Avisos sin leer y pendientes de cobro y seguimiento</p>
         </div>
         {notifItems.length > 0 && (
           <button
@@ -440,7 +471,7 @@ function Atencion({ atencion, admin }) {
         )}
       </div>
       {items.length === 0 ? (
-        <div className="py-10 text-center text-sm text-slate-400 dark:text-slate-500">
+        <div className="pt-3 text-sm text-slate-400 dark:text-slate-500">
           Todo al día por ahora.{' '}
           <Link to="/citas" className="font-semibold text-brand-600 hover:underline dark:text-brand-400">Agenda una cita</Link>
           {' '}o{' '}
@@ -448,10 +479,10 @@ function Atencion({ atencion, admin }) {
           {' '}para mover el mes.
         </div>
       ) : (
-        <div className="mt-4">
+        <div className="mt-2 -mb-2">
           {items.map((it, i) => {
             const fila = (
-              <div className={`group flex items-center gap-4 py-4 ${i > 0 ? 'border-t border-slate-100 dark:border-slate-700/60' : ''}`}>
+              <div className={`group flex items-center gap-3 py-3 ${i > 0 ? 'border-t border-slate-100 dark:border-slate-700/60' : ''}`}>
                 <span className={`h-2 w-2 shrink-0 rounded-full ${it.color}`} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-slate-800 transition-colors group-hover:text-brand-600 dark:text-slate-100 dark:group-hover:text-brand-400">{it.t}</p>

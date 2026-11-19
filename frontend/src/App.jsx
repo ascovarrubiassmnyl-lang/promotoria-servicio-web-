@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout.jsx';
 import { ProtectedRoute, SeccionRoute } from './components/Protected.jsx';
 import Login from './pages/Login.jsx';
@@ -21,7 +21,6 @@ import CandidatoDetalle from './pages/CandidatoDetalle.jsx';
 import Notificaciones from './pages/Notificaciones.jsx';
 import LeadsLanding from './pages/LeadsLanding.jsx';
 import NoEncontrada from './pages/NoEncontrada.jsx';
-import Hoy from './pages/Hoy.jsx';
 import RecuperarArchivos from './pages/RecuperarArchivos.jsx';
 
 export default function App() {
@@ -33,10 +32,11 @@ export default function App() {
           cuenta en el CRM y contesta con su token de un solo uso. */}
       <Route path="/pop/:token" element={<PopPublico />} />
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-        <Route path="/" element={<SeccionRoute seccion="dashboard"><Dashboard /></SeccionRoute>} />
-        {/* "Hoy": lista de trabajo del día, para todos y sin sección RBAC — la
-            API (GET /hoy) solo devuelve datos de quien consulta. */}
-        <Route path="/hoy" element={<Hoy />} />
+        {/* Inicio = Mi día + números (2026-11-19: Hoy y Dashboard fusionados).
+            Sin sección RBAC: GET /hoy solo devuelve datos de quien consulta y
+            el bloque de números se pinta solo con la sección `dashboard`. */}
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/hoy" element={<Navigate to="/" replace />} />
         <Route path="/clientes" element={<SeccionRoute seccion="clientes"><Clientes /></SeccionRoute>} />
         {/* "Agrega tu sitio web": autoservicio para todos los usuarios, sin sección RBAC. */}
         <Route path="/leads" element={<LeadsLanding />} />

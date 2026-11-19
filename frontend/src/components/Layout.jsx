@@ -1,8 +1,7 @@
 import { NavLink, useNavigate, useLocation, Outlet } from 'react-router-dom';
-import { Suspense, lazy, useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
-import { soportaWebGL, Silencioso } from './decor/util3d.jsx';
 import BannerActivarPush from './notificaciones/BannerActivarPush.jsx';
 import { Toasts } from './ui.jsx';
 import InvitarUsuarioModal from './usuarios/InvitarUsuarioModal.jsx';
@@ -15,7 +14,6 @@ import { ROLES_LABEL } from './configuracion/secciones.js';
 // Fondo 3D decorativo del panel (solo modo oscuro): mismo patrón que el login
 // — lazy + Suspense (three no entra al bundle inicial), solo con WebGL y con
 // ErrorBoundary silencioso; el fallback es el gradiente CSS de .app-shell.
-const FondoApp = lazy(() => import('./decor/FondoApp.jsx'));
 
 // Iconos SVG inline (sin dependencias externas)
 const IconDashboard = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>);
@@ -38,13 +36,12 @@ const IconSun = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="curr
 const IconMoon = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>);
 const IconInvitar = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>);
 const IconLeads = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>);
-const IconHoy = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg>);
 const IconCampanaNav = (p) => (<svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>);
 
 const ICONS = {
   dashboard: IconDashboard, clientes: IconClientes, citas: IconCal, ventas: IconPoliza,
   actividad: IconAct, asesores: IconAsesores, metas: IconMetas, configuracion: IconConfig,
-  puntos: IconPuntos, clinica: IconClinica, candidatos: IconCandidatos, leads: IconLeads, hoy: IconHoy,
+  puntos: IconPuntos, clinica: IconClinica, candidatos: IconCandidatos, leads: IconLeads, inicio: IconDashboard,
 };
 
 const STORAGE_KEY = 'crm:sidebar:colapsado';
@@ -170,10 +167,10 @@ function BotonSidebar({ icono: Icon, label, title, colapsado, onClick, peligro =
 // orden. El resto de destinos permitidos caen en la hoja "Más".
 // "Hoy" (2026-10-13) desplaza al Panel a la hoja "Más": es la pantalla
 // que un asesor en campo abre en el celular.
-const PRIMARY_SECCIONES = ['hoy', 'clientes', 'citas', 'ventas'];
+const PRIMARY_SECCIONES = ['inicio', 'clientes', 'citas', 'ventas'];
 // Etiqueta corta para la barra inferior (el sidebar usa la larga).
 const NAV_CORTO = {
-  hoy: 'Hoy', dashboard: 'Panel', clientes: 'CRM', citas: 'Citas', ventas: 'Pólizas',
+  inicio: 'Inicio', clientes: 'CRM', citas: 'Citas', ventas: 'Pólizas',
   actividad: 'Actividad', metas: 'Metas', asesores: 'Asesores', configuracion: 'Ajustes',
   puntos: '25 puntos', clinica: 'Clínica', candidatos: 'Candidatos', leads: 'Sitio web',
 };
@@ -186,8 +183,6 @@ export default function Layout() {
   const navigate = useNavigate();
 
   const logoSrc = tema === 'dark' ? '/origen-blanco.png' : '/origen-negro.png';
-
-  const [conWebGL] = useState(soportaWebGL);
   // El sidebar se colapsa SOLO al elegir una sección (a pedido del usuario):
   // una vez que ya se navegó, el menú estorba y el contenido —el calendario en
   // particular— necesita el ancho. Se vuelve a abrir con el botón de expandir,
@@ -240,11 +235,12 @@ export default function Layout() {
   useEffect(() => () => clearTimeout(timerScroll.current), []);
 
   const allLinks = [
-    // "Hoy" (2026-10-13, auditoría de UI): la lista de trabajo del día —citas,
-    // recordatorios vencidos, leads nuevos y a quién llamar— en un solo lugar.
-    // Para todos los roles y sin sección RBAC: es SIEMPRE el día propio.
-    { to: '/hoy', label: 'Hoy', id: 'hoy' },
-    { to: '/', label: 'Dashboard', end: true, seccion: 'dashboard' },
+    // "Inicio" (2026-11-19): Hoy y Dashboard se fusionaron en una sola
+    // pantalla — arriba el día (citas, recordatorios, leads, a quién llamar)
+    // y abajo los números del mes. Para todos los roles y sin sección RBAC:
+    // el día siempre es el propio; el bloque de números solo se pinta con la
+    // sección `dashboard` permitida.
+    { to: '/', label: 'Inicio', end: true, id: 'inicio' },
     { to: '/clientes', label: 'CRM', seccion: 'clientes' },
     // "Agrega tu sitio web" (captura de leads desde landings): para TODOS los
     // usuarios, sin sección RBAC — es autoservicio, como /notificaciones (la
@@ -278,7 +274,7 @@ export default function Layout() {
   // Navegación móvil (misma fuente que el sidebar, sin re-derivar permisos):
   // las 4 secciones primarias son pestañas fijas y el resto va en la hoja "Más".
   const navMovil = [...links, ...adminLinksFiltrados];
-  // Los destinos sin sección RBAC se identifican por `id` ("hoy", "leads").
+  // Los destinos sin sección RBAC se identifican por `id` ("inicio", "leads").
   const claveNav = (l) => l.id || l.seccion;
   const tabsPrimarios = PRIMARY_SECCIONES
     .map((s) => navMovil.find((l) => claveNav(l) === s))
@@ -287,19 +283,10 @@ export default function Layout() {
 
   return (
     <div className="h-screen flex overflow-hidden relative app-shell">
-      {tema === 'dark' && conWebGL && (
-        <div className="absolute inset-0 z-0" aria-hidden="true">
-          <Silencioso>
-            <Suspense fallback={null}>
-              <FondoApp />
-            </Suspense>
-          </Silencioso>
-        </div>
-      )}
 
       <aside
         style={{ width: colapsado ? ANCHO_COLAPSADO : ANCHO_EXPANDIDO }}
-        className="hidden md:flex flex-col shrink-0 h-screen relative z-10 overflow-hidden bg-white dark:bg-slate-900/70 dark:backdrop-blur-xl border-r border-slate-200 dark:border-slate-700/70 transition-[width] duration-[240ms] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
+        className="hidden md:flex flex-col shrink-0 h-screen relative z-10 overflow-hidden material bg-white/70 backdrop-blur-xl backdrop-saturate-150 dark:bg-slate-800/60 border-r border-black/[0.06] dark:border-white/[0.08] transition-[width] duration-[240ms] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none"
         aria-label="Navegación principal"
       >
         {/* Encabezado. Colapsado, el propio logo expande el sidebar (al pasar
@@ -414,7 +401,7 @@ export default function Layout() {
       {/* Columna derecha: barra superior (móvil) + contenido + barra inferior (móvil) */}
       <div className="flex-1 min-w-0 h-full flex flex-col relative z-10">
         {/* Barra superior compacta — solo móvil (el sidebar cubre escritorio) */}
-        <header className="md:hidden sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white/90 px-4 backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/70">
+        <header className="md:hidden sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between material border-b border-black/[0.06] bg-white/75 px-4 backdrop-blur-xl backdrop-saturate-150 dark:border-white/[0.08] dark:bg-slate-800/70">
           <img src={logoSrc} alt="Origen" className="h-7 w-auto object-contain" />
           <div className="flex items-center gap-0.5">
             <CampanaNotificaciones />
@@ -438,7 +425,7 @@ export default function Layout() {
 
         {/* Barra de pestañas inferior — solo móvil, áreas táctiles ≥44px + safe-area */}
         <nav
-          className="md:hidden shrink-0 flex border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/80 px-1 pt-1 pb-[env(safe-area-inset-bottom)]"
+          className="md:hidden shrink-0 flex material border-t border-black/[0.06] bg-white/80 backdrop-blur-xl backdrop-saturate-150 dark:border-white/[0.08] dark:bg-slate-800/75 px-1 pt-1 pb-[env(safe-area-inset-bottom)]"
           aria-label="Navegación principal"
         >
           {tabsPrimarios.map((l) => {

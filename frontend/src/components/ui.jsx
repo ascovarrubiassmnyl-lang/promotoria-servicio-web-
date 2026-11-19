@@ -9,7 +9,7 @@ export function Card({ children, className = '', title, subtitle, actions }) {
   return (
     <div className={`card ${className}`}>
       {(title || actions) && (
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 px-5 py-3">
+        <div className="flex items-center justify-between border-b border-black/[0.06] dark:border-white/[0.08] px-5 py-3.5">
           <div>
             <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
             {subtitle && <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{subtitle}</p>}
@@ -372,9 +372,9 @@ export function ValorFijo({ children, title, vacio = '—' }) {
 export function Modal({ open, onClose, title, children, wide = false }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 dark:bg-black/70 p-4">
-      <div className={`card w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} max-h-[90vh] overflow-auto`}>
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 px-5 py-3">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm dark:bg-black/60 p-4">
+      <div className={`card shadow-flotante w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} max-h-[90vh] overflow-auto`}>
+        <div className="flex items-center justify-between border-b border-black/[0.06] dark:border-white/[0.08] px-5 py-3.5">
           <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" aria-label="cerrar">✕</button>
         </div>
@@ -389,9 +389,9 @@ export function Drawer({ open, onClose, title, children, wide = false }) {
   if (!open) return null;
   const widthClass = wide ? 'sm:max-w-2xl' : 'sm:max-w-md';
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40 dark:bg-black/70">
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/30 backdrop-blur-sm dark:bg-black/60">
       <div className={`card w-full ${widthClass} max-w-full h-full overflow-auto rounded-l-xl rounded-r-none`}>
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 px-5 py-3 sticky top-0 bg-white dark:bg-slate-800 z-10">
+        <div className="flex items-center justify-between border-b border-black/[0.06] dark:border-white/[0.08] px-5 py-3.5 sticky top-0 bg-white dark:bg-slate-800 z-10">
           <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" aria-label="cerrar">✕</button>
         </div>

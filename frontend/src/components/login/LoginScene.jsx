@@ -43,24 +43,24 @@ function Escena({ animar, parallax }) {
 
   return (
     <>
-      <fog attach="fog" args={['#05061c', 5, 22]} />
-      <ambientLight color="#8090ff" intensity={0.5} />
+      <fog attach="fog" args={['#000000', 5, 22]} />
+      <ambientLight color="#ffffff" intensity={0.5} />
       {/* decay=0: intensidad tipo legacy (three >=r155 usa luces físicas) */}
       <pointLight position={[6, 6, 10]} intensity={1.1} distance={60} decay={0} />
-      <pointLight color="#6f8bff" position={[-8, -4, 4]} intensity={1.2} distance={60} decay={0} />
+      <pointLight color="#d1d1d6" position={[-8, -4, 4]} intensity={1.2} distance={60} decay={0} />
 
       <group ref={grupo} rotation={[0.5, 0.2, 0]}>
         <mesh>
           <torusGeometry args={[3.1, 0.09, 32, 180]} />
-          <meshStandardMaterial color="#bfd2ff" metalness={0.7} roughness={0.25} emissive="#1a2a80" emissiveIntensity={0.35} />
+          <meshStandardMaterial color="#e8e8ed" metalness={0.7} roughness={0.25} emissive="#2c2c2e" emissiveIntensity={0.35} />
         </mesh>
         <mesh ref={anillo2} rotation={[Math.PI / 2.4, 0.4, 0]}>
           <torusGeometry args={[2.2, 0.055, 28, 160]} />
-          <meshStandardMaterial color="#bfd2ff" metalness={0.7} roughness={0.25} emissive="#1a2a80" emissiveIntensity={0.35} />
+          <meshStandardMaterial color="#e8e8ed" metalness={0.7} roughness={0.25} emissive="#2c2c2e" emissiveIntensity={0.35} />
         </mesh>
         <mesh>
           <sphereGeometry args={[1.15, 48, 48]} />
-          <meshStandardMaterial color="#2a3ad0" metalness={0.4} roughness={0.35} emissive="#33409a" emissiveIntensity={0.4} />
+          <meshStandardMaterial color="#6e6e73" metalness={0.4} roughness={0.35} emissive="#3a3a3c" emissiveIntensity={0.4} />
         </mesh>
       </group>
 

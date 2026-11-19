@@ -32,16 +32,16 @@ export function MiniMes({ mes, onMes, selected, onSelect, conteos = {} }) {
       <div className="flex items-center justify-between mb-2">
         <button
           type="button" onClick={() => paso(-1)} aria-label="Mes anterior"
-          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
+          className="p-1.5 rounded-full text-slate-400 transition hover:text-slate-900 dark:hover:text-white hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.1]"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 6l-6 6 6 6" strokeLinecap="round" strokeLinejoin="round" /></svg>
         </button>
-        <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+        <span className="text-[15px] font-semibold tracking-tight text-slate-900 dark:text-slate-100">
           {nombreMes(mes.getMonth() + 1)} {mes.getFullYear()}
         </span>
         <button
           type="button" onClick={() => paso(1)} aria-label="Mes siguiente"
-          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
+          className="p-1.5 rounded-full text-slate-400 transition hover:text-slate-900 dark:hover:text-white hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.1]"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" /></svg>
         </button>
@@ -60,15 +60,15 @@ export function MiniMes({ mes, onMes, selected, onSelect, conteos = {} }) {
               key={i}
               type="button"
               onClick={() => onSelect(d)}
-              className={`relative h-8 w-full rounded-lg text-xs font-medium transition ${
-                sel ? 'bg-brand-600 text-white'
-                  : esHoy ? 'text-brand-600 dark:text-brand-400 font-semibold hover:bg-slate-100 dark:hover:bg-slate-700'
-                    : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+              className={`relative mx-auto flex h-8 w-8 items-center justify-center rounded-full text-[13px] tabular-nums transition-colors ${
+                sel ? (esHoy ? 'bg-brand-600 font-semibold text-white dark:bg-brand-500' : 'bg-slate-900 font-semibold text-white dark:bg-white dark:text-black')
+                  : esHoy ? 'text-brand-600 dark:text-brand-400 font-semibold hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.1]'
+                    : 'text-slate-700 dark:text-slate-200 hover:bg-slate-900/[0.06] dark:hover:bg-white/[0.1]'
               }`}
             >
               {d.getDate()}
               {tiene && (
-                <span className={`absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${sel ? 'bg-white' : 'bg-brand-500'}`} />
+                <span className={`absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${sel ? 'bg-white dark:bg-black' : 'bg-slate-400 dark:bg-slate-500'}`} />
               )}
             </button>
           );
@@ -91,9 +91,9 @@ export function GrupoVisibilidad({ titulo, items, visibles, onToggle, onSolo, de
       <button
         type="button"
         onClick={() => setAbierto((o) => !o)}
-        className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-700/60"
+        className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-slate-900/[0.04] dark:hover:bg-white/[0.06]"
       >
-        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{titulo}</span>
+        <span className="text-[13px] font-semibold text-slate-500 dark:text-slate-400">{titulo}</span>
         <span className="flex items-center gap-1">
           {ocultos > 0 && <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400">{ocultos} oculto{ocultos > 1 ? 's' : ''}</span>}
           <svg className={`w-4 h-4 text-slate-400 transition-transform ${abierto ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -104,18 +104,18 @@ export function GrupoVisibilidad({ titulo, items, visibles, onToggle, onSolo, de
           {items.map((it) => {
             const visible = visibles.has(it.value);
             return (
-              <div key={it.value} className="group/fila flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-slate-100/70 dark:hover:bg-slate-700/50">
+              <div key={it.value} className="group/fila flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-900/[0.04] dark:hover:bg-white/[0.06]">
                 <button
                   type="button"
                   onClick={() => onToggle(it.value)}
                   aria-pressed={visible}
                   aria-label={`${visible ? 'Ocultar' : 'Mostrar'} ${it.label}`}
-                  className={`flex aspect-square h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition ${
+                  className={`flex aspect-square h-4 w-4 shrink-0 items-center justify-center rounded-full border transition ${
                     visible ? `border-transparent text-white ${it.dot}` : 'border-slate-300 dark:border-slate-600 bg-transparent'
                   }`}
                 >
                   {visible && (
-                    <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                    <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" /></svg>
                   )}
                 </button>
                 <button

@@ -52,7 +52,7 @@ export default function Invitacion() {
   return (
     <div
       className="min-h-screen relative overflow-hidden flex items-center justify-center p-4"
-      style={{ background: 'radial-gradient(120% 120% at 50% 20%, #131a52, #070a24)' }}
+      style={{ background: 'radial-gradient(120% 120% at 50% 20%, #1c1c1e, #000000)' }}
     >
       {conWebGL && (
         <div className="absolute inset-0" aria-hidden="true">
@@ -64,7 +64,7 @@ export default function Invitacion() {
         </div>
       )}
 
-      <div className="relative z-10 w-full max-w-md rounded-3xl border border-indigo-300/20 bg-slate-900/70 backdrop-blur-xl p-8 shadow-2xl shadow-black/40 text-center">
+      <div className="relative z-10 w-full max-w-md rounded-3xl border border-white/10 bg-slate-900/70 backdrop-blur-xl p-8 shadow-2xl shadow-black/40 text-center">
         <div className="flex justify-center mb-2">
           <img src="/origen-blanco.png" alt="Origen" className="h-20 w-auto object-contain" />
         </div>
@@ -92,7 +92,7 @@ export default function Invitacion() {
                 <input
                   id="inv-password"
                   type="password"
-                  className="w-full rounded-lg border border-indigo-300/20 bg-white/5 px-3 py-2 text-slate-100 placeholder-slate-500 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/30"
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-slate-100 placeholder-slate-500 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/30"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="new-password"
@@ -104,7 +104,7 @@ export default function Invitacion() {
                 <input
                   id="inv-confirmar"
                   type="password"
-                  className="w-full rounded-lg border border-indigo-300/20 bg-white/5 px-3 py-2 text-slate-100 placeholder-slate-500 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/30"
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-slate-100 placeholder-slate-500 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-500/30"
                   value={confirmar}
                   onChange={(e) => setConfirmar(e.target.value)}
                   autoComplete="new-password"
