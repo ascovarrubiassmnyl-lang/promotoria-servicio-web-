@@ -8,6 +8,8 @@ import { Card, Modal, Field, EmptyState, MenuAcciones } from '../ui.jsx';
 import CandidatoFormModal from '../candidatos/CandidatoFormModal.jsx';
 import NotaFormModal from '../notas/NotaFormModal.jsx';
 import RegistrarLlamadaModal from './RegistrarLlamadaModal.jsx';
+import ImportarClientesModal from './ImportarClientesModal.jsx';
+import { descargarDeApi } from '../../lib/descargar.js';
 import { ETAPAS, ETAPAS_FUERA_EMBUDO, ETAPAS_SELECCIONABLES, infoEtapa, FLAG_SEGUIMIENTO, confirmacionCambioEtapa } from './etapas.js';
 import { infoFuente, opcionesFuente } from './fuentes.js';
 import { RAMOS_LABEL, fechaCorta, hora } from '../../lib/format.js';
@@ -193,6 +195,24 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
   // Captura de candidato a asesor (reclutamiento): mismo botón de alta, el
   // selector "Cliente | Candidato" del modal rutea al formulario correcto.
   const [openCandidato, setOpenCandidato] = useState(false);
+
+  // Exportar / importar la cartera en Excel. El alcance es el mismo de la
+  // lista: la cartera fija de la vista, el asesor filtrado o —sin filtro— todo
+  // lo que la persona puede ver (el servidor acota al asesor a lo suyo).
+  const [openImportar, setOpenImportar] = useState(false);
+  const [exportando, setExportando] = useState(false);
+  const exportar = async () => {
+    setExportando(true);
+    try {
+      const scope = asesorId || asesorFiltro;
+      const hoy = new Date().toLocaleDateString('en-CA');
+      await descargarDeApi('/clientes/exportar', `clientes-${hoy}.xlsx`, scope ? { asesorId: scope } : undefined);
+    } catch {
+      avisar('No se pudo exportar. Inténtalo de nuevo.', 'error');
+    } finally {
+      setExportando(false);
+    }
+  };
 
   // q y asesor se filtran en el servidor; los chips de etapa filtran en
   // cliente para poder mostrar el conteo de todas las etapas a la vez.
@@ -447,7 +467,11 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
             {verArchivados && ' · archivados'}
           </p>
         </div>
-        <button onClick={abrirCrear} className="btn-primary">+ Nuevo cliente</button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={() => setOpenImportar(true)} className="btn-secondary">Importar</button>
+          <button onClick={exportar} disabled={exportando} className="btn-secondary">{exportando ? 'Exportando…' : 'Exportar'}</button>
+          <button onClick={abrirCrear} className="btn-primary">+ Nuevo cliente</button>
+        </div>
       </div>
 
       {banner}
@@ -899,6 +923,18 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
           // al módulo) solo captura y recibe la confirmación del cierre.
           if (creado && esAdmin()) navigate(`/candidatos/${creado.id}`);
         }}
+      />
+
+      <ImportarClientesModal
+        open={openImportar}
+        onClose={() => setOpenImportar(false)}
+        destinoFijo={asesorId}
+        destinoInicial={asesorFiltro}
+        opcionesDestino={esAdmin() ? [
+          ...(conCarteraPropia ? [{ id: user.id, label: 'Mi cartera (yo)' }] : []),
+          ...(asesores || []).map((a) => ({ id: a.id, label: `${a.nombre} ${a.apellidoP}${a.rol === 'ADMIN' ? ' (promotora)' : ''}` })),
+        ] : null}
+        onImportado={() => qc.invalidateQueries(['clientes'])}
       />
 
       <RegistrarLlamadaModal

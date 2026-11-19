@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { prisma } from '../prisma.js';
 import { authenticate, esAdmin } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/error.js';
@@ -8,6 +9,9 @@ import { agregarClienteAClinica, ETAPAS_CLINICA } from '../utils/clinica.js';
 import { normalizarTelefono } from '../utils/captura.js';
 import { parseFechaEntrada } from '../utils/fechas.js';
 import { registrarLlamada, RESULTADOS_LLAMADA } from '../utils/seguimiento.js';
+import {
+  libroDeClientes, libroPlantilla, leerHojaDeClientes, clasificarFilas, INCLUDE_EXPORTACION,
+} from '../utils/hojaClientes.js';
 
 const router = Router();
 router.use(authenticate);
@@ -72,6 +76,86 @@ router.get('/', asyncHandler(async (req, res) => {
     ].filter(Boolean).sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
     return { ...c, proximaAccion: candidatos[0] || null, esCliente: ventas.length > 0 };
   }));
+}));
+
+// ── Exportar / importar la cartera en Excel (2026-11-19) ───────────────────
+// Rutas de segmento fijo: van ANTES de `/:id`. El formato de la hoja vive en
+// utils/hojaClientes.js; aquí solo se decide el alcance por rol.
+const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const subirHoja = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+
+function enviarLibro(res, buffer, nombre) {
+  res.setHeader('Content-Type', XLSX);
+  res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(buffer);
+}
+
+// El asesor exporta SU cartera (el parámetro se ignora); con alcance de
+// administración, toda la promotoría o la de un asesor. Incluye archivados,
+// marcados en su columna: es el respaldo completo.
+router.get('/exportar', asyncHandler(async (req, res) => {
+  const where = {};
+  if (req.user.rol === 'ASESOR') where.asesorId = req.user.id;
+  else if (req.query.asesorId) where.asesorId = String(req.query.asesorId);
+  const clientes = await prisma.cliente.findMany({
+    where,
+    include: INCLUDE_EXPORTACION,
+    orderBy: [{ asesor: { nombre: 'asc' } }, { nombre: 'asc' }, { apellidoP: 'asc' }],
+  });
+  const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date());
+  enviarLibro(res, await libroDeClientes(clientes), `clientes-${hoy}.xlsx`);
+}));
+
+router.get('/plantilla-importacion', asyncHandler(async (_req, res) => {
+  enviarLibro(res, await libroPlantilla(), 'plantilla-clientes.xlsx');
+}));
+
+const recibirHoja = (req, res, next) => subirHoja.single('archivo')(req, res, (err) => {
+  if (!err) return next();
+  const grande = err.code === 'LIMIT_FILE_SIZE';
+  res.status(400).json({ error: grande ? 'El archivo pesa más de 5 MB. Divídelo en partes.' : 'No se pudo recibir el archivo' });
+});
+
+// Importa contactos desde un .xlsx (multipart: `archivo`). Sin `confirmar=1`
+// solo SIMULA y devuelve el resumen (nuevos / ya estaban / con error): nada se
+// escribe hasta que la persona lo revisa. Nunca modifica ni duplica un
+// contacto que ya está en la cartera. El asesor importa siempre a la suya; con
+// alcance de administración hay que decir a quién (`asesorId`).
+// A propósito NO registra una actividad por contacto ni los mete a la clínica
+// de la semana: cargar 300 contactos viejos inundaría la bitácora y el
+// evaluador. El job horario los va metiendo a la clínica como a cualquier
+// prospecto sin avance.
+router.post('/importar', recibirHoja, asyncHandler(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Falta el archivo' });
+  let asesorId = req.user.id;
+  if (req.user.rol !== 'ASESOR') {
+    asesorId = req.body?.asesorId;
+    if (!asesorId) return res.status(400).json({ error: 'Elige a qué asesor se le asignan los contactos' });
+    const destino = await prisma.usuario.findUnique({ where: { id: String(asesorId) }, select: { rol: true, activo: true } });
+    if (!destino || !destino.activo || !['ASESOR', 'ADMIN'].includes(destino.rol)) {
+      return res.status(400).json({ error: 'Asesor no válido' });
+    }
+  }
+  const filas = await leerHojaDeClientes(req.file.buffer);
+  const existentes = await prisma.cliente.findMany({
+    where: { asesorId },
+    select: { nombre: true, apellidoP: true, apellidoM: true, telefono: true, email: true },
+  });
+  const { nuevos, duplicados, errores } = clasificarFilas(filas, existentes);
+  const resumen = {
+    total: filas.length,
+    nuevos: nuevos.length,
+    duplicados: duplicados.length,
+    errores: errores.slice(0, 50),
+    totalErrores: errores.length,
+    muestra: nuevos.slice(0, 5).map((c) => ({ nombre: `${c.nombre} ${c.apellidoP}`.trim(), telefono: c.telefono, etapa: c.estado })),
+  };
+  if (req.body?.confirmar !== '1') return res.json({ ...resumen, simulacion: true });
+  const { count } = nuevos.length
+    ? await prisma.cliente.createMany({ data: nuevos.map((c) => ({ ...c, asesorId })) })
+    : { count: 0 };
+  res.status(201).json({ ...resumen, simulacion: false, creados: count });
 }));
 
 router.get('/:id', asyncHandler(async (req, res) => {

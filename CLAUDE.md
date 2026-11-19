@@ -1255,6 +1255,46 @@ clínica). Ahora:
 - Tests: `backend/test/seguimiento.test.js` cubre el agrupado de avisos y
   `GET /hoy`.
 
+## Exportar e importar la cartera en Excel (2026-11-19)
+
+Pedido de la promotora (toda la base de clientes en una hoja) y del usuario
+(que cada asesor pueda sacar y meter su propia cartera). Botones **Importar**
+y **Exportar** junto a "+ Nuevo cliente" en `ClientesView.jsx`, para todos
+los roles.
+
+- **El formato de la hoja tiene una sola implementación**:
+  `backend/src/utils/hojaClientes.js` (columnas, alias de encabezados,
+  lectura de celdas, duplicados). `exceljs` es dependencia **del backend**: el
+  navegador no parsea ni arma el Excel, así que el bundle no crece y las
+  reglas no se pueden saltar.
+- **`GET /clientes/exportar`** (`?asesorId` solo con alcance de
+  administración; al ASESOR se le fuerza su cartera): una fila por contacto,
+  incluye archivados (columna "Archivado"), tipo prospecto/cliente derivado y
+  prima de pólizas activas. `GET /clientes/plantilla-importacion` da la hoja
+  vacía con instrucciones. Las tres rutas van **antes** de `/:id`.
+- **`POST /clientes/importar`** (multipart `archivo`, .xlsx, 5 MB, 2,000
+  filas): sin `confirmar=1` **solo simula** y devuelve nuevos / duplicados /
+  errores por fila; el modal (`ImportarClientesModal.jsx`) siempre enseña ese
+  resumen antes de escribir. El asesor importa a su cartera; promotora y
+  secretaria deben mandar `asesorId` (400 si falta: sin él los contactos
+  caerían en quien teclea).
+- **Nunca modifica ni duplica**: un contacto que ya está en esa cartera se
+  omite. Llave = últimos 10 dígitos del teléfono (`claveTelefono`, igual que
+  landings); sin teléfono, el correo; sin ambos, el nombre completo. También
+  deduplica dentro del propio archivo.
+- **El archivo exportado se puede reimportar tal cual**: mismos encabezados;
+  las columnas calculadas (Asesor, Tipo, pólizas, prima, fechas) se ignoran.
+  Acepta además encabezados comunes ("Celular", "Email", "Nombre completo").
+- **A propósito no registra `CLIENTE_CREADO` por fila ni mete a la clínica de
+  la semana**: 300 contactos viejos inundarían la bitácora y el evaluador. El
+  job horario los mete a la clínica como a cualquier prospecto sin avance.
+  **Sí cuentan como "prospectos nuevos" del mes** (la métrica es por
+  `creadoEn`); quedan con `fuente: "Importado de Excel"` si la hoja no trae
+  fuente, para poder filtrarlos.
+- Descargas del frontend: `lib/descargar.js` (`descargarDeApi`, blob + object
+  URL porque la API va con token en header).
+- Tests: `backend/test/importacion.test.js`.
+
 ## Ficha de cliente (rediseño 2026-07)
 
 `pages/ClienteDetalle.jsx` (`/clientes/:id`), compartida por ambos roles con
