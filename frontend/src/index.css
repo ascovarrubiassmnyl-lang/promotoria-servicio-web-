@@ -95,13 +95,13 @@
      significado va en el color de la CIFRA. Variantes: kpi-green (ganado),
      kpi-amber (pipeline/pendiente), kpi-accent (marca). Nunca sumar ganado+pipeline. */
   .kpi {
-    @apply card relative overflow-hidden p-5;
+    @apply card relative overflow-hidden p-4 sm:p-5;
   }
   .kpi-label {
     @apply text-[13px] font-medium text-slate-500 dark:text-slate-400;
   }
   .kpi-val {
-    @apply mt-1 text-[28px] leading-tight font-semibold tracking-tight text-slate-900 dark:text-slate-100 tabular-nums;
+    @apply mt-1 text-[24px] sm:text-[28px] leading-tight font-semibold tracking-tight text-slate-900 dark:text-slate-100 tabular-nums;
   }
   .kpi-accent .kpi-val {
     @apply text-brand-600 dark:text-brand-400;
@@ -166,4 +166,47 @@
     background-color: #fff !important;
   }
   .dark .material { background-color: #1c1c1e !important; }
+}
+
+/* Celular (2026-11-20, auditoría móvil): iOS hace zoom al enfocar cualquier
+   campo con letra < 16px y la vista se queda agrandada y movida. En pantallas
+   chicas todos los campos van a 16px. Fuera de @layer y con :not() para
+   ganarle a utilidades como text-sm/text-xs puestas en el propio campo. */
+@media (max-width: 767px) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select:not([multiple]),
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Formularios en hoja (Modal en celular): una sola columna y la fila de
+   botones del final fija al pie, para que "Guardar" nunca quede escondido. */
+@media (max-width: 639px) {
+  .modal-cuerpo .grid-cols-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .modal-cuerpo form > .flex.justify-end:last-child,
+  .modal-cuerpo > .flex.justify-end:last-child,
+  .modal-cuerpo > div > .flex.justify-end:last-child {
+    position: sticky;
+    bottom: calc(-1.25rem - env(safe-area-inset-bottom));
+    z-index: 5;
+    margin: 0 -1.25rem calc(-1.25rem - env(safe-area-inset-bottom));
+    padding: 0.75rem 1.25rem calc(0.75rem + env(safe-area-inset-bottom));
+    background: #fff;
+    border-top: 1px solid rgb(0 0 0 / 0.06);
+  }
+  .dark .modal-cuerpo form > .flex.justify-end:last-child,
+  .dark .modal-cuerpo > .flex.justify-end:last-child,
+  .dark .modal-cuerpo > div > .flex.justify-end:last-child {
+    background: #1c1c1e;
+    border-top-color: rgb(255 255 255 / 0.08);
+  }
+  .modal-cuerpo form > .flex.justify-end:last-child > button,
+  .modal-cuerpo > .flex.justify-end:last-child > button,
+  .modal-cuerpo > div > .flex.justify-end:last-child > button {
+    flex: 1 1 0;
+    min-height: 44px;
+  }
 }

@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { Card, EmptyState } from '../components/ui.jsx';
 import { rangoSemana, labelSemana, isoDia, diasDeSemana, DIAS_LABEL } from '../lib/semana.js';
 import ResumenHistorico from '../components/puntos/ResumenHistorico.jsx';
+import RegistroDiaMovil from '../components/puntos/RegistroDiaMovil.jsx';
 
 // Sistema de 25 puntos: digitaliza el formato semanal de la promotoría.
 // El puntaje por concepto y la meta diaria vienen del servidor (GET
@@ -129,9 +130,11 @@ export default function Puntos() {
   const hoy = data?.hoy || isoDia(new Date());
 
   // Guardado por día al salir del campo (upsert idempotente en el servidor).
-  const guardarDia = async (clave) => {
+  // `filaActual` lo manda la captura móvil (stepper), que guarda sin esperar
+  // al re-render; la tabla guarda lo que ya está en el estado.
+  const guardarDia = async (clave, filaActual) => {
     if (soloLectura || clave < hoy) return;
-    const fila = filas[clave];
+    const fila = filaActual || filas[clave];
     if (!fila) return;
     try {
       setErr('');
@@ -168,9 +171,9 @@ export default function Puntos() {
             Formato semanal de actividad comercial · {nombreScope}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {esAdmin() && (
-            <select className="input w-auto" value={fAsesor} onChange={(e) => setFAsesor(e.target.value)}>
+            <select className="input w-auto max-w-full" value={fAsesor} onChange={(e) => setFAsesor(e.target.value)}>
               <option value="">Mi formato</option>
               {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
             </select>
@@ -178,13 +181,13 @@ export default function Puntos() {
           <div className="flex rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700">
             <button
               onClick={() => setModo('semana')}
-              className={`px-3 py-1.5 text-xs font-semibold ${modo === 'semana' ? 'bg-brand-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}
+              className={`px-3 py-2.5 md:py-1.5 text-xs font-semibold ${modo === 'semana' ? 'bg-brand-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}
             >
               Esta semana
             </button>
             <button
               onClick={() => setModo('historico')}
-              className={`px-3 py-1.5 text-xs font-semibold ${modo === 'historico' ? 'bg-brand-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}
+              className={`px-3 py-2.5 md:py-1.5 text-xs font-semibold ${modo === 'historico' ? 'bg-brand-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}
             >
               Histórico
             </button>
@@ -202,9 +205,9 @@ export default function Puntos() {
         <>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-1.5">
-          <button onClick={() => setOffset((o) => o - 1)} className="btn-secondary px-3">← Semana anterior</button>
+          <button onClick={() => setOffset((o) => o - 1)} className="btn-secondary px-3" aria-label="Semana anterior">←<span className="hidden md:inline"> Semana anterior</span></button>
           <button onClick={() => setOffset(0)} className={`btn-secondary px-3 ${offset === 0 ? '!bg-slate-100 dark:!bg-slate-700' : ''}`}>Esta semana</button>
-          <button onClick={() => setOffset((o) => o + 1)} className="btn-secondary px-3">Semana siguiente →</button>
+          <button onClick={() => setOffset((o) => o + 1)} className="btn-secondary px-3" aria-label="Semana siguiente"><span className="hidden md:inline">Semana siguiente </span>→</button>
         </div>
         <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">{labelSemana(semana)}</p>
       </div>
@@ -240,12 +243,27 @@ export default function Puntos() {
 
       <Card
         title="Registro diario"
-        subtitle="Captura al terminar el día; el puntaje se calcula solo. Se guarda al salir de cada celda. Al día siguiente el registro se cierra y ya no se puede modificar."
+        subtitle="Captura al terminar el día; el puntaje se calcula solo. Se guarda solo. Al día siguiente el registro se cierra y ya no se puede modificar."
       >
         {isLoading ? (
           <div className="py-6 text-center text-slate-400 dark:text-slate-500">Cargando…</div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div className="md:hidden">
+            <RegistroDiaMovil
+              dias={dias}
+              filas={filas}
+              campos={GRUPOS.flatMap((g) => g.campos)}
+              valores={valores}
+              metaDiaria={metaDiaria}
+              hoy={hoy}
+              soloLectura={soloLectura}
+              puntosDeFila={puntosDeFila}
+              onCambiar={setCelda}
+              onGuardar={guardarDia}
+            />
+          </div>
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-[10px] uppercase text-slate-400 dark:text-slate-500">
@@ -315,6 +333,7 @@ export default function Puntos() {
               </tfoot>
             </table>
           </div>
+          </>
         )}
         {err && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{err}</p>}
         <p className="mt-3 text-[11px] text-slate-400 dark:text-slate-500">
@@ -326,7 +345,7 @@ export default function Puntos() {
       </Card>
 
       <Card title="Planeación de la semana" subtitle="Las cuatro listas del formato. Se guardan al salir del campo.">
-        <div className="grid md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {LISTAS_PLAN.map(([campo, titulo]) => (
             <div key={campo}>
               <p className="text-xs font-semibold uppercase text-slate-400 dark:text-slate-500 mb-1.5">{titulo}</p>

@@ -19,19 +19,33 @@ const esIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent)
   || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const instalada = () => window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
 
+// Avisos informativos (iPhone sin instalar, permiso bloqueado): una sola línea
+// compacta y, al cerrarlos, NO vuelven (2026-11-20, auditoría móvil: ocupaban
+// un cuarto de pantalla en cada vista y regresaban en cada sesión). No hay
+// nada que la persona pueda hacer desde aquí, así que repetirlo es ruido; el
+// estado sigue visible en Configuración → Notificaciones.
 function Aviso({ children, onDescartar }) {
   return (
-    <div className="mb-4 flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-900/30 sm:flex-row sm:items-center sm:justify-between">
-      <p className="text-amber-900 dark:text-amber-200">{children}</p>
-      <button onClick={onDescartar} className="btn-secondary shrink-0 whitespace-nowrap">Entendido</button>
+    <div className="mb-3 flex items-start gap-2 rounded-xl bg-amber-50 py-2 pl-3 pr-1 text-xs leading-snug text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
+      <p className="min-w-0 flex-1 py-1">{children}</p>
+      <button onClick={onDescartar} className="-my-1 grid h-9 w-9 shrink-0 place-items-center rounded-full text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/50" aria-label="Cerrar aviso">
+        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" /></svg>
+      </button>
     </div>
   );
 }
+
+// Descartes permanentes por estado (localStorage, mejor esfuerzo).
+const leerPermanente = (clave) => { try { return localStorage.getItem(clave) === '1'; } catch { return false; } };
+const guardarPermanente = (clave) => { try { localStorage.setItem(clave, '1'); } catch { /* sin storage */ } };
+const KEY_IOS = 'crm:push:aviso-ios-cerrado';
+const KEY_BLOQUEADO = 'crm:push:aviso-bloqueado-cerrado';
 
 export default function BannerActivarPush() {
   const push = useNotif();
   const [busy, setBusy] = useState(false);
   const [descartado, setDescartado] = useState(() => sessionStorage.getItem(DESCARTADO_KEY) === '1');
+  const [cerrados, setCerrados] = useState(() => ({ ios: leerPermanente(KEY_IOS), bloqueado: leerPermanente(KEY_BLOQUEADO) }));
 
   if (!push) return null;
   const { status, subscribeUser } = push;
@@ -43,17 +57,21 @@ export default function BannerActivarPush() {
     setDescartado(true);
   };
 
+  const cerrarPara = (tipo, clave) => { guardarPermanente(clave); setCerrados((c) => ({ ...c, [tipo]: true })); };
+
   if (status === 'unsupported' && esIOS() && !instalada()) {
+    if (cerrados.ios) return null;
     return (
-      <Aviso onDescartar={descartar}>
-        Para recibir en tu iPhone los avisos de citas e invitaciones, toca <strong>Compartir → Agregar a pantalla de inicio</strong> y abre el CRM desde ese ícono. En Safari suelto, Apple no deja que lleguen.
+      <Aviso onDescartar={() => cerrarPara('ios', KEY_IOS)}>
+        Para recibir avisos en tu iPhone: <strong>Compartir → Agregar a pantalla de inicio</strong> y abre el CRM desde ese ícono.
       </Aviso>
     );
   }
   if (status === 'denied') {
+    if (cerrados.bloqueado) return null;
     return (
-      <Aviso onDescartar={descartar}>
-        Bloqueaste las notificaciones de este dispositivo, así que no te llegan las invitaciones al celular. Para activarlas, permite las notificaciones del CRM en los ajustes del navegador o del teléfono.
+      <Aviso onDescartar={() => cerrarPara('bloqueado', KEY_BLOQUEADO)}>
+        Las notificaciones están bloqueadas en este dispositivo. Actívalas en los ajustes del teléfono si quieres recibir avisos.
       </Aviso>
     );
   }

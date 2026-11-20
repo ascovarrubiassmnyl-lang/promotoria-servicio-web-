@@ -320,7 +320,7 @@ export default function MiDia() {
   if (isError) return <div className="py-12 text-center text-sm text-red-600">{handleError(error)}</div>;
 
   return (
-    <div className="grid gap-4 lg:grid-cols-5">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
       <div className="min-w-0 lg:col-span-2">
         <FranjaHoy data={data} onResponder={responderInvitacion} respondiendo={respondiendo} onCerrarCita={cerrarCita} />
       </div>

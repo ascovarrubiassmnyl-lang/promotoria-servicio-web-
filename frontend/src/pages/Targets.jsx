@@ -89,7 +89,7 @@ function Reconciliacion({ equipo }) {
       <div className="mb-2 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
         Reconciliación · suma de metas individuales vs meta de promotoría
       </div>
-      <div className="grid gap-x-8 gap-y-1.5 sm:grid-cols-2 xl:grid-cols-3 text-sm">
+      <div className="grid grid-cols-1 gap-x-8 gap-y-1.5 sm:grid-cols-2 xl:grid-cols-3 text-sm">
         {filas.map((f) => (
           <div key={f.key} className="flex items-baseline justify-between gap-3">
             <span className="text-slate-500 dark:text-slate-400">{f.corto}</span>
@@ -163,7 +163,7 @@ function MetaIngresoNota({ fila }) {
 // Grid de bloques grandes (meta de promotoría / "mi meta") en las 6 métricas.
 function BloquesMeta({ meta, actual, fraccion }) {
   return (
-    <div className="grid gap-x-10 gap-y-7 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-1 gap-x-10 gap-y-7 sm:grid-cols-2 xl:grid-cols-3">
       {METRICAS.map((m) => (
         <GoalBlock key={m.key} label={m.label} actual={actual?.[m.key] ?? 0} meta={meta?.[m.campo]} fraccion={fraccion} money={m.money} />
       ))}

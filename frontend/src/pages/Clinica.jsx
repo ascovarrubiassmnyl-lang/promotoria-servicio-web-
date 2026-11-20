@@ -79,7 +79,7 @@ function ProspectoFormModal({ open, onClose, onSaved, prospecto = null, semanaIn
   return (
     <Modal open={open} onClose={onClose} title={editando ? 'Editar prospecto' : 'Agregar prospecto a la clínica'} wide>
       <form onSubmit={submit} className="space-y-3">
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Nombre*">
             <input className="input" required value={form.nombre} onChange={set('nombre')} placeholder="Nombre completo" />
           </Field>
@@ -275,7 +275,7 @@ export default function Clinica() {
 
       {err && <p className="text-sm text-red-600 dark:text-red-400">{err}</p>}
 
-      <div className="grid lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-2" title="Evaluador de prospectos" subtitle="La lista para calificar y llamar en la clínica.">
           {isLoading ? (
             <div className="py-6 text-center text-slate-400 dark:text-slate-500">Cargando…</div>

@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, handleError } from '../../api/client.js';
@@ -16,6 +16,7 @@ import { RAMOS_LABEL, fechaCorta, hora } from '../../lib/format.js';
 import { avisar } from '../../lib/toast.js';
 import { ligaWhatsApp } from './RegistrarLlamadaModal.jsx';
 import { FILTROS_RAPIDOS, infoFiltroRapido, ORDENES, ordenPorClave, estadoAccion, haceCuanto, POR_PAGINA } from './lista.js';
+import { HojaFiltros, ChipsActivos, SEGMENTOS } from './FiltrosMovil.jsx';
 
 // Vista de clientes compartida por ambos roles (mismo patrón que PolizasView):
 //  - asesorId=null → cartera propia (asesor) o del equipo con filtro (promotor).
@@ -313,6 +314,36 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
   const visibles = filas.slice((paginaActual - 1) * POR_PAGINA, paginaActual * POR_PAGINA);
   const hayFiltros = Boolean(etapaActiva || q || segmento !== 'todos' || rapido || fuenteFiltro);
 
+  // Celular: filtros en hoja inferior + chips de lo activo (FiltrosMovil.jsx).
+  // Cada chip quita su filtro con el mismo ponerFiltros de siempre.
+  const [hojaFiltros, setHojaFiltros] = useState(false);
+  const cerrarHojaFiltros = useCallback(() => setHojaFiltros(false), []);
+  const nombreAsesorFiltro = () => {
+    if (asesorFiltro === user?.id) return 'Mi cartera';
+    const a = asesores?.find((x) => x.id === asesorFiltro);
+    return a ? `${a.nombre} ${a.apellidoP}` : 'Asesor';
+  };
+  const filtrosActivos = [
+    segmento !== 'todos' && { key: 'segmento', label: SEGMENTOS.find((s) => s.value === segmento)?.label || segmento, quitar: () => ponerFiltros({ segmento: null }) },
+    etapaActiva && { key: 'etapa', label: etapaActiva === '__flag' ? FLAG_SEGUIMIENTO.label : infoEtapa(etapaActiva).label, quitar: () => ponerFiltros({ etapa: null }) },
+    rapido && { key: 'rapido', label: infoFiltroRapido(rapido)?.label || rapido, quitar: () => ponerFiltros({ rapido: null }) },
+    fuenteFiltro && { key: 'fuente', label: fuenteFiltro, quitar: () => ponerFiltros({ fuente: null }) },
+    orden.value !== 'accion' && { key: 'orden', label: `Orden: ${orden.label}`, quitar: () => ponerFiltros({ orden: null }) },
+    verArchivados && { key: 'archivados', label: 'Archivados', quitar: () => ponerFiltros({ archivados: null }) },
+    asesorFiltro && !scoped && { key: 'asesor', label: nombreAsesorFiltro(), quitar: () => setAsesorFiltro('') },
+  ].filter(Boolean);
+  const limpiarFiltrosMovil = () => {
+    ponerFiltros({ segmento: null, etapa: null, rapido: null, fuente: null, orden: null, archivados: null });
+    setAsesorFiltro('');
+  };
+  const selectorAsesor = (esAdmin() && !scoped) ? (extra = '') => (
+    <select className={`input ${extra}`} value={asesorFiltro} onChange={(e) => setAsesorFiltro(e.target.value)} aria-label="Filtrar por asesor">
+      <option value="">Todos los asesores</option>
+      {conCarteraPropia && <option value={user.id}>Mi cartera</option>}
+      {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}{a.rol === 'ADMIN' ? ' (promotora)' : ''}</option>)}
+    </select>
+  ) : null;
+
   // Promotora → su propia cartera. Secretaria (ASISTENTE) → la promotora, si
   // hay una sola: es para quien captura; "Sin especificar" dejaría el cliente
   // en la cartera de la propia secretaria (el servidor asigna a quien guarda).
@@ -467,7 +498,7 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
             {verArchivados && ' · archivados'}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="hidden md:flex flex-wrap items-center gap-2">
           <button onClick={() => setOpenImportar(true)} className="btn-secondary">Importar</button>
           <button onClick={exportar} disabled={exportando} className="btn-secondary">{exportando ? 'Exportando…' : 'Exportar'}</button>
           <button onClick={abrirCrear} className="btn-primary">+ Nuevo cliente</button>
@@ -476,15 +507,59 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
 
       {banner}
 
-      <div className="flex flex-wrap gap-3">
+      {/* Celular: búsqueda + Filtros (con conteo) + alta compacta en una fila;
+          el resto de controles vive en la hoja inferior. */}
+      <div className="flex items-center gap-2 md:hidden">
+        <input type="search" className="input min-h-[44px] min-w-0 flex-1" placeholder="Buscar contacto…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Buscar contacto" />
+        <button
+          type="button"
+          onClick={() => setHojaFiltros(true)}
+          className="btn-secondary relative min-h-[44px] shrink-0 gap-1.5 px-3.5"
+          aria-label={filtrosActivos.length ? `Filtros (${filtrosActivos.length} activos)` : 'Filtros'}
+        >
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M7 12h10M10 18h4" /></svg>
+          Filtros
+          {filtrosActivos.length > 0 && (
+            <span className="ml-0.5 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-brand-600 px-1 text-[11px] font-semibold tabular-nums text-white">{filtrosActivos.length}</span>
+          )}
+        </button>
+        <button type="button" onClick={abrirCrear} className="btn-primary h-11 w-11 shrink-0 justify-center p-0" aria-label="Nuevo cliente">
+          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25"><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+      </div>
+      <ChipsActivos activos={filtrosActivos} />
+      <HojaFiltros
+        open={hojaFiltros}
+        onClose={cerrarHojaFiltros}
+        total={filas.length}
+        segmento={segmento}
+        conteoSegmento={conteoSegmento}
+        onSegmento={(v) => ponerFiltros({ segmento: v === 'todos' ? null : v, etapa: null })}
+        etapaActiva={etapaActiva}
+        conteos={conteos}
+        totalSegmento={enSegmento.length}
+        onEtapa={setEtapaActiva}
+        rapido={rapido}
+        conteoRapido={conteoRapido}
+        onRapido={(v) => ponerFiltros({ rapido: v })}
+        fuentesPresentes={fuentesPresentes}
+        fuenteFiltro={fuenteFiltro}
+        onFuente={(v) => ponerFiltros({ fuente: v })}
+        orden={orden}
+        onOrden={(v) => ponerFiltros({ orden: v === 'accion' ? null : v })}
+        verArchivados={verArchivados}
+        onArchivados={setVerArchivados}
+        selectorAsesor={selectorAsesor ? selectorAsesor('min-h-[44px]') : null}
+        hayActivos={filtrosActivos.length > 0}
+        onLimpiar={limpiarFiltrosMovil}
+        onImportar={() => { setHojaFiltros(false); setOpenImportar(true); }}
+        onExportar={exportar}
+        exportando={exportando}
+      />
+
+      <div className="hidden md:flex flex-wrap gap-3">
         <input className="input flex-1 min-w-[220px]" placeholder="Buscar por nombre, email, teléfono, RFC…" value={q} onChange={(e) => setQ(e.target.value)} />
-        {esAdmin() && !scoped && (
-          <select className="input w-auto" value={asesorFiltro} onChange={(e) => setAsesorFiltro(e.target.value)}>
-            <option value="">Todos los asesores</option>
-            {conCarteraPropia && <option value={user.id}>Mi cartera</option>}
-            {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}{a.rol === 'ADMIN' ? ' (promotora)' : ''}</option>)}
-          </select>
-        )}
+        {selectorAsesor && selectorAsesor('w-auto')}
         <label className="inline-flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 select-none cursor-pointer px-1">
           <input
             type="checkbox"
@@ -496,14 +571,11 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
         </label>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="hidden md:flex flex-wrap items-center gap-2">
       {/* Segmento: prospectos vs. clientes. Es una lectura DERIVADA (cliente =
           tiene póliza viva), no un campo que alguien tenga que mantener a mano. */}
       <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 bg-white dark:bg-slate-800">
-        {[
-          { value: 'todos', label: 'Todos' },
-          { value: 'clientes', label: 'Clientes' },
-        ].map((s) => {
+        {SEGMENTOS.map((s) => {
           const on = segmento === s.value;
           return (
             <button
@@ -652,7 +724,7 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
       {/* Filtros rápidos (2026-10-15, auditoría): lo que el asesor busca a
           diario — vencidos, para hoy, sin próxima acción, nunca llamados,
           nuevos. Un clic, se combinan con etapa/segmento/fuente. */}
-      <div className="flex flex-wrap gap-1.5">
+      <div className="hidden md:flex flex-wrap gap-1.5">
         {FILTROS_RAPIDOS.map((fr) => {
           const on = rapido === fr.value;
           const n = conteoRapido[fr.value] || 0;

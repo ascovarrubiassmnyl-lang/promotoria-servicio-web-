@@ -314,11 +314,14 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
                 <span className="text-xs text-slate-400 dark:text-slate-500 self-center">Consulta · promotor</span>
               ) : (
                 <>
-                  <button onClick={() => onEliminar?.(p)} className="btn-secondary text-xs py-1.5 px-2.5 !text-red-600 dark:!text-red-400">Eliminar</button>
-                  <button onClick={() => onEditar?.(p)} className="btn-secondary text-xs py-1.5 px-2.5">Editar</button>
                   {puedeRegistrarPago && (
                     <button onClick={abrirCobro} className="btn-primary text-xs py-1.5 px-2.5">Registrar pago</button>
                   )}
+                  <button onClick={() => onEditar?.(p)} className="btn-secondary text-xs py-1.5 px-2.5">Editar</button>
+                  {/* Destructivo: en el menú ⋯ con confirmación, nunca botón rojo directo. */}
+                  <MenuAcciones label="Más acciones de la póliza" items={[
+                    { label: 'Eliminar póliza…', danger: true, onClick: () => onEliminar?.(p) },
+                  ]} />
                 </>
               )}
             </div>

@@ -152,7 +152,7 @@ export function PrimaPorRamo({ data, mes, anio }) {
           <Link to="/ventas" className="font-semibold text-brand-600 hover:underline dark:text-brand-400">Ver pólizas</Link>
         </div>
       ) : (
-        <div className="mt-5 grid items-center gap-5 sm:grid-cols-2">
+        <div className="mt-5 grid grid-cols-1 items-center gap-5 sm:grid-cols-2">
           <div className="relative h-[200px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>

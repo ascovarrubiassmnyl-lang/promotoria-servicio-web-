@@ -239,12 +239,12 @@ function TablaLeads({ todos, fuentes, fuenteId, setFuenteId }) {
       title="Leads recibidos"
       subtitle="Cada envío de formulario. Clic en una fila para abrir la ficha del contacto."
       actions={(
-        <div className="flex gap-2">
-          <select className="input w-auto text-sm py-1.5" value={fuenteId} onChange={(e) => { setFuenteId(e.target.value); setPagina(1); }}>
+        <div className="flex w-full gap-2 sm:w-auto">
+          <select className="input min-w-0 flex-1 sm:w-auto sm:flex-none text-sm py-1.5" value={fuenteId} onChange={(e) => { setFuenteId(e.target.value); setPagina(1); }}>
             <option value="">Todas las landings</option>
             {fuentes.map((f) => <option key={f.id} value={f.id}>{f.nombre}</option>)}
           </select>
-          <select className="input w-auto text-sm py-1.5" value={resultado} onChange={(e) => { setResultado(e.target.value); setPagina(1); }}>
+          <select className="input min-w-0 flex-1 sm:w-auto sm:flex-none text-sm py-1.5" value={resultado} onChange={(e) => { setResultado(e.target.value); setPagina(1); }}>
             <option value="">Sin spam</option>
             <option value="CREADO">Nuevos contactos</option>
             <option value="CITA_AGENDADA">Agendaron cita</option>

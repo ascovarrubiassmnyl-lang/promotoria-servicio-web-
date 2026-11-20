@@ -175,6 +175,11 @@ export default function ClienteDetalle() {
     queryFn: async () => (await api.get('/actividad', { params: { clienteId: id, limit: 20 } })).data,
   });
 
+  // Se muestran los 5 eventos más recientes; el resto, a demanda (en celular
+  // los 20 medían casi dos pantallas).
+  const [verTodaActividad, setVerTodaActividad] = useState(false);
+  const ACTIVIDAD_VISIBLE = 5;
+
   // "Agendar cita" desde el menú de la lista de clientes abre el modal directo
   useEffect(() => {
     if (location.state?.abrirCita) {
@@ -358,9 +363,9 @@ export default function ClienteDetalle() {
         <Link to="/clientes" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">← Volver a clientes</Link>
         <div className="flex flex-wrap items-start justify-between gap-3 mt-2">
           <div className="flex items-center gap-4">
-            <div className="avatar !h-14 !w-14 text-xl">{iniciales(c)}</div>
-            <div>
-              <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">{c.nombre} {c.apellidoP} {c.apellidoM || ''}</h2>
+            <div className="avatar !h-11 !w-11 sm:!h-14 sm:!w-14 text-base sm:text-xl shrink-0">{iniciales(c)}</div>
+            <div className="min-w-0">
+              <h2 className="text-xl sm:text-2xl font-bold text-slate-800 dark:text-slate-100">{c.nombre} {c.apellidoP} {c.apellidoM || ''}</h2>
               <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
                 Asesor: <span className="font-medium text-slate-700 dark:text-slate-300">{c.asesor?.nombre} {c.asesor?.apellidoP}</span>
                 {' · '}Creado {fechaCorta(c.creadoEn)}
@@ -369,10 +374,10 @@ export default function ClienteDetalle() {
             </div>
           </div>
           <div className="flex flex-wrap items-end gap-2">
-            <div>
+            <div className="w-full sm:w-auto">
               <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1 pl-0.5">Etapa del pipeline</label>
               <select
-                className="input w-auto font-semibold"
+                className="input w-full sm:w-auto font-semibold"
                 value={c.estado}
                 onChange={(e) => cambiarEstado(e.target.value)}
               >
@@ -381,7 +386,7 @@ export default function ClienteDetalle() {
               </select>
             </div>
             {!c.archivadoEn && (
-              <button onClick={() => setLlamadaOpen(true)} className="btn-primary">
+              <button onClick={() => setLlamadaOpen(true)} className="btn-primary flex-1 sm:flex-none">
                 Registrar llamada
               </button>
             )}
@@ -433,7 +438,7 @@ export default function ClienteDetalle() {
 
       <PipelineStepper estado={c.estado} />
 
-      <div className="grid lg:grid-cols-[320px_1fr] gap-4 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] gap-4 items-start">
         {/* Riel izquierdo: contacto + resumen + referidos */}
         <div className="space-y-4">
           <Card
@@ -441,13 +446,32 @@ export default function ClienteDetalle() {
             actions={<button className="btn-secondary text-xs py-1 px-2" onClick={() => { startEdit(); setEditing(true); }}>Agregar datos</button>}
           >
             <div className="space-y-3">
-              <div><p className="kv-k">Teléfono</p><p className="kv-v tabular-nums">{c.telefono || <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
-              <div><p className="kv-k">Email</p><p className="kv-v break-all">{c.email || <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
-              <div><p className="kv-k">RFC</p><p className="kv-v">{c.rfc || <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
-              <div><p className="kv-k">CURP</p><p className="kv-v">{c.curp || <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
-              <div><p className="kv-k">Fecha de nacimiento</p><p className="kv-v">{c.fechaNacimiento ? `${fechaCorta(c.fechaNacimiento)} · ${edad(c.fechaNacimiento)} años` : <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
-              <div><p className="kv-k">Dirección</p><p className="kv-v">{c.direccion || <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
-              <div><p className="kv-k">Fuente</p><p className="kv-v">{infoFuente(c.fuente).label || <span className="text-slate-400 dark:text-slate-500 font-normal">Sin registrar</span>}</p></div>
+              {/* Solo los datos que existen; lo que falta va en una línea
+                  (2026-11-20, auditoría móvil: siete "Sin registrar" seguidos
+                  eran media pantalla de ruido en el celular). */}
+              {(() => {
+                const datos = [
+                  ['Teléfono', c.telefono, 'tabular-nums'],
+                  ['Email', c.email, 'break-all'],
+                  ['RFC', c.rfc],
+                  ['CURP', c.curp],
+                  ['Fecha de nacimiento', c.fechaNacimiento ? `${fechaCorta(c.fechaNacimiento)} · ${edad(c.fechaNacimiento)} años` : null],
+                  ['Dirección', c.direccion],
+                  ['Fuente', infoFuente(c.fuente).label],
+                ];
+                // RFC y CURP son siglas: se quedan en mayúsculas.
+                const faltan = datos.filter(([, v]) => !v).map(([k]) => (k === 'RFC' || k === 'CURP' ? k : k.toLowerCase()));
+                return (
+                  <>
+                    {datos.filter(([, v]) => v).map(([k, v, cls]) => (
+                      <div key={k}><p className="kv-k">{k}</p><p className={`kv-v ${cls || ''}`}>{v}</p></div>
+                    ))}
+                    {faltan.length > 0 && (
+                      <p className="text-xs text-slate-400 dark:text-slate-500">Falta: {faltan.join(', ')}.</p>
+                    )}
+                  </>
+                );
+              })()}
               <div className="pt-3 border-t border-slate-100 dark:border-slate-700">
                 <div className="flex items-center justify-between">
                   <p className="kv-k !mb-0">Producto de interés</p>
@@ -592,16 +616,25 @@ export default function ClienteDetalle() {
               filtrado a este cliente (metadata.clienteId) */}
           <Card title="Actividad reciente" subtitle="Eventos registrados sobre este cliente">
             <ActivityTimeline
-              eventos={actividadCliente || []}
+              eventos={verTodaActividad ? (actividadCliente || []) : (actividadCliente || []).slice(0, ACTIVIDAD_VISIBLE)}
               loading={actividadLoading}
               mensajeVacio="Sin actividad registrada de este cliente."
             />
+            {(actividadCliente?.length || 0) > ACTIVIDAD_VISIBLE && (
+              <button
+                type="button"
+                onClick={() => setVerTodaActividad((v) => !v)}
+                className="mt-3 w-full rounded-full py-2.5 text-sm font-semibold text-brand-600 hover:bg-slate-50 dark:text-brand-400 dark:hover:bg-slate-700/40"
+              >
+                {verTodaActividad ? 'Ver menos' : `Ver toda la actividad (${actividadCliente.length})`}
+              </button>
+            )}
           </Card>
 
           {/* Recordatorios: compactos, abajo — no dominan la ficha cuando están
               vacíos. Los de "sobre el cliente" (pagos, renovaciones) le llegan
               igual al asesor: el CRM NO le escribe al asegurado. */}
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Card
               title="Recordatorios del asesor"
               subtitle="Tu propia gestión: llamadas, seguimientos, pendientes"

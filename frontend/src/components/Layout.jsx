@@ -438,7 +438,7 @@ export default function Layout() {
       {/* Columna derecha: barra superior (móvil) + contenido + barra inferior (móvil) */}
       <div className="flex-1 min-w-0 h-full flex flex-col relative z-10">
         {/* Barra superior compacta — solo móvil (el sidebar cubre escritorio) */}
-        <header className="md:hidden sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between material border-b border-black/[0.06] bg-white/75 px-4 backdrop-blur-xl backdrop-saturate-150 dark:border-white/[0.08] dark:bg-slate-800/70">
+        <header className="md:hidden sticky top-0 z-20 flex h-[calc(3.5rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] shrink-0 items-center justify-between material border-b border-black/[0.06] bg-white/75 px-4 backdrop-blur-xl backdrop-saturate-150 dark:border-white/[0.08] dark:bg-slate-800/70">
           <img src={logoSrc} alt="Origen" className="h-7 w-auto object-contain" />
           <div className="flex items-center gap-0.5">
             <CampanaNotificaciones />

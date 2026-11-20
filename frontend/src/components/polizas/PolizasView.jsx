@@ -35,7 +35,7 @@ export default function PolizasView({ asesorId = null, readOnly = false, titulo 
   };
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       {breadcrumbs}
       {!polizaSel && (
         <>
@@ -49,7 +49,8 @@ export default function PolizasView({ asesorId = null, readOnly = false, titulo 
             )}
           </div>
           {banner}
-          <ComisionesMensuales asesorId={asesorId} />
+          {/* En celular la lista va primero; las comisiones del mes, después. */}
+          <div className="order-last md:order-none"><ComisionesMensuales asesorId={asesorId} /></div>
           <PolicyList ventas={ventas} loading={isLoading} onOpen={(v) => setPolizaSel(v.id)} onNueva={readOnly ? null : () => { setVentaEdit(null); setFormOpen(true); }} />
         </>
       )}

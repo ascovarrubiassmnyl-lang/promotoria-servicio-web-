@@ -49,8 +49,23 @@ export default function PolicyList({ ventas, loading = false, onOpen, onNueva = 
 
   return (
     <div className="space-y-4">
-      {/* KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* KPIs — en celular, una sola franja compacta (la lista va primero;
+          ganado y pipeline siguen siendo cifras separadas, nunca sumadas). */}
+      <div className="card flex divide-x divide-black/[0.06] dark:divide-white/[0.08] md:hidden">
+        <div className="flex-1 px-4 py-3">
+          <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Ganado</p>
+          <p className="money-earned text-base font-semibold tabular-nums">{mxn(kpis.comGanada)}</p>
+        </div>
+        <div className="flex-1 px-4 py-3">
+          <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">En pipeline</p>
+          <p className="money-pending text-base font-semibold tabular-nums">{mxn(kpis.comPipeline)}</p>
+        </div>
+        <div className="px-4 py-3">
+          <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Cierre</p>
+          <p className="text-base font-semibold tabular-nums text-slate-800 dark:text-slate-100">{kpis.cierre}%</p>
+        </div>
+      </div>
+      <div className="hidden md:grid grid-cols-3 gap-4">
         <div className="kpi kpi-green">
           <p className="kpi-label">Ganado · cobrado</p>
           <p className="kpi-val">{mxn(kpis.comGanada)}</p>
@@ -73,18 +88,18 @@ export default function PolicyList({ ventas, loading = false, onOpen, onNueva = 
       </div>
 
       {/* Filtros */}
-      <div className="flex flex-wrap gap-3">
+      <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap md:gap-3">
         <input
-          className="input w-auto min-w-[220px]"
+          className="input col-span-2 md:w-auto md:min-w-[220px]"
           placeholder="Buscar por cliente o producto…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <select className="input w-auto" value={estado} onChange={(e) => setEstado(e.target.value)}>
+        <select className="input md:w-auto" value={estado} onChange={(e) => setEstado(e.target.value)}>
           <option value="">Todos los estados</option>
           {ESTADOS_VENTA.map((e) => <option key={e} value={e}>{ESTADOS_VENTA_LABEL[e]}</option>)}
         </select>
-        <select className="input w-auto" value={ramo} onChange={(e) => setRamo(e.target.value)}>
+        <select className="input md:w-auto" value={ramo} onChange={(e) => setRamo(e.target.value)}>
           <option value="">Todos los ramos</option>
           {RAMOS.map((r) => <option key={r} value={r}>{RAMOS_LABEL[r]}</option>)}
         </select>
@@ -100,7 +115,39 @@ export default function PolicyList({ ventas, loading = false, onOpen, onNueva = 
             accion={!ventas?.length && onNueva ? { label: '+ Nueva póliza', onClick: onNueva } : null}
           />
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* Celular: tarjetas tocables en vez de tabla de 7 columnas. */}
+          <ul className="md:hidden divide-y divide-black/[0.06] dark:divide-white/[0.08]">
+            {filtradas.map((v) => {
+              const pendiente = primaPendienteConversion(v);
+              return (
+                <li key={v.id}>
+                  <button type="button" onClick={() => onOpen(v)} className="w-full px-4 py-3 text-left active:bg-slate-50 dark:active:bg-slate-700/40">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-slate-800 dark:text-slate-100">{v.cliente?.nombre} {v.cliente?.apellidoP}</p>
+                        <p className="truncate text-sm text-slate-500 dark:text-slate-400">{v.producto} · {RAMOS_LABEL[v.ramo] || v.ramo}</p>
+                      </div>
+                      <VentaBadge estado={v.estado} />
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
+                      <span className="font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                        {pendiente ? montoMoneda(v.primaMoneda, v.moneda) : mxn(v.primaAnual)}
+                      </span>
+                      {pendiente
+                        ? <span className="text-xs text-slate-400">Por convertir</span>
+                        : <span className={`text-xs ${esVentaGanada(v) ? 'money-earned' : 'money-pending'}`}>Comisión {mxn(v.comisionMonto)}</span>}
+                      {v.fechaProximoPago && <span className="text-xs text-slate-500 dark:text-slate-400">Próx. pago {fechaCorta(v.fechaProximoPago)}</span>}
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+            <li className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">
+              {filtradas.length} póliza(s) · <span className="tabular-nums">{mxn(totPrima)}</span> prima
+            </li>
+          </ul>
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
@@ -158,6 +205,7 @@ export default function PolicyList({ ventas, loading = false, onOpen, onNueva = 
               </tfoot>
             </table>
           </div>
+          </>
         )}
       </div>
     </div>

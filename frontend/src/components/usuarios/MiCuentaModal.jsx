@@ -66,7 +66,7 @@ export default function MiCuentaModal({ open, onClose }) {
           <Field label="Contraseña actual">
             <input className="input" type="password" autoComplete="current-password" value={form.actual} onChange={(e) => setForm({ ...form, actual: e.target.value })} />
           </Field>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Nueva contraseña">
               <input className="input" type="password" autoComplete="new-password" placeholder={`Mínimo ${MIN_PASSWORD} caracteres`} value={form.nueva} onChange={(e) => setForm({ ...form, nueva: e.target.value })} />
             </Field>
