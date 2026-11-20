@@ -649,6 +649,9 @@ router.patch('/:id/invitacion', asyncHandler(async (req, res) => {
     });
   }
 
+  // Ya respondió: su aviso de invitación deja de ser un pendiente.
+  await cerrarAvisosInvitacion(id, [req.user.id]);
+
   // Avisar al asesor que agendó: campana + push.
   try {
     const quien = `${req.user.nombre} ${req.user.apellidoP || ''}`.trim();
@@ -814,6 +817,9 @@ router.patch('/:id/invitados/:invitadoId', asyncHandler(async (req, res) => {
     },
   });
 
+  // Ya respondió: su aviso de invitación deja de ser un pendiente.
+  await cerrarAvisosInvitacion(id, [req.user.id]);
+
   // Avisar al dueño de la cita: campana + push, mismo patrón que la
   // respuesta del promotor.
   try {
@@ -916,6 +922,71 @@ router.delete('/:id/invitados/:invitadoId', asyncHandler(async (req, res) => {
   res.status(204).end();
 }));
 
+// Avisos de invitación con la hora viva (2026-11-20, auditoría de Inicio).
+// El cuerpo de un aviso CITA_INVITACION lleva la hora escrita como texto al
+// crearse; si la cita se mueve, ese texto queda viejo y Inicio mostraba la
+// misma invitación con dos horas distintas. Dos reglas:
+//  1. Responder una invitación (desde donde sea) cierra su aviso: ya no es
+//     un pendiente.
+//  2. Mover una cita reabre las invitaciones (vuelven a PENDIENTE: aceptaste
+//     OTRO horario), cierra los avisos viejos y manda uno nuevo con la hora
+//     nueva. Quien ya había rechazado no se molesta otra vez.
+async function cerrarAvisosInvitacion(citaId, usuarioIds) {
+  if (!usuarioIds.length) return;
+  await prisma.notificacion.updateMany({
+    where: {
+      destinatarioId: { in: usuarioIds },
+      tipo: 'CITA_INVITACION',
+      leida: false,
+      datos: { path: ['citaId'], equals: citaId },
+    },
+    data: { leida: true, leidaEn: new Date() },
+  });
+}
+
+async function reabrirInvitacionesPorNuevoHorario(cita, actor) {
+  const invitados = await prisma.citaInvitado.findMany({
+    where: { citaId: cita.id, estado: { not: 'RECHAZADA' }, usuarioId: { not: actor.id } },
+    select: { id: true, usuarioId: true },
+  });
+  const promotor = cita.promotorId && cita.promotorId !== actor.id && cita.invitacionEstado !== 'RECHAZADA'
+    ? cita.promotorId : null;
+  if (!invitados.length && !promotor) return false;
+
+  if (invitados.length) {
+    await prisma.citaInvitado.updateMany({
+      where: { id: { in: invitados.map((i) => i.id) } },
+      data: { estado: 'PENDIENTE', respondidaEn: null, sugerenciaInicio: null, sugerenciaFin: null, sugerenciaNota: null },
+    });
+  }
+  if (promotor && cita.invitacionEstado !== 'PENDIENTE') {
+    // El evento espejo en su Google Calendar era del horario viejo: se borra y
+    // se vuelve a crear cuando acepte el nuevo (mismo flujo que la primera vez).
+    if (cita.googleEventId) await borrarEvento(cita.googleEventUsuarioId || promotor, cita.googleEventId);
+    await prisma.cita.update({
+      where: { id: cita.id },
+      data: {
+        invitacionEstado: 'PENDIENTE', invitacionRespondidaEn: null,
+        sugerenciaInicio: null, sugerenciaFin: null, sugerenciaNota: null,
+        googleEventId: null, googleEventUsuarioId: null,
+      },
+    });
+  }
+
+  const destinatarios = [...new Set([...invitados.map((i) => i.usuarioId), ...(promotor ? [promotor] : [])])];
+  await cerrarAvisosInvitacion(cita.id, destinatarios);
+  const quien = `${actor.nombre} ${actor.apellidoP || ''}`.trim();
+  const titulo = 'Cambió el horario de una cita';
+  const cuerpo = `${quien} movió "${cita.titulo}" al ${fechaHoraAviso(cita.fechaHoraInicio)}. Ábrela para confirmar si puedes.`;
+  await Promise.all(destinatarios.map((usuarioId) => notificar(usuarioId, 'CITA_INVITACION', {
+    titulo,
+    cuerpo,
+    datos: { url: urlCita(cita.id), citaId: cita.id },
+    pushPayload: { title: titulo, body: cuerpo, tag: `invitacion-cita-${cita.id}-${usuarioId}`, data: { url: urlCita(cita.id) } },
+  }).catch((err) => console.error('No se pudo avisar el cambio de horario:', err.message))));
+  return true;
+}
+
 router.patch('/:id', asyncHandler(async (req, res) => {
   const { id } = req.params;
   const existente = await prisma.cita.findUnique({ where: { id } });
@@ -1009,17 +1080,23 @@ router.patch('/:id', asyncHandler(async (req, res) => {
     data.googleEventUsuarioId = null;
   }
 
-  const cita = await prisma.cita.update({
-    where: { id },
-    data,
-    include: {
-      cliente: { select: { id: true, nombre: true, apellidoP: true, telefono: true } },
-      candidato: { select: { id: true, nombre: true, apellidoP: true, telefono: true } },
-      asesor: { select: { id: true, nombre: true, apellidoP: true } },
-      promotor: { select: { id: true, nombre: true, apellidoP: true } },
-      ...INCLUDE_INVITADOS,
-    },
-  });
+  const includeCita = {
+    cliente: { select: { id: true, nombre: true, apellidoP: true, telefono: true } },
+    candidato: { select: { id: true, nombre: true, apellidoP: true, telefono: true } },
+    asesor: { select: { id: true, nombre: true, apellidoP: true } },
+    promotor: { select: { id: true, nombre: true, apellidoP: true } },
+    ...INCLUDE_INVITADOS,
+  };
+  let cita = await prisma.cita.update({ where: { id }, data, include: includeCita });
+
+  // Se movió el horario de una cita viva: las invitaciones se vuelven a pedir.
+  const cambioHorario = cita.fechaHoraInicio.getTime() !== existente.fechaHoraInicio.getTime()
+    || cita.fechaHoraFin.getTime() !== existente.fechaHoraFin.getTime();
+  if (cambioHorario && ['PROGRAMADA', 'CONFIRMADA'].includes(cita.estado)) {
+    if (await reabrirInvitacionesPorNuevoHorario(cita, req.user)) {
+      cita = await prisma.cita.findUnique({ where: { id }, include: includeCita });
+    }
+  }
   res.json(cita);
 }));
 

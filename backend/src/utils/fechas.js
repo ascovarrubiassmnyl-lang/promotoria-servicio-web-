@@ -46,3 +46,34 @@ export function fechaHoraAviso(fecha) {
     hour: 'numeric', minute: '2-digit',
   }).format(new Date(fecha));
 }
+
+// Meses y días de calendario en la zona de la promotoría (2026-11-20,
+// auditoría de Inicio). `new Date(anio, mes - 1, 1)` arma el mes con la zona
+// del SERVIDOR: en Railway (UTC) el mes empezaba a las 6 p.m. del día 31 de
+// México, y una llamada de esa noche contaba en el mes siguiente. Toda métrica
+// "del mes" debe pedir su rango aquí.
+
+// Año, mes (1-12) y día de un instante, leídos en hora de México.
+export function partesMx(fecha = new Date()) {
+  const [anio, mes, dia] = new Intl.DateTimeFormat('en-CA', { timeZone: TZ })
+    .format(fecha).split('-').map(Number);
+  return { anio, mes, dia };
+}
+
+// Instante real en que empieza ese día en México. `mes` es 1-12 y puede
+// desbordarse (13 = enero del año siguiente), igual que Date.UTC.
+export function inicioDiaMx(anio, mes, dia = 1) {
+  const comoUTC = new Date(Date.UTC(anio, mes - 1, dia));
+  return new Date(comoUTC.getTime() - offsetMinutos(comoUTC) * 60000);
+}
+
+// Rango [ini, fin] (inclusivo, al milisegundo) de un mes de México.
+export function rangoMesMx(mes, anio) {
+  return { ini: inicioDiaMx(anio, mes, 1), fin: new Date(inicioDiaMx(anio, mes + 1, 1).getTime() - 1) };
+}
+
+// "2026-11": mes de México al que pertenece un instante (para agrupar).
+export function claveMesMx(fecha) {
+  const { anio, mes } = partesMx(fecha);
+  return `${anio}-${mes}`;
+}

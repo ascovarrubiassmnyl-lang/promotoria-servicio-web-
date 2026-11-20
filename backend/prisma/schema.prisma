@@ -266,6 +266,7 @@ model Usuario {
   popPlantillas         PopPlantilla[]
   popEnvios             PopEnvio[]
   fuentesCaptura        FuenteCaptura[]
+  eventosInicio         EventoInicio[]
 }
 
 // Invitación de un solo uso para activar una cuenta creada sin contraseña
@@ -1264,4 +1265,23 @@ model Bono {
 
   @@unique([asesorId, mes, anio, concepto])
   @@index([asesorId, estado])
+}
+
+// Medición de uso de Inicio (2026-11-20, auditoría de Inicio): un clic por
+// bloque/acción para saber en 2 semanas qué se usa y qué no antes de seguir
+// recortando. Solo QUÉ se tocó, nunca datos del cliente (ni nombre, ni
+// teléfono, ni ids de clientes): `detalle` lleva categorías como el tipo y el
+// grupo de la fila. Lo escribe POST /api/eventos-inicio (mejor esfuerzo: si
+// falla, la acción del usuario no se entera).
+model EventoInicio {
+  id        String   @id @default(cuid())
+  usuarioId String
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  bloque    String
+  accion    String
+  detalle   Json?
+  creadoEn  DateTime @default(now())
+
+  @@index([creadoEn])
+  @@index([bloque, accion])
 }

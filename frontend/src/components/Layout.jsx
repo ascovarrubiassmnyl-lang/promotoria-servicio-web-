@@ -104,14 +104,26 @@ function BadgeItem({ n, alerta, colapsado }) {
 
 // Ítem de navegación. Dentro del <nav> el fondo activo lo pinta el indicador
 // deslizante; fuera de él (footer) se pinta aquí mismo (`fondoActivo`).
-function ItemSidebar({ l, icono, colapsado, onClick, fondoActivo = false }) {
+// Tooltip del menú colapsado (Fase 4 de la auditoría de Inicio, 2026-11-20):
+// el `title` nativo tardaba ~1 s y no se ve con teclado. Se pinta con
+// position: fixed desde Layout porque el <aside> y el <nav> recortan lo que
+// se sale de su ancho (overflow-hidden). `tip(e, label)` lo muestra junto al
+// elemento; `tip(null)` lo esconde.
+const eventosTip = (tip, label) => (tip ? {
+  onMouseEnter: (e) => tip(e.currentTarget, label),
+  onFocus: (e) => tip(e.currentTarget, label),
+  onMouseLeave: () => tip(null),
+  onBlur: () => tip(null),
+} : {});
+
+function ItemSidebar({ l, icono, colapsado, onClick, fondoActivo = false, tip }) {
   const Icon = icono || ICONS[l.id || l.seccion] || IconDashboard;
   return (
     <NavLink
       to={l.to}
       end={l.end}
       onClick={onClick}
-      title={colapsado ? l.label : undefined}
+      {...eventosTip(colapsado && tip, l.badge > 0 ? `${l.label} (${l.badge})` : l.label)}
       className={({ isActive }) =>
         `${itemBase} ${isActive ? itemActivo : itemInactivo} ${isActive && fondoActivo ? 'bg-slate-900/[0.06] dark:bg-white/[0.08]' : ''}`
       }
@@ -137,12 +149,13 @@ function ItemSidebar({ l, icono, colapsado, onClick, fondoActivo = false }) {
   );
 }
 
-function BotonSidebar({ icono: Icon, label, title, colapsado, onClick, peligro = false }) {
+function BotonSidebar({ icono: Icon, label, title, colapsado, onClick, peligro = false, tip }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      title={colapsado ? (title || label) : title}
+      title={colapsado ? undefined : title}
+      {...eventosTip(colapsado && tip, title || label)}
       className={`${itemBase} ${
         peligro
           ? 'text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20'
@@ -195,12 +208,19 @@ export default function Layout() {
   // en el footer del sidebar / hoja "Más".
   const [openInvitar, setOpenInvitar] = useState(false);
   const [openCuenta, setOpenCuenta] = useState(false);
+  const [tooltip, setTooltip] = useState(null); // { label, top }
+  const mostrarTip = (el, label) => {
+    if (!el) { setTooltip(null); return; }
+    const r = el.getBoundingClientRect();
+    setTooltip({ label, top: r.top + r.height / 2 });
+  };
   useEffect(() => {
     const v = localStorage.getItem(STORAGE_KEY);
     if (v === '1') setColapsado(true);
   }, []);
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, colapsado ? '1' : '0');
+    setTooltip(null);
   }, [colapsado]);
 
   // Píldora activa que se desliza entre ítems: se mide el NavLink con
@@ -234,18 +254,16 @@ export default function Layout() {
   };
   useEffect(() => () => clearTimeout(timerScroll.current), []);
 
+  // Orden por frecuencia de uso (Fase 4 de la auditoría de Inicio,
+  // 2026-11-20): Inicio, CRM, Citas, Pólizas, 25 puntos, Actividad, Mi meta,
+  // Clínica telefónica. "Agrega tu sitio web" (se configura una vez) salió de
+  // aquí y vive en la zona de cuenta del pie del menú — ver `linkSitioWeb`.
   const allLinks = [
-    // "Inicio" (2026-11-19): Hoy y Dashboard se fusionaron en una sola
-    // pantalla — arriba el día (citas, recordatorios, leads, a quién llamar)
-    // y abajo los números del mes. Para todos los roles y sin sección RBAC:
-    // el día siempre es el propio; el bloque de números solo se pinta con la
-    // sección `dashboard` permitida.
+    // "Inicio" (2026-11-19): Hoy y Dashboard en una sola pantalla. Para todos
+    // los roles y sin sección RBAC: el día siempre es el propio; el bloque de
+    // números solo se pinta con la sección `dashboard` permitida.
     { to: '/', label: 'Inicio', end: true, id: 'inicio' },
     { to: '/clientes', label: 'CRM', seccion: 'clientes' },
-    // "Agrega tu sitio web" (captura de leads desde landings): para TODOS los
-    // usuarios, sin sección RBAC — es autoservicio, como /notificaciones (la
-    // API solo exige sesión). Badge = leads propios que aún no se abren.
-    { to: '/leads', label: 'Agrega tu sitio web', id: 'leads', badge: leadsSinVer },
     { to: '/citas', label: 'Citas / Calendario', seccion: 'citas' },
     // Promotor (ADMIN/SUPERADMIN) entra a pólizas por el roster de Equipo;
     // el asesor va directo a su propia cartera. El ítem de Equipo solo se
@@ -253,21 +271,25 @@ export default function Layout() {
     esAdmin()
       ? { to: '/equipo', label: 'Pólizas · Equipo', seccion: 'ventas' }
       : { to: '/ventas', label: 'Pólizas', seccion: 'ventas' },
-    { to: '/actividad', label: 'Actividad', seccion: 'actividad' },
     // 25 puntos y Clínica telefónica: mismas rutas para ambos roles; la API
     // resuelve el alcance (propio vs. selector por asesor para promotores).
     { to: '/puntos', label: '25 puntos', seccion: 'puntos' },
+    { to: '/actividad', label: 'Actividad', seccion: 'actividad' },
+    // Mismo destino para los dos roles, alcance distinto resuelto por la API:
+    // el asesor ve su meta, el promotor gestiona las de todos. Va en la lista
+    // principal (no en Admin) para que el orden sea el mismo para todos.
+    { to: '/targets', label: esAdmin() ? 'Metas' : 'Mi meta', seccion: 'metas' },
     { to: '/clinica', label: 'Clínica telefónica', seccion: 'clinica' },
-    // El asesor ve su propia meta; el promotor gestiona Metas desde la
-    // sección de admin (mismo destino, alcance distinto resuelto por la API).
-    ...(esAdmin() ? [] : [{ to: '/targets', label: 'Mi meta', seccion: 'metas' }]),
   ];
   const adminLinks = [
     { to: '/candidatos', label: 'Candidatos', seccion: 'candidatos' },
     { to: '/asesores', label: 'Asesores', seccion: 'asesores' },
-    { to: '/targets', label: 'Metas', seccion: 'metas' },
     { to: '/configuracion', label: 'Configuración', seccion: 'configuracion' },
   ];
+  // "Agrega tu sitio web" (captura de leads desde landings): para TODOS los
+  // usuarios, sin sección RBAC — es autoservicio, como /notificaciones (la
+  // API solo exige sesión). Badge = leads propios que aún no se abren.
+  const linkSitioWeb = { to: '/leads', label: 'Agrega tu sitio web', id: 'leads', badge: leadsSinVer };
   const links = allLinks.filter((l) => !l.seccion || puede(l.seccion));
   const adminLinksFiltrados = esAdmin() ? adminLinks.filter((l) => puede(l.seccion)) : [];
 
@@ -298,7 +320,7 @@ export default function Layout() {
             <button
               onClick={() => setColapsado(false)}
               className="group/logo flex h-10 w-11 items-center justify-center rounded-[10px] text-slate-500 hover:bg-slate-900/[0.05] hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/[0.06] dark:hover:text-white transition-[background-color,transform] duration-150 active:scale-[0.97] motion-reduce:active:scale-100"
-              title="Expandir menú"
+              {...eventosTip(mostrarTip, 'Expandir menú (ver nombres)')}
               aria-label="Expandir menú"
               aria-expanded="false"
             >
@@ -339,13 +361,13 @@ export default function Layout() {
           )}
           <SeccionSidebar>
             {links.map((l) => (
-              <ItemSidebar key={l.to} l={l} colapsado={colapsado} onClick={() => setColapsado(true)} />
+              <ItemSidebar key={l.to} l={l} colapsado={colapsado} tip={mostrarTip} onClick={() => setColapsado(true)} />
             ))}
           </SeccionSidebar>
           {esAdmin() && adminLinksFiltrados.length > 0 && (
             <SeccionSidebar label="Admin" colapsado={colapsado}>
               {adminLinksFiltrados.map((l) => (
-                <ItemSidebar key={l.to} l={l} colapsado={colapsado} onClick={() => setColapsado(true)} />
+                <ItemSidebar key={l.to} l={l} colapsado={colapsado} tip={mostrarTip} onClick={() => setColapsado(true)} />
               ))}
             </SeccionSidebar>
           )}
@@ -361,13 +383,16 @@ export default function Layout() {
             l={{ to: '/notificaciones', label: 'Notificaciones', badge: noLeidas, badgeAlerta: true }}
             icono={IconCampanaNav}
             colapsado={colapsado}
+            tip={mostrarTip}
             fondoActivo
           />
-          <BotonSidebar icono={IconInvitar} label="Invitar" title="Invitar a la promotoría" colapsado={colapsado} onClick={() => setOpenInvitar(true)} />
+          <ItemSidebar l={linkSitioWeb} colapsado={colapsado} tip={mostrarTip} fondoActivo />
+          <BotonSidebar icono={IconInvitar} label="Invitar" title="Invitar a la promotoría" colapsado={colapsado} tip={mostrarTip} onClick={() => setOpenInvitar(true)} />
           <BotonSidebar
             icono={tema === 'dark' ? IconSun : IconMoon}
             label={tema === 'dark' ? 'Modo claro' : 'Modo oscuro'}
             colapsado={colapsado}
+            tip={mostrarTip}
             onClick={alternar}
           />
 
@@ -376,7 +401,8 @@ export default function Layout() {
               type="button"
               onClick={() => setOpenCuenta(true)}
               className="mt-1 flex w-full items-center gap-2.5 rounded-[10px] px-2 py-1.5 text-left transition hover:bg-slate-900/[0.04] dark:hover:bg-white/[0.06]"
-              title={colapsado ? `${user.nombre} ${user.apellidoP} · Mi cuenta` : 'Mi cuenta'}
+              title={colapsado ? undefined : 'Mi cuenta'}
+              {...eventosTip(colapsado && mostrarTip, `${user.nombre} ${user.apellidoP} · Mi cuenta`)}
             >
               <span className="avatar !h-7 !w-7 !text-[11px]">
                 {(user.nombre?.[0] || '') + (user.apellidoP?.[0] || '')}
@@ -392,11 +418,22 @@ export default function Layout() {
             icono={IconLogout}
             label="Cerrar sesión"
             colapsado={colapsado}
+            tip={mostrarTip}
             peligro
             onClick={() => { logout(); navigate('/login'); }}
           />
         </div>
       </aside>
+
+      {colapsado && tooltip && (
+        <div
+          role="tooltip"
+          className="pointer-events-none fixed z-50 hidden -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-flotante md:block dark:bg-slate-700"
+          style={{ left: ANCHO_COLAPSADO + 8, top: tooltip.top }}
+        >
+          {tooltip.label}
+        </div>
+      )}
 
       {/* Columna derecha: barra superior (móvil) + contenido + barra inferior (móvil) */}
       <div className="flex-1 min-w-0 h-full flex flex-col relative z-10">
@@ -526,6 +563,26 @@ export default function Layout() {
                 {noLeidas > 0 && (
                   <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-bold leading-none text-white tabular-nums">
                     {noLeidas > 99 ? '99+' : noLeidas}
+                  </span>
+                )}
+              </NavLink>
+
+              <NavLink
+                to={linkSitioWeb.to}
+                onClick={() => setMenuAbierto(false)}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 rounded-lg px-3 min-h-[48px] text-sm font-medium transition ${
+                    isActive
+                      ? 'bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-300'
+                      : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60'
+                  }`
+                }
+              >
+                <IconLeads className="w-5 h-5 shrink-0" />
+                <span>{linkSitioWeb.label}</span>
+                {leadsSinVer > 0 && (
+                  <span className="ml-auto min-w-[20px] rounded-full bg-brand-600 px-1.5 text-center text-[11px] font-semibold leading-5 text-white tabular-nums">
+                    {leadsSinVer > 99 ? '99+' : leadsSinVer}
                   </span>
                 )}
               </NavLink>

@@ -5,6 +5,7 @@ import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion } from '../middleware/permisos.js';
 import { registrarActividad } from '../utils/actividad.js';
 import { ETAPAS_CLINICA } from '../utils/clinica.js';
+import { registrarLlamada, sumarEnPuntosDeHoy } from '../utils/seguimiento.js';
 
 // Clínica telefónica: digitaliza el "Evaluador de Prospectos" semanal de la
 // promotoría (formato diseñado para conseguir 10 citas a la semana) y el
@@ -119,6 +120,31 @@ router.patch('/prospectos/:id', asyncHandler(async (req, res) => {
     data.semanaInicio = inicio;
   }
   const prospecto = await prisma.prospectoClinica.update({ where: { id: existente.id }, data });
+
+  // Salir de PENDIENTE como CONTACTADO o CITA_OBTENIDA significa que hubo una
+  // llamada (2026-11-20, auditoría de Inicio): antes la clínica no la
+  // registraba y el proceso de ventas marcaba 0 llamadas con citas obtenidas.
+  // Pasa por registrarLlamada() —la misma de la ficha y de Inicio—, así suma
+  // en Metas, en el proceso de ventas y en 25 puntos de hoy. Una fila que ya
+  // estaba CONTACTADO y pasa a CITA_OBTENIDA no cuenta otra llamada.
+  if (existente.resultado === 'PENDIENTE' && ['CONTACTADO', 'CITA_OBTENIDA'].includes(data.resultado)) {
+    const resultadoLlamada = data.resultado === 'CITA_OBTENIDA' ? 'CITA' : 'CONTACTADO';
+    const cliente = prospecto.clienteId
+      ? await prisma.cliente.findUnique({ where: { id: prospecto.clienteId }, select: { id: true, nombre: true, apellidoP: true } })
+      : null;
+    if (cliente) {
+      await registrarLlamada({ cliente, asesorId: prospecto.asesorId, resultado: resultadoLlamada, nota: 'Desde la clínica telefónica' });
+    } else {
+      // Prospecto de clínica sin ficha en el CRM: la llamada cuenta igual.
+      await registrarActividad(prospecto.asesorId, 'LLAMADA', {
+        cliente: prospecto.nombre,
+        prospectoClinicaId: prospecto.id,
+        resultado: resultadoLlamada,
+        nota: 'Desde la clínica telefónica',
+      });
+      await sumarEnPuntosDeHoy(prospecto.asesorId, 'llamadasRealizadas');
+    }
+  }
 
   // El avance en la clínica se refleja en la ficha del cliente: si no, el
   // asesor tendría que actualizar la etapa dos veces (aquí y en el CRM) y el

@@ -1301,6 +1301,91 @@ acento de los KPIs y `/hoy` como pantalla aparte.
   bloques de Semana con barra de color a la izquierda, riel con fondo
   tintado y separadores finos, casillas de filtro redondas.
 
+## Inicio rediseñado (auditoría 2026-11-20, Fase 3)
+
+**Manda sobre lo que digan "Sección Dashboard", "Gráficas del dashboard" y
+"Inicio (/) = Mi día + números" más arriba.** Inicio responde tres preguntas
+en este orden, en 1.5–2 pantallas de laptop:
+
+1. **Encabezado compacto**: saludo + fecha en una línea.
+2. **Franja "Hoy"** (`MiDia.jsx` → `FranjaHoy`): barra de 25 puntos,
+   invitaciones por responder (Aceptar/Rechazar en línea), citas de hoy y
+   citas por cerrar. Cada cosa una vez; vacía = una línea.
+3. **"Contactar ahora"** (`ContactarAhora`): bandeja ÚNICA que arma el
+   servidor — `armarBandejaContactar()` en `backend/src/utils/contactar.js`,
+   devuelta como `contactar` por `GET /hoy` (los arreglos de origen siguen ahí).
+   Fusiona recordatorios (y de pago), seguimientos (`necesitaSeguimiento`,
+   antes solo un conteo), leads nuevos y la clínica de la semana. Orden
+   VENCIDO > HOY > SEMANA y el más antiguo primero; una fila por persona (los
+   otros motivos van en `otrosMotivos`). Fila: nombre, motivo, última llamada,
+   etapa y WhatsApp / Llamada (modal → 25 puntos + embudo) / Hecho (solo donde
+   significa algo: recordatorio, seguimiento, clínica sin ficha = "Contactado").
+   7 visibles + "Ver todos (N)" **que despliega en el lugar**: el CRM no puede
+   mostrar recordatorios sin cliente ni prospectos de clínica sin ficha.
+4. **"Tus números"**: prima del mes vs. meta (sin meta = CTA), citas del mes,
+   cierres (nivel CIERRES del proceso, misma definición) y vencen en 15 días;
+   cada tarjeta enlaza a su detalle. Ranking solo para promotores.
+
+Se **movieron** (no se borraron): Tendencia de ventas, Prima por ramo y
+Proceso de ventas → `AnalisisDelMes` en Mi meta (`pages/Targets.jsx`;
+`components/dashboard/ProcesoVentas.jsx` es el componente extraído).
+"Requiere tu atención" desapareció de Inicio: sus seguimientos están en la
+bandeja, las invitaciones en Hoy y el resto de avisos en Notificaciones
+(campana). Los KPIs "Pólizas activas" y "Clientes" viven en Pólizas y CRM.
+Reglas: un bloque sin datos no ocupa tarjeta; sin scroll horizontal de 360 a
+1,440 px (las filas usan `flex-wrap` y las acciones bajan de línea; en
+celular son solo ícono con `aria-label`). Tests: `backend/test/contactar.test.js`.
+
+## Medición de uso de Inicio (2026-11-20)
+
+Para decidir en 2 semanas qué se usa y qué no antes de seguir recortando.
+Modelo **`EventoInicio`** (`usuarioId`, `bloque`, `accion`, `detalle` Json,
+`creadoEn`; migración `20261120120000_evento_inicio`).
+
+- **`POST /api/eventos-inicio`** (solo sesión, como `/notificaciones`): el
+  usuario y la hora los pone el servidor. `bloque` ∈ `hoy`/`contactar`/
+  `numeros`; `accion` = `[a-z0-9_]`; `detalle` solo categorías (máx. 6 llaves
+  planas, strings ≤ 40) — **nunca datos del cliente** (ni nombre, teléfono ni
+  ids de cliente). Responde 204.
+- **`GET /api/eventos-inicio/resumen?dias=14`** (solo alcance de
+  administración): clics y personas distintas por bloque/acción. Sin UI todavía.
+- Frontend: `medir(bloque, accion, detalle)` en `lib/medir.js`, mejor
+  esfuerzo y sin esperar. Acciones medidas: franja Hoy (`puntos`, `ir_agenda`,
+  `abrir_cita`, `abrir_invitacion`, `invitacion_aceptar|rechazar`,
+  `cita_completada|no_asistio`), bandeja (`abrir_ficha`, `whatsapp`,
+  `llamada`, `llamar_tel`, `hecho`, `ir_crm`, `ver_todos|ver_menos`, con
+  `{tipo, grupo, posicion}`) y números (`kpi_<clave>`, `cambiar_periodo`,
+  `ir_analisis`). Una acción nueva en Inicio debe medirse igual.
+
+## Datos de Inicio corregidos (auditoría 2026-11-20, Fase 2)
+
+- **Invitaciones con la hora viva**: el cuerpo de un aviso `CITA_INVITACION`
+  congela la hora como texto. Por eso (a) responder una invitación (promotor o
+  invitado, desde donde sea) marca leído su aviso (`cerrarAvisosInvitacion()`
+  en `routes/citas.js`); (b) mover el horario de una cita viva por
+  `PATCH /citas/:id` regresa a PENDIENTE las invitaciones no rechazadas
+  (también la del promotor, borrando su evento de Google), cierra los avisos
+  viejos y manda uno nuevo con la hora nueva (`reabrirInvitacionesPorNuevoHorario()`);
+  (c) "Requiere tu atención" no repite el aviso de una invitación que ya
+  aparece arriba en Mi día.
+- **Llamadas de la clínica**: un prospecto que sale de PENDIENTE como
+  CONTACTADO o CITA_OBTENIDA registra la llamada con `registrarLlamada()`
+  (o, sin ficha, actividad `LLAMADA` + 25 puntos). Una sola llamada por fila.
+- **Proceso de ventas**: con citas y 0 llamadas, `llamadasSinRegistro: true` y
+  esos dos pasos van sin `conversionPct` (no se calcula "mayor caída" sobre un 0
+  que solo significa "no registradas").
+- **Comparativo "vs. mes anterior"**: lo calcula el servidor
+  (`comparativo` de `/metricas/dashboard`); con el mes en curso compara contra
+  los **mismos días** del mes anterior ("vs. 1–20 oct"), con un mes cerrado
+  contra el mes completo. Ya no sale de `/targets/historial`.
+- **Sin meta**: la tarjeta dice "Sin meta en <mes>" + "Asignar meta" (promotor)
+  o "pídela a tu promotora" (asesor); la gráfica sigue pintando metas de otros meses.
+- **Meses en hora de México**: `rangoMesMx`, `partesMx`, `claveMesMx`,
+  `inicioDiaMx` (`utils/fechas.js`) en metricas y targets. Nunca
+  `new Date(anio, mes - 1, 1)`: en Railway (UTC) el mes empezaba a las 6 p.m.
+  del día 31.
+- Tests: `backend/test/inicio.test.js`.
+
 ## Exportar e importar la cartera en Excel (2026-11-19)
 
 Pedido de la promotora (toda la base de clientes en una hoja) y del usuario
@@ -2430,6 +2515,21 @@ el leaderboard y el calendario).
   (`.sidebar-nav` / `.is-scrolling` en `index.css`).
 - Sigue vigente: se colapsa solo al hacer clic en un ítem y la preferencia vive
   en `localStorage` (`crm:sidebar:colapsado`).
+- **Orden por frecuencia de uso** (Fase 4 de la auditoría de Inicio,
+  2026-11-20): Inicio, CRM, Citas, Pólizas, 25 puntos, Actividad, Mi meta,
+  Clínica telefónica. **Metas va en la lista principal también para el
+  promotor** (rotulado "Metas"; el grupo Admin queda con Candidatos, Asesores
+  y Configuración). **"Agrega tu sitio web" vive en la zona de cuenta** (pie
+  del sidebar, junto a Notificaciones e Invitar; en móvil, en la parte de
+  cuenta de la hoja "Más"), con su badge de leads sin ver: se configura una
+  vez, no es navegación diaria. No hay menú desplegable de cuenta: el pie del
+  sidebar ES esa zona.
+- **Tooltips propios en el colapsado**: `eventosTip()` + un solo `<div
+  role="tooltip">` con `position: fixed` pintado por `Layout` (el `<aside>`
+  recorta lo que se sale de su ancho, así que no puede vivir dentro del
+  ítem). Aparecen al instante con mouse y con teclado (`onFocus`), incluyen el
+  badge ("Agrega tu sitio web (2)"). Ya no se usa el `title` nativo cuando
+  está colapsado (duplicaría el tooltip).
 
 ## Sistema de diseño (tokens y componentes)
 

@@ -6,6 +6,7 @@ import { inicioSemana } from '../utils/clinica.js';
 import { CITA_DE_TRABAJO } from '../utils/citas.js';
 import { hoyMx, rangoHoyMx } from '../utils/seguimiento.js';
 import { puntosDe, META_PUNTOS_DIARIA } from './puntos.js';
+import { armarBandejaContactar } from '../utils/contactar.js';
 
 // "Hoy" (2026-10-13, auditoría de UI): la lista de trabajo del día en un solo
 // lugar. Antes estaba repartida en cuatro módulos (calendario, recordatorios
@@ -21,7 +22,7 @@ const CITA_VIVA = ['PROGRAMADA', 'CONFIRMADA'];
 const DIAS_LEAD_NUEVO = 7;
 // Más atrás que esto ya no se pregunta: es historia, no pendiente.
 const DIAS_CITA_POR_CERRAR = 30;
-const clienteCorto = { select: { id: true, nombre: true, apellidoP: true, telefono: true, estado: true } };
+const clienteCorto = { select: { id: true, nombre: true, apellidoP: true, telefono: true, estado: true, fechaUltimaLlamada: true } };
 const citaInvitacion = {
   id: true, titulo: true, fechaHoraInicio: true, fechaHoraFin: true, modalidad: true, tipo: true, ubicacion: true,
   asesor: { select: { id: true, nombre: true, apellidoP: true } },
@@ -32,7 +33,7 @@ router.get('/', asyncHandler(async (req, res) => {
   const ahora = new Date();
   const { inicio, fin } = rangoHoyMx(ahora);
 
-  const [citas, porCerrar, recordatorios, leads, clinica, puntos, invitado, acompanamientos] = await Promise.all([
+  const [citas, porCerrar, recordatorios, leads, clinica, puntos, invitado, acompanamientos, seguimientos] = await Promise.all([
     // Citas de hoy donde estoy: dueño, promotor que aceptó o invitado que aceptó.
     prisma.cita.findMany({
       where: {
@@ -86,7 +87,7 @@ router.get('/', asyncHandler(async (req, res) => {
           { creadoEn: { gte: new Date(ahora.getTime() - DIAS_LEAD_NUEVO * 86400000) } },
         ],
       },
-      select: { id: true, nombre: true, apellidoP: true, telefono: true, estado: true, fuente: true, creadoEn: true, leadSinVer: true },
+      select: { id: true, nombre: true, apellidoP: true, telefono: true, estado: true, fuente: true, creadoEn: true, leadSinVer: true, fechaUltimaLlamada: true },
       orderBy: { creadoEn: 'desc' },
       take: 30,
     }),
@@ -114,6 +115,14 @@ router.get('/', asyncHandler(async (req, res) => {
       orderBy: { fechaHoraInicio: 'asc' },
       take: 30,
     }),
+    // Clientes marcados "necesita seguimiento" (antes solo un conteo en
+    // "Requiere tu atención", sin nombres).
+    prisma.cliente.findMany({
+      where: { asesorId: yo, archivadoEn: null, necesitaSeguimiento: true },
+      select: { id: true, nombre: true, apellidoP: true, telefono: true, estado: true, fechaUltimaLlamada: true, actualizadoEn: true, creadoEn: true },
+      orderBy: { actualizadoEn: 'asc' },
+      take: 100,
+    }),
   ]);
 
   const invitaciones = [
@@ -133,7 +142,15 @@ router.get('/', asyncHandler(async (req, res) => {
       telefono: p.cliente?.telefono || p.contacto || null,
       estado: p.cliente?.estado || null,
       cliente: p.cliente,
+      creadoEn: p.creadoEn,
     }));
+
+  // Quien tiene cita hoy ya está en la franja de Hoy.
+  const conCitaHoy = new Set(citas.map((c) => c.clienteId).filter(Boolean));
+  const recordatoriosMarcados = recordatorios.map((n) => ({ ...n, vencido: n.fechaAviso < ahora }));
+  const contactar = armarBandejaContactar({
+    recordatorios: recordatoriosMarcados, seguimientos, leads, porLlamar, conCitaHoy, ahora, inicioHoy: inicio,
+  });
 
   res.json({
     fecha: inicio,
@@ -141,7 +158,10 @@ router.get('/', asyncHandler(async (req, res) => {
     // repiten arriba.
     citas: citas.filter((c) => c.fechaHoraFin >= ahora || c.asesorId !== yo),
     porCerrar,
-    recordatorios: recordatorios.map((n) => ({ ...n, vencido: n.fechaAviso < ahora })),
+    recordatorios: recordatoriosMarcados,
+    // Bandeja única de Inicio (utils/contactar.js). Los cuatro arreglos de
+    // origen se siguen devolviendo para quien los consuma por separado.
+    contactar,
     leads,
     porLlamar,
     invitaciones,

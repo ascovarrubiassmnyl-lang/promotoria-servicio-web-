@@ -5,17 +5,19 @@ import { asyncHandler } from '../middleware/error.js';
 import { permiteSeccion } from '../middleware/permisos.js';
 import { referidosObtenidos } from '../utils/referidos.js';
 import { CITA_DE_TRABAJO } from '../utils/citas.js';
+import { partesMx, rangoMesMx, claveMesMx } from '../utils/fechas.js';
 
 const router = Router();
 router.use(authenticate);
 // Permiso de sección enforced en servidor (RBAC + excepciones, fail closed).
 router.use(permiteSeccion('metas'));
 
+// Mes en hora de México, no del servidor (utils/fechas.js).
 function periodo(req) {
-  const ahora = new Date();
-  const mes = parseInt(req.query.mes) || (ahora.getMonth() + 1);
-  const anio = parseInt(req.query.anio) || ahora.getFullYear();
-  return { mes, anio, ini: new Date(anio, mes - 1, 1), fin: new Date(anio, mes, 0, 23, 59, 59, 999) };
+  const hoy = partesMx();
+  const mes = parseInt(req.query.mes) || hoy.mes;
+  const anio = parseInt(req.query.anio) || hoy.anio;
+  return { mes, anio, ...rangoMesMx(mes, anio) };
 }
 
 // Ventas "ganadas" del periodo: misma definición que Pólizas (APROBADA/PAGADA).
@@ -51,7 +53,8 @@ async function promedioComisionPorAsesor() {
 // Se agrupa por mes en JS (y no con groupBy por asesor) porque el historial
 // necesita varios meses de un jalón y la definición de cada métrica debe ser
 // UNA sola: el resumen de un mes es esta misma función acotada a ese mes.
-const claveMes = (d) => `${d.getFullYear()}-${d.getMonth() + 1}`;
+// Mes de México al que pertenece cada registro.
+const claveMes = claveMesMx;
 const filaVacia = () => ({ ventas: 0, prima: 0, citas: 0, prospectos: 0, referidos: 0, llamadas: 0 });
 
 async function actualesPorMes(ini, fin, whereBase = {}) {
@@ -160,12 +163,13 @@ router.get('/historial', asyncHandler(async (req, res) => {
   const soloYo = req.user.rol === 'ASESOR';
   const asesorId = soloYo ? req.user.id : (req.query.asesorId || null);
 
-  const fin = new Date(anio, mes, 0, 23, 59, 59, 999);
-  const ini = new Date(anio, mes - meses, 1);
+  const { fin } = rangoMesMx(mes, anio);
+  const { ini } = rangoMesMx(mes - meses + 1, anio);
   // Periodos del rango, del más reciente al más antiguo.
   const periodos = Array.from({ length: meses }, (_, i) => {
-    const d = new Date(anio, mes - 1 - i, 1);
-    return { mes: d.getMonth() + 1, anio: d.getFullYear(), clave: claveMes(d) };
+    const d = new Date(Date.UTC(anio, mes - 1 - i, 1));
+    const p = { mes: d.getUTCMonth() + 1, anio: d.getUTCFullYear() };
+    return { ...p, clave: `${p.anio}-${p.mes}` };
   });
   const anios = [...new Set(periodos.map((p) => p.anio))];
 

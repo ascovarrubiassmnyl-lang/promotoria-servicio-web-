@@ -1,69 +1,35 @@
 import { useQuery } from '@tanstack/react-query';
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { mxn, num, nombreMes } from '../lib/format.js';
 import { diasPeriodo, claveRitmo, ESTADOS_RITMO, pctAvance } from '../components/metas/ritmo.js';
-import { infoTipoNotificacion, rutaNotificacion } from '../components/notificaciones/tipos.jsx';
-import { useListaNotificaciones, useMarcarLeida, useMarcarTodasLeidas } from '../hooks/useNotificaciones.js';
 import { RankingAsesores } from '../components/dashboard/Leaderboard.jsx';
 import MiDia from '../components/inicio/MiDia.jsx';
+import { medir } from '../lib/medir.js';
 
-// recharts pesa ~400 kB: las gráficas se cargan aparte para no cobrárselo al
-// bundle inicial de toda la app (misma convención que el 3D decorativo). Las
-// dos salen del mismo módulo, así que es una sola descarga.
-const TendenciaVentas = lazy(() => import('../components/dashboard/Graficas.jsx').then((m) => ({ default: m.TendenciaVentas })));
-const PrimaPorRamo = lazy(() => import('../components/dashboard/Graficas.jsx').then((m) => ({ default: m.PrimaPorRamo })));
-
-function GraficaCargando() {
-  return (
-    <section className="card flex items-center justify-center p-5 sm:p-7" style={{ minHeight: 300 }}>
-      <span className="text-sm text-slate-400 dark:text-slate-500">Cargando gráfica…</span>
-    </section>
-  );
-}
-
-// Dashboard (rediseño 2026-08-25, a pedido del usuario): minimalista a
-// propósito — antes tenía 6 secciones y se sentía "ruidoso" para un asesor.
-// Se redujo a lo que de verdad se consulta día a día: 4 KPIs (prima del
-// periodo, pólizas activas, clientes, vigencias por vencer), "Requiere tu
-// atención" y el proceso de ventas. Se eliminaron "Estado de pólizas" y "Referidos y
-// bonos" (esos números siguen disponibles en Pólizas y Metas, no se
-// duplican aquí). El anillo de avance con narrativa de ritmo también se
-// retiró del centro visual; el mismo semáforo de ritmo sobrevive, más
-// discreto, como nota de color bajo la cifra de prima.
-// Gráficas (2026-08-25, inspiradas en la sección "dashboard-2" de la plantilla
-// shadcn-dashboard-landing-template que el usuario tomó como referencia de UI):
-// se agregó UNA fila con "Tendencia de ventas" (12 meses, prima vs meta) y
-// "Prima por ramo" (dona), más el delta "vs. mes anterior" en dos KPIs. Es lo
-// que el rediseño minimalista no tenía —lectura en el tiempo y de dónde viene
-// el dinero— sin volver a llenar la pantalla de tarjetas. Se adoptó el tipo de
-// gráfica y el layout de la plantilla, NO su stack (shadcn/ui + Radix): la
-// única dependencia nueva es recharts, el motor de las gráficas.
-// Definiciones únicas (mismas fuentes que Pólizas/Metas, ver metricas.js):
-//  - Venta ganada = APROBADA/PAGADA creada en el periodo.
-//  - Póliza "activa" = estado ∈ {PAGADA, FIRMADA, APROBADA} (igual que la
-//    ficha de cliente), snapshot de hoy, no acotado al mes en curso.
+// Inicio (rediseño 2026-11-20, auditoría de Inicio del 20-nov). Responde tres
+// preguntas, en este orden y en 1.5–2 pantallas de laptop:
+//   1. ¿Qué tengo hoy?          → franja "Hoy" (citas, invitaciones, 25 puntos)
+//   2. ¿A quién contacto ahora? → bandeja "Contactar ahora" (una sola lista,
+//                                 ordenada por urgencia, de GET /hoy)
+//   3. ¿Cómo voy?               → "Tus números": 4 KPIs, cada uno enlaza a su
+//                                 detalle
+// Lo que salió de Inicio se MOVIÓ, no se borró:
+//  - Tendencia de ventas, Prima por ramo y Proceso de ventas → Mi meta
+//    (/targets, sección "Análisis del mes").
+//  - "Requiere tu atención": los seguimientos y recordatorios están en la
+//    bandeja; las invitaciones en la franja Hoy; el resto de avisos en
+//    Notificaciones (campana); pólizas pendientes de pago en Pólizas.
+//  - "Pólizas activas" y "Clientes" (KPIs) → Pólizas y CRM.
+// Reglas: un bloque sin datos no se renderiza o queda en una línea; nada de
+// scroll horizontal entre 360 y 1,440 px; las acciones nunca se cortan (en
+// celular pasan a ícono).
 // Alcance por rol garantizado en servidor: el asesor recibe solo sus números
-// y su meta individual; ranking y meta de promotoría solo llegan a promotores.
-//
-// "Requiere tu atención" ES la bandeja de notificaciones (2026-08-25, a
-// pedido del usuario): se eliminó la sección /notificaciones y su enlace del
-// menú de hamburguesa (campana) — el modelo, la API y el push del backend no
-// cambiaron, solo dejaron de tener una página propia en el frontend. Este
-// bloque combina las notificaciones sin leer (Nota.destinatario recordatorios,
-// invitaciones de acompañamiento, avisos de meta…) con los pendientes que ya
-// calculaba el servidor (pagos, citas de hoy, seguimiento, bonos), en una sola
-// lista ordenada por urgencia. Al ya no haber una bandeja histórica navegable,
-// "marcar como leída" aquí equivale a "ya lo atendí, quítalo de la lista".
-
-// Inicio (2026-11-19, a pedido del usuario): "Hoy" y "Dashboard" eran casi la
-// misma pantalla partida en dos pestañas. Ahora es una sola: arriba **Mi día**
-// (components/inicio/MiDia.jsx, lo que hay que hacer hoy) y abajo **Tus
-// números** (lo que lleva el mes). La ruta `/` ya no exige la sección
-// `dashboard`: el día es de todos; los números solo se piden y se pintan si
-// `puede('dashboard')`. "Requiere tu atención" vive dentro de Mi día.
+// y su meta; ranking y meta de promotoría solo llegan a promotores. La ruta `/`
+// no exige la sección `dashboard`: el día es de todos (GET /hoy); los números
+// solo se piden y se pintan si `puede('dashboard')`.
 export default function Dashboard() {
   const { user, esAdmin, puede } = useAuth();
   const admin = esAdmin();
@@ -80,12 +46,9 @@ export default function Dashboard() {
   });
 
   return (
-    <div className="mx-auto max-w-6xl space-y-10">
-      <div className="space-y-4">
-        <Encabezado user={user} admin={admin} />
-        <MiDia extra={<Atencion atencion={data?.atencion} admin={admin} />} />
-      </div>
-
+    <div className="mx-auto max-w-6xl space-y-6">
+      <Encabezado user={user} admin={admin} />
+      <MiDia />
       {verNumeros && (
         <Numeros
           data={data}
@@ -93,63 +56,41 @@ export default function Dashboard() {
           admin={admin}
           mes={mes}
           anio={anio}
-          onCambiarPeriodo={(m, a) => { setMes(m); setAnio(a); }}
+          onCambiarPeriodo={(m, a) => { medir('numeros', 'cambiar_periodo'); setMes(m); setAnio(a); }}
         />
       )}
     </div>
   );
 }
 
-/* ---------- Tus números: KPIs, gráficas, proceso y ranking del periodo ---------- */
+/* ---------- Tus números: 4 KPIs y ranking del periodo ---------- */
 
 function Numeros({ data, user, admin, mes, anio, onCambiarPeriodo }) {
-  const { puede } = useAuth();
   const { fraccion } = diasPeriodo(mes, anio);
-  // Proceso de ventas del mes: los 5 pasos del trabajo comercial, del
-  // prospecto nuevo a la póliza cobrada.
+  // "Cierres" sale del mismo proceso de ventas (nivel CIERRES): una sola
+  // definición, aunque la tarjeta del proceso viva ahora en Mi meta.
   const { data: proceso } = useQuery({
     queryKey: ['proceso-ventas', mes, anio],
     queryFn: async () => (await api.get('/metricas/proceso-ventas', { params: { mes, anio } })).data,
   });
-  // Tendencia de 12 meses y comparativo contra el mes anterior: se toman de
-  // /targets/historial en vez de recalcularlos aquí, para que la prima del
-  // dashboard y la de Metas nunca puedan diferir (misma actualesPorMes()).
-  // Vive bajo la sección `metas`, así que solo se pide si el rol la tiene.
-  const verTendencia = puede('metas');
-  const { data: historial } = useQuery({
-    queryKey: ['metas-historial', mes, anio],
-    queryFn: async () => (await api.get('/targets/historial', { params: { mes, anio, meses: 12 } })).data,
-    enabled: verTendencia,
-  });
 
   return (
-    <section className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-[22px] font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-            {admin ? 'Números de la promotoría' : 'Tus números'}
-          </h2>
-          <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Ventas, cartera y proceso del periodo</p>
-        </div>
+    <section className="space-y-3" data-bloque="numeros">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+          {admin ? 'Números de la promotoría' : 'Tus números'}
+        </h2>
         <PeriodoSelector mes={mes} anio={anio} onChange={onCambiarPeriodo} />
       </div>
 
       {!data ? (
-        <div className="card p-10 text-center text-sm text-slate-400 dark:text-slate-500">Cargando números…</div>
+        <div className="card p-6 text-center text-sm text-slate-400 dark:text-slate-500">Cargando números…</div>
       ) : (
         <>
-          <KpiPrincipales data={data} admin={admin} fraccion={fraccion} historial={historial} />
-
-          <div className={`grid gap-5 ${verTendencia ? 'lg:grid-cols-2' : ''}`}>
-            <Suspense fallback={<GraficaCargando />}>
-              {verTendencia && <TendenciaVentas historial={historial} admin={admin} />}
-            </Suspense>
-            <Suspense fallback={<GraficaCargando />}>
-              <PrimaPorRamo data={data} mes={mes} anio={anio} />
-            </Suspense>
-          </div>
-
-          <ProcesoVentas proceso={proceso} />
+          <KpiPrincipales data={data} proceso={proceso} admin={admin} fraccion={fraccion} />
+          <p className="text-xs text-slate-400 dark:text-slate-500">
+            Tendencia, prima por ramo y proceso de ventas: <Link to="/targets" onClick={() => medir('numeros', 'ir_analisis')} className="font-semibold text-brand-600 hover:underline dark:text-brand-400">{admin ? 'Metas' : 'Mi meta'}</Link>
+          </p>
 
           {/* Ranking: solo con alcance de administración. El servidor tampoco
               incluye `data.ranking` cuando quien consulta es ASESOR. */}
@@ -169,7 +110,7 @@ function Numeros({ data, user, admin, mes, anio, onCambiarPeriodo }) {
   );
 }
 
-/* ---------- Encabezado: saludo + fecha + selector de periodo ---------- */
+/* ---------- Encabezado compacto: saludo + fecha en una línea ---------- */
 
 function saludo(hora) {
   if (hora < 12) return 'Buenos días';
@@ -180,16 +121,14 @@ function saludo(hora) {
 function Encabezado({ user, admin }) {
   const ahora = new Date();
   const fecha = ahora.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
-  const fechaCap = fecha.charAt(0).toUpperCase() + fecha.slice(1);
-
   return (
-    <div>
-      <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-        {fechaCap} · {admin ? 'Promotoría' : 'Asesor'}
-      </p>
-      <h1 className="mt-1 text-[28px] font-semibold leading-tight tracking-tight text-slate-900 dark:text-slate-100 sm:text-[34px]">
+    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+      <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
         {saludo(ahora.getHours())}, {user?.nombre}
       </h1>
+      <p className="text-sm text-slate-500 dark:text-slate-400">
+        {fecha.charAt(0).toUpperCase() + fecha.slice(1)} · {admin ? 'Promotoría' : 'Asesor'}
+      </p>
     </div>
   );
 }
@@ -318,16 +257,20 @@ function IconChevron({ dir, small }) {
 
 /* ---------- KPIs principales ---------- */
 
-// Variación porcentual del mes visible contra el anterior. `null` cuando no
-// hay con qué comparar (sin historial, o el mes anterior en cero: un aumento
-// "desde cero" no es un porcentaje, es simplemente el primer mes con dato).
-function delta(historial, campo) {
-  const p = historial?.periodos;
-  if (!p || p.length < 2) return null;
-  const actual = p[0]?.actual?.[campo] || 0;
-  const previo = p[1]?.actual?.[campo] || 0;
+// Variación porcentual contra el mes anterior. El servidor ya acota el mes
+// anterior a los mismos días cuando el visible va en curso (comparativo de
+// /metricas/dashboard). `null` cuando el anterior está en cero: un aumento
+// "desde cero" no es un porcentaje, es el primer mes con dato.
+function delta(actual, previo) {
   if (!previo) return null;
   return Math.round(((actual - previo) / previo) * 100);
+}
+
+// "vs. 1–20 oct" (mes en curso, mismos días) o "vs. octubre" (mes cerrado).
+function etiquetaComparativo(c) {
+  if (!c) return '';
+  const mes = nombreMes(c.mes).toLowerCase();
+  return c.hastaDia ? `vs. 1–${c.hastaDia} ${mes.slice(0, 3)}` : `vs. ${mes}`;
 }
 
 function NotaDelta({ pct }) {
@@ -345,252 +288,59 @@ function NotaDelta({ pct }) {
   );
 }
 
-function KpiPrincipales({ data, admin, fraccion, historial }) {
+function Kpi({ to, clase = '', label, valor, clave, children }) {
+  return (
+    <Link to={to} onClick={() => medir('numeros', `kpi_${clave}`)} className={`kpi ${clase} block transition hover:shadow-flotante active:scale-[0.99]`}>
+      <p className="kpi-label">{label}</p>
+      <p className="kpi-val">{valor}</p>
+      {children}
+    </Link>
+  );
+}
+
+// Los 4 números del mes que pidió la auditoría: prima vs. meta, citas,
+// cierres y vencimientos. Cada uno enlaza a su detalle.
+function KpiPrincipales({ data, proceso, admin, fraccion }) {
   const metaPrima = data.meta?.prima || 0;
   const sinMeta = !metaPrima;
   const pct = pctAvance(data.primaAnualTotal, metaPrima);
   const st = ESTADOS_RITMO[sinMeta ? 'SIN_META' : claveRitmo(pct, fraccion)];
   const vencen = data.polizasPorVencer || { count: 0, dias: 15 };
-  // Solo prima y altas de clientes tienen una serie histórica equivalente en
-  // /targets/historial. "Pólizas activas" y "Vencen en N días" son fotos de
-  // hoy, no del periodo: compararlas contra "el mes pasado" no significaría
-  // lo mismo, así que se quedan sin delta a propósito.
-  const deltaPrima = delta(historial, 'prima');
-  const deltaAltas = delta(historial, 'prospectos');
+  const comp = data.comparativo;
+  const deltaPrima = comp ? delta(data.primaAnualTotal, comp.prima) : null;
+  const nivel = (clave) => proceso?.niveles?.find((n) => n.clave === clave)?.count;
+  const cierres = nivel('CIERRES');
+  const emitidas = nivel('EMITIDAS');
+  const polizas = admin ? '/equipo' : '/ventas';
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-      <div className="kpi kpi-green">
-        <p className="kpi-label">Prima vendida</p>
-        <p className="kpi-val">{mxn(data.primaAnualTotal)}</p>
-        <p className={`kpi-note ${sinMeta ? '' : st.text}`}>
-          {sinMeta ? (admin ? 'sin meta de promotoría' : 'sin meta asignada') : `${pct}% de ${admin ? 'la meta de equipo' : 'tu meta'}`}
-        </p>
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <Kpi to="/targets" clave={sinMeta ? 'prima_sin_meta' : 'prima'} clase="kpi-green" label="Prima del mes" valor={mxn(data.primaAnualTotal)}>
+        {sinMeta ? (
+          // La meta es por mes: la gráfica de Mi meta puede mostrar metas de
+          // otros meses y este seguir sin una. Sin meta, un CTA en vez de
+          // texto gris (la tarjeta entera ya lleva a Metas).
+          <p className="kpi-note">
+            {admin
+              ? <span className="font-semibold text-brand-600 dark:text-brand-400">Asignar meta de {nombreMes(data.mes).toLowerCase()}</span>
+              : <>Sin meta en {nombreMes(data.mes).toLowerCase()} · pídela a tu promotora</>}
+          </p>
+        ) : (
+          <p className={`kpi-note ${st.text}`}>{pct}% de {admin ? 'la meta de equipo' : 'tu meta'}</p>
+        )}
         {deltaPrima != null && (
-          <p className="kpi-note flex items-center gap-1">
-            <NotaDelta pct={deltaPrima} /> vs. mes anterior
-          </p>
+          <p className="kpi-note flex items-center gap-1"><NotaDelta pct={deltaPrima} /> {etiquetaComparativo(comp)}</p>
         )}
-      </div>
-      <div className="kpi">
-        <p className="kpi-label">Pólizas activas</p>
-        <p className="kpi-val">{num(data.polizasActivas)}</p>
-        <p className="kpi-note">vigentes hoy</p>
-      </div>
-      <div className="kpi kpi-accent">
-        <p className="kpi-label">Clientes</p>
-        <p className="kpi-val">{num(data.totalClientes)}</p>
-        <p className="kpi-note">+{num(data.clientesMes)} este mes</p>
-        {deltaAltas != null && (
-          <p className="kpi-note flex items-center gap-1">
-            <NotaDelta pct={deltaAltas} /> vs. mes anterior
-          </p>
-        )}
-      </div>
-      <div className={`kpi ${vencen.count > 0 ? 'kpi-amber' : ''}`}>
-        <p className="kpi-label">Vencen en {vencen.dias} días</p>
-        <p className="kpi-val">{num(vencen.count)}</p>
-        <p className="kpi-note">próxima vigencia</p>
-      </div>
+      </Kpi>
+      <Kpi to="/citas" clave="citas" label="Citas del mes" valor={num(data.citasPeriodo)}>
+        <p className="kpi-note">{num(data.citasCompletadasMes)} realizadas</p>
+      </Kpi>
+      <Kpi to={polizas} clave="cierres" label="Cierres" valor={cierres == null ? '—' : num(cierres)}>
+        <p className="kpi-note">{emitidas == null ? 'firmadas en el mes' : `${num(emitidas)} emitidas y pagadas`}</p>
+      </Kpi>
+      <Kpi to={polizas} clave="vencen" clase={vencen.count > 0 ? 'kpi-amber' : ''} label={`Vencen en ${vencen.dias} días`} valor={num(vencen.count)}>
+        <p className="kpi-note">pólizas por renovar</p>
+      </Kpi>
     </div>
   );
 }
-
-/* ---------- Requiere tu atención (= bandeja de notificaciones) ---------- */
-
-function Atencion({ atencion, admin }) {
-  const navigate = useNavigate();
-  const { data: notifData } = useListaNotificaciones({ estado: 'no-leidas' });
-  const marcarLeida = useMarcarLeida();
-  const marcarTodas = useMarcarTodasLeidas();
-  const notificaciones = notifData?.notificaciones || [];
-
-  const abrirNotificacion = (n) => {
-    marcarLeida.mutate({ id: n.id, leida: true });
-    const ruta = rutaNotificacion(n);
-    if (ruta) navigate(ruta);
-  };
-
-  // Notificaciones reales primero (más recientes = más arriba, ya vienen
-  // ordenadas por el servidor), luego los pendientes derivados que ya
-  // calculaba este bloque. Mismo estilo de fila para los dos orígenes.
-  const notifItems = notificaciones.map((n) => {
-    const info = infoTipoNotificacion(n.tipo);
-    return {
-      key: `notif:${n.id}`,
-      color: info.dot,
-      t: n.titulo,
-      s: n.cuerpo,
-      onClick: () => abrirNotificacion(n),
-    };
-  });
-
-  // Sin la sección `dashboard` (o mientras carga) solo hay notificaciones.
-  // "Citas de hoy" ya no se repite aquí: es su propia lista en Mi día.
-  const pendientesItems = !atencion ? [] : [
-    atencion.pendientesPago.count > 0 && {
-      key: 'pendientes-pago',
-      color: 'bg-amber-500',
-      to: admin ? '/equipo' : '/ventas',
-      t: `${num(atencion.pendientesPago.count)} ${atencion.pendientesPago.count === 1 ? 'póliza pendiente' : 'pólizas pendientes'} de pago`,
-      s: `${mxn(atencion.pendientesPago.prima)} en prima sin cobrar`,
-    },
-    atencion.seguimiento > 0 && {
-      key: 'seguimiento',
-      color: 'bg-amber-500',
-      to: '/clientes',
-      t: `${num(atencion.seguimiento)} ${atencion.seguimiento === 1 ? 'cliente necesita' : 'clientes necesitan'} seguimiento`,
-      s: 'Marcados en el pipeline de clientes',
-    },
-    atencion.bonosPorGanar.monto > 0 && {
-      key: 'bonos',
-      color: 'bg-emerald-500',
-      t: `${mxn(atencion.bonosPorGanar.monto)} en bonos por ganar`,
-      s: 'Se liberan al cerrar las ventas del mes',
-    },
-  ].filter(Boolean);
-
-  const items = [...notifItems, ...pendientesItems];
-
-  return (
-    <section className="card p-5">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Requiere tu atención</h3>
-          <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">Avisos sin leer y pendientes de cobro y seguimiento</p>
-        </div>
-        {notifItems.length > 0 && (
-          <button
-            type="button"
-            onClick={() => marcarTodas.mutate()}
-            disabled={marcarTodas.isPending}
-            className="text-xs font-semibold text-brand-600 transition hover:underline dark:text-brand-400"
-          >
-            Marcar todas como leídas
-          </button>
-        )}
-      </div>
-      {items.length === 0 ? (
-        <div className="pt-3 text-sm text-slate-400 dark:text-slate-500">
-          Todo al día por ahora.{' '}
-          <Link to="/citas" className="font-semibold text-brand-600 hover:underline dark:text-brand-400">Agenda una cita</Link>
-          {' '}o{' '}
-          <Link to="/clientes" className="font-semibold text-brand-600 hover:underline dark:text-brand-400">registra un prospecto</Link>
-          {' '}para mover el mes.
-        </div>
-      ) : (
-        <div className="mt-2 -mb-2">
-          {items.map((it, i) => {
-            const fila = (
-              <div className={`group flex items-center gap-3 py-3 ${i > 0 ? 'border-t border-slate-100 dark:border-slate-700/60' : ''}`}>
-                <span className={`h-2 w-2 shrink-0 rounded-full ${it.color}`} />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-slate-800 transition-colors group-hover:text-brand-600 dark:text-slate-100 dark:group-hover:text-brand-400">{it.t}</p>
-                  <p className="mt-0.5 truncate text-xs text-slate-400 dark:text-slate-500">{it.s}</p>
-                </div>
-                {(it.to || it.onClick) && <Chevron />}
-              </div>
-            );
-            if (it.to) return <Link key={it.key} to={it.to} className="block cursor-pointer">{fila}</Link>;
-            if (it.onClick) return <button key={it.key} type="button" onClick={it.onClick} className="block w-full cursor-pointer text-left">{fila}</button>;
-            return <div key={it.key}>{fila}</div>;
-          })}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function Chevron() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4 -translate-x-1 text-slate-400 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100 dark:text-slate-500" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M9 6l6 6-6 6" />
-    </svg>
-  );
-}
-
-/* ---------- Proceso de ventas ---------- */
-
-// Los 5 pasos del proceso de ventas (2026-08-26, definidos por el usuario),
-// de contacto frío (slate) a póliza cobrada (emerald): mismo criterio de "el
-// color encodea progreso" que usa el mapa de etapas de clientes. Las etiquetas
-// y los conteos vienen del servidor (GET /metricas/proceso-ventas) — aquí solo
-// se pinta, no se define ninguna métrica.
-const DOTS_PROCESO = ['bg-slate-400', 'bg-sky-500', 'bg-violet-500', 'bg-teal-500', 'bg-emerald-500'];
-
-// Debajo de este % de conversión entre dos pasos consecutivos, el paso se
-// marca en ámbar como cuello de botella.
-const CUELLO_BOTELLA_PCT = 50;
-
-function ProcesoVentas({ proceso }) {
-  // UNA sola lectura del proceso (antes eran dos, "Pipeline" y "Actividad",
-  // en un toggle): el usuario pidió consolidarlas porque medían "casi las
-  // mismas métricas solo divididas" y obligaban a reconciliar dos embudos.
-  const niveles = proceso?.niveles || [];
-  const total = niveles.reduce((s, n) => s + n.count, 0);
-  const top = Math.max(...niveles.map((n) => n.count), 1);
-
-  // Mayor caída entre dos pasos consecutivos: dónde conviene enfocarse.
-  const peor = niveles.reduce((p, n) => (
-    n.conversionPct != null && (!p || n.conversionPct < p.conversionPct) ? n : p
-  ), null);
-  const idxPeor = peor ? niveles.indexOf(peor) : -1;
-
-  return (
-    <section className="card p-5 sm:p-7">
-      <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Proceso de ventas</h3>
-      <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
-        Lo que pasó este mes, del prospecto nuevo a la póliza pagada
-      </p>
-
-      {total === 0 ? (
-        <div className="py-10 text-center text-sm text-slate-400 dark:text-slate-500">
-          Sin actividad registrada este mes.{' '}
-          <Link to="/clientes" className="font-semibold text-brand-600 hover:underline dark:text-brand-400">Registra un prospecto</Link>
-          {' '}para empezar a medir el proceso.
-        </div>
-      ) : (
-        <>
-          <div className="mt-4">
-            {niveles.map((n, i) => (
-              <div key={n.clave}>
-                {n.conversionPct != null && (
-                  <p className="py-0.5 pl-[104px] text-[11px] tabular-nums text-slate-400 dark:text-slate-500 sm:pl-[132px]">
-                    <span className={n.conversionPct < CUELLO_BOTELLA_PCT ? 'font-bold text-amber-600 dark:text-amber-400' : ''}>
-                      {niveles[i - 1].label} → {n.label}: {n.conversionPct}%
-                    </span>
-                  </p>
-                )}
-                <div className="flex items-center gap-4 py-1.5">
-                  <span className="w-[88px] shrink-0 text-[13px] font-medium leading-tight text-slate-500 dark:text-slate-400 sm:w-[116px]" title={n.label}>{n.label}</span>
-                  <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700/60">
-                    <div
-                      className={`h-full rounded-full ${DOTS_PROCESO[i] || 'bg-slate-400'} transition-all duration-500 motion-reduce:transition-none`}
-                      style={{ width: `${Math.max((n.count / top) * 100, 4)}%` }}
-                    />
-                  </div>
-                  <span className="w-8 shrink-0 text-right text-sm font-semibold tabular-nums text-slate-700 dark:text-slate-200">{num(n.count)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-            <span>
-              Tasa de cierre del proceso completo:{' '}
-              <b className="tabular-nums text-slate-700 dark:text-slate-200">
-                {proceso?.tasaCierrePct != null ? `${proceso.tasaCierrePct}%` : '—'}
-              </b>
-              {' '}(de prospecto nuevo a póliza pagada).
-            </span>
-            {idxPeor > 0 && peor.conversionPct < CUELLO_BOTELLA_PCT && (
-              <span>
-                Mayor caída en <b className="text-slate-700 dark:text-slate-200">{niveles[idxPeor - 1].label} → {peor.label}</b> ({peor.conversionPct}%).
-              </span>
-            )}
-          </div>
-        </>
-      )}
-    </section>
-  );
-}
-

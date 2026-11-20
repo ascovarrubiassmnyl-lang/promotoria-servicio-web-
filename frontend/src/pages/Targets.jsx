@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { api, handleError } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { Card, EmptyState, NumeroFormateado } from '../components/ui.jsx';
@@ -7,6 +7,59 @@ import { mxn, num, nombreMes } from '../lib/format.js';
 import GoalBlock, { MiniBar } from '../components/metas/GoalBlock.jsx';
 import { infoRitmo, pctAvance, diasPeriodo, ESTADOS_RITMO } from '../components/metas/ritmo.js';
 import { METRICAS, sinMetas, cumplimiento, ESTADOS_CUMPLIMIENTO } from '../components/metas/metricas.js';
+import ProcesoVentas from '../components/dashboard/ProcesoVentas.jsx';
+
+// recharts pesa ~400 kB: las gráficas se cargan aparte (misma convención que
+// tenían en Inicio y que el 3D decorativo). Las dos salen del mismo módulo.
+const TendenciaVentas = lazy(() => import('../components/dashboard/Graficas.jsx').then((m) => ({ default: m.TendenciaVentas })));
+const PrimaPorRamo = lazy(() => import('../components/dashboard/Graficas.jsx').then((m) => ({ default: m.PrimaPorRamo })));
+
+const GraficaCargando = () => (
+  <section className="card flex items-center justify-center p-5" style={{ minHeight: 300 }}>
+    <span className="text-sm text-slate-400 dark:text-slate-500">Cargando gráfica…</span>
+  </section>
+);
+
+// Análisis del mes (movido desde Inicio el 2026-11-20): tendencia de 12
+// meses, prima por ramo y proceso de ventas. Inicio se quedó con lo del día;
+// esto es lectura de cómo va el mes y vive junto a la meta. Mismos
+// endpoints y componentes de antes, sin definiciones nuevas. Prima por ramo y
+// proceso vienen de /metricas (sección `dashboard`): sin ella solo se ve la
+// tendencia.
+function AnalisisDelMes({ admin, mes, anio }) {
+  const { puede } = useAuth();
+  const verMetricas = puede('dashboard');
+  const { data: historial } = useQuery({
+    queryKey: ['metas-historial', mes, anio],
+    queryFn: async () => (await api.get('/targets/historial', { params: { mes, anio, meses: 12 } })).data,
+  });
+  const { data: dashboard } = useQuery({
+    queryKey: ['dashboard', mes, anio],
+    queryFn: async () => (await api.get('/metricas/dashboard', { params: { mes, anio } })).data,
+    enabled: verMetricas,
+  });
+  const { data: proceso } = useQuery({
+    queryKey: ['proceso-ventas', mes, anio],
+    queryFn: async () => (await api.get('/metricas/proceso-ventas', { params: { mes, anio } })).data,
+    enabled: verMetricas,
+  });
+  return (
+    <section className="space-y-4">
+      <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">Análisis del mes</h2>
+      <div className={`grid gap-4 ${verMetricas ? 'lg:grid-cols-2' : ''}`}>
+        <Suspense fallback={<GraficaCargando />}>
+          <TendenciaVentas historial={historial} admin={admin} />
+        </Suspense>
+        {verMetricas && dashboard && (
+          <Suspense fallback={<GraficaCargando />}>
+            <PrimaPorRamo data={dashboard} mes={mes} anio={anio} />
+          </Suspense>
+        )}
+      </div>
+      {verMetricas && <ProcesoVentas proceso={proceso} />}
+    </section>
+  );
+}
 
 function ChipTranscurrido({ mes, anio }) {
   const { dia, dias, fraccion } = diasPeriodo(mes, anio);
@@ -451,6 +504,8 @@ export default function Targets() {
           ) : null}
         </Card>
       )}
+
+      <AnalisisDelMes admin={admin} mes={mes} anio={anio} />
 
       {/* Historial: periodos anteriores con su meta y su resultado */}
       <Historial admin={admin} asesores={asesores} mes={mes} anio={anio} />

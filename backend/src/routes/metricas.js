@@ -5,18 +5,17 @@ import { asyncHandler } from '../middleware/error.js';
 import { permiteAlguna } from '../middleware/permisos.js';
 import { referidosObtenidos } from '../utils/referidos.js';
 import { CITA_DE_TRABAJO } from '../utils/citas.js';
+import { partesMx, rangoMesMx, inicioDiaMx } from '../utils/fechas.js';
+import { rangoHoyMx } from '../utils/seguimiento.js';
 
 const router = Router();
 router.use(authenticate);
 // Permiso de sección enforced en servidor (RBAC + excepciones, fail closed).
 router.use(permiteAlguna('dashboard', 'asesores'));
 
-function inicioMes(mes, anio) {
-  return new Date(anio, mes - 1, 1);
-}
-function finMes(mes, anio) {
-  return new Date(anio, mes, 0, 23, 59, 59, 999);
-}
+// Rangos de mes en hora de México, no del servidor (utils/fechas.js).
+const inicioMes = (mes, anio) => rangoMesMx(mes, anio).ini;
+const finMes = (mes, anio) => rangoMesMx(mes, anio).fin;
 
 // Definiciones únicas del dashboard (mismas fuentes que Pólizas/Metas):
 //  - Venta "ganada" = APROBADA/PAGADA creada en el periodo (= Pólizas y Metas).
@@ -34,19 +33,39 @@ const PIPELINE = ['PENDIENTE_PAGAR', 'FIRMADA'];
 const ACTIVA = ['PAGADA', 'FIRMADA', 'APROBADA'];
 const DIAS_ALERTA_VIGENCIA = 15;
 
+async function comparativoMesAnterior({ mes, anio, hoyMx, whereAsesor }) {
+  const previo = new Date(Date.UTC(anio, mes - 2, 1));
+  const mesPrevio = previo.getUTCMonth() + 1;
+  const anioPrevio = previo.getUTCFullYear();
+  const diasPrevio = new Date(Date.UTC(anioPrevio, mesPrevio, 0)).getUTCDate();
+  const enCurso = mes === hoyMx.mes && anio === hoyMx.anio;
+  const hastaDia = enCurso ? Math.min(hoyMx.dia, diasPrevio) : null;
+  const rango = {
+    gte: inicioDiaMx(anioPrevio, mesPrevio, 1),
+    lte: hastaDia
+      ? new Date(inicioDiaMx(anioPrevio, mesPrevio, hastaDia + 1).getTime() - 1)
+      : finMes(mesPrevio, anioPrevio),
+  };
+  const [prima, clientes] = await Promise.all([
+    prisma.venta.aggregate({ where: { ...whereAsesor, estado: { in: GANADA }, creadoEn: rango }, _sum: { primaAnual: true } }),
+    prisma.cliente.count({ where: { ...whereAsesor, archivadoEn: null, creadoEn: rango } }),
+  ]);
+  return { mes: mesPrevio, anio: anioPrevio, hastaDia, prima: prima._sum.primaAnual || 0, clientes };
+}
+
 router.get('/dashboard', asyncHandler(async (req, res) => {
   const esAsesor = req.user.rol === 'ASESOR';
   const asesorIdFiltro = esAsesor ? req.user.id : req.query.asesorId;
   const ahora = new Date();
-  const mes = parseInt(req.query.mes) || (ahora.getMonth() + 1);
-  const anio = parseInt(req.query.anio) || ahora.getFullYear();
+  const hoyMx = partesMx(ahora);
+  const mes = parseInt(req.query.mes) || hoyMx.mes;
+  const anio = parseInt(req.query.anio) || hoyMx.anio;
   const ini = inicioMes(mes, anio);
   const fin = finMes(mes, anio);
-  const hoyIni = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate());
-  const hoyFin = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 23, 59, 59, 999);
-  const limiteVigencia = new Date(hoyIni);
-  limiteVigencia.setDate(limiteVigencia.getDate() + DIAS_ALERTA_VIGENCIA);
-  limiteVigencia.setHours(23, 59, 59, 999);
+  const { inicio: hoyIni, fin: finDeHoy } = rangoHoyMx(ahora);
+  const hoyFin = new Date(finDeHoy.getTime() - 1);
+  // Fin del día N (hoy + 15) en México.
+  const limiteVigencia = new Date(inicioDiaMx(hoyMx.anio, hoyMx.mes, hoyMx.dia + DIAS_ALERTA_VIGENCIA + 1).getTime() - 1);
 
   const whereAsesor = esAsesor ? { asesorId: req.user.id } : (asesorIdFiltro ? { asesorId: asesorIdFiltro } : {});
   const wherePeriodo = { creadoEn: { gte: ini, lte: fin } };
@@ -99,8 +118,15 @@ router.get('/dashboard', asyncHandler(async (req, res) => {
     ? await prisma.target.findUnique({ where: { asesorId_mes_anio: { asesorId: req.user.id, mes, anio } } })
     : await prisma.targetEquipo.findUnique({ where: { mes_anio: { mes, anio } } });
 
+  // Comparativo contra el mes anterior (2026-11-20, auditoría de Inicio): el
+  // mes en curso va a medias, así que se compara contra LOS MISMOS DÍAS del
+  // mes anterior (1–20 oct contra 1–20 nov), no contra octubre completo — si
+  // no, todo mes en curso "baja". Un mes ya cerrado se compara completo.
+  // Mismas definiciones que primaAnualTotal y clientesMes, solo otro rango.
+  const comparativo = await comparativoMesAnterior({ mes, anio, hoyMx, whereAsesor });
+
   const resultado = {
-    mes, anio, totalClientes, clientesMes, citasPeriodo, citasCompletadasMes,
+    mes, anio, totalClientes, comparativo, clientesMes, citasPeriodo, citasCompletadasMes,
     ventasAprobadas, ventasPendientes,
     primaAnualTotal: primaAnualTotal._sum.primaAnual || 0,
     comisionTotal: primaAnualTotal._sum.comisionMonto || 0,
@@ -193,9 +219,9 @@ router.get('/proceso-ventas', asyncHandler(async (req, res) => {
   const asesorId = esAsesor ? req.user.id : (req.query.asesorId || null);
   const scope = asesorId ? { asesorId } : {};
 
-  const ahora = new Date();
-  const mes = parseInt(req.query.mes) || (ahora.getMonth() + 1);
-  const anio = parseInt(req.query.anio) || ahora.getFullYear();
+  const hoyMx = partesMx();
+  const mes = parseInt(req.query.mes) || hoyMx.mes;
+  const anio = parseInt(req.query.anio) || hoyMx.anio;
   const rango = { gte: inicioMes(mes, anio), lte: finMes(mes, anio) };
 
     const [prospectos, llamadas, citas, cierres, emitidas] = await Promise.all([
@@ -214,10 +240,18 @@ router.get('/proceso-ventas', asyncHandler(async (req, res) => {
     { clave: 'EMITIDAS', label: 'Pólizas emitidas, pagadas y entregadas', count: emitidas },
   ];
 
+  // Citas obtenidas con CERO llamadas registradas no es un embudo real: es que
+  // las llamadas se hicieron fuera del CRM (WhatsApp, teléfono sin registrar).
+  // Una conversión o una "mayor caída" calculada sobre ese 0 sería falsa, así
+  // que esos dos pasos van sin porcentaje y el frontend lo explica.
+  const llamadasSinRegistro = llamadas === 0 && citas > 0;
+
   // Conversión de cada nivel respecto al anterior (el primero no tiene).
   const conConversion = niveles.map((n, i) => ({
     ...n,
+    ...(llamadasSinRegistro && n.clave === 'LLAMADAS' ? { sinRegistro: true } : {}),
     conversionPct: i === 0 || !niveles[i - 1].count
+      || (llamadasSinRegistro && (n.clave === 'LLAMADAS' || n.clave === 'CITAS'))
       ? null
       : Math.round((n.count / niveles[i - 1].count) * 100),
   }));
@@ -226,6 +260,7 @@ router.get('/proceso-ventas', asyncHandler(async (req, res) => {
     mes,
     anio,
     niveles: conConversion,
+    llamadasSinRegistro,
     // Tasa de cierre del proceso completo: del prospecto nuevo a la póliza
     // emitida y pagada.
     tasaCierrePct: prospectos ? Math.round((emitidas / prospectos) * 100) : null,
