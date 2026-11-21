@@ -28,10 +28,10 @@ export default function Asesores() {
         <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Asesores</h2>
         <p className="text-sm text-slate-500 dark:text-slate-400">Gestión del equipo. Revisa el CRM de cada asesor o administra sus cuentas.</p>
       </div>
-      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-700">
+      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-700 max-md:overflow-x-auto max-md:overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {tabs.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === t.id ? 'border-brand-600 text-brand-600 dark:text-brand-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
+            className={`shrink-0 whitespace-nowrap min-h-[44px] md:min-h-0 px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === t.id ? 'border-brand-600 text-brand-600 dark:text-brand-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
             {t.label}
           </button>
         ))}
@@ -55,7 +55,32 @@ function CrmTab() {
     return (
       <div className="card overflow-hidden">
         {ranking.length === 0 ? <EmptyState message="Sin asesores" /> : (
-          <div className="overflow-x-auto">
+          <>
+          {/* Celular: una tarjeta por asesor con sus cifras del mes. */}
+          <ul className="md:hidden divide-y divide-slate-100 dark:divide-slate-700/60">
+            {ranking.map((r) => (
+              <li key={r.id}>
+                <button
+                  type="button"
+                  onClick={() => setSelected(r)}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-slate-50 dark:active:bg-slate-700/40"
+                >
+                  <div className="avatar">{iniciales(r.nombre)}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="text-[15px] font-semibold text-slate-800 dark:text-slate-100 truncate">{r.nombre}</p>
+                      <span className="money-earned shrink-0 text-[15px]">{mxn(r.prima)}</span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 tabular-nums truncate">
+                      {num(r.clientes)} clientes · {num(r.citas)} citas · {num(r.ventas)} ventas del mes
+                    </p>
+                  </div>
+                  <svg className="w-4 h-4 shrink-0 text-slate-300 dark:text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M9 6l6 6-6 6" /></svg>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
@@ -91,6 +116,7 @@ function CrmTab() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
     );
@@ -99,12 +125,12 @@ function CrmTab() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-slate-400 dark:text-slate-500">
-        <button onClick={() => setSelected(null)} className="text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 transition">CRM por asesor</button>
+        <button onClick={() => setSelected(null)} className="max-md:min-h-[44px] text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 transition">CRM por asesor</button>
         <span> / </span>
         <span>{selected.nombre}</span>
       </p>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 md:gap-4 max-md:[&_.kpi]:p-3 max-md:[&_.kpi-val]:text-[19px] max-md:[&_.kpi-label]:text-xs">
         <div className="kpi kpi-accent">
           <p className="kpi-label">Clientes</p>
           <p className="kpi-val">{num(selected.clientes)}</p>
@@ -137,9 +163,9 @@ function DetalleTabs({ asesor }) {
   const tabs = [{ id: 'clientes', label: 'Clientes' }, { id: 'citas', label: 'Citas' }, { id: 'calendario', label: 'Calendario' }, { id: 'ventas', label: 'Ventas' }, { id: 'tendencia', label: 'Tendencia' }];
   return (
     <div className="space-y-4">
-      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-700">
+      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-700 max-md:overflow-x-auto max-md:overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {tabs.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === t.id ? 'border-brand-600 text-brand-600 dark:text-brand-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}>
+          <button key={t.id} onClick={() => setTab(t.id)} className={`shrink-0 whitespace-nowrap min-h-[44px] md:min-h-0 px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === t.id ? 'border-brand-600 text-brand-600 dark:text-brand-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}>
             {t.label}
           </button>
         ))}
@@ -256,17 +282,51 @@ function EquipoTab() {
     } finally { setEliminando(false); }
   };
 
+  // Mismas acciones para la fila de la tabla (escritorio) y la tarjeta (celular).
+  const accionesUsuario = (u) => [
+    { label: 'Editar', onClick: () => openEdit(u) },
+    !u.activo && { label: 'Invitar', onClick: () => invitar(u) },
+    { label: u.activo ? 'Desactivar' : 'Activar', onClick: () => toggleActivo(u) },
+    u.rol !== 'SUPERADMIN' && u.id !== user?.id && 'sep',
+    u.rol !== 'SUPERADMIN' && u.id !== user?.id && { label: 'Eliminar definitivamente', onClick: () => { setErrEliminar(''); setBloqueo(null); setToDelete(u); }, danger: true },
+  ];
+
   return (
     <Card>
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <select className="input w-auto" value={rol} onChange={(e) => setRol(e.target.value)}>
+        <select className="input w-auto max-md:flex-1 max-md:min-h-[44px]" value={rol} onChange={(e) => setRol(e.target.value)}>
           <option value="">Todos los roles</option>
           {ROLES.map((r) => <option key={r} value={r}>{ROLES_LABEL[r]}</option>)}
         </select>
-        <button onClick={openNew} className="btn-primary">+ Nuevo usuario</button>
+        <button onClick={openNew} className="btn-primary min-h-[44px] md:min-h-0">+ Nuevo usuario</button>
       </div>
       {!usuarios || usuarios.length === 0 ? <EmptyState message="Sin usuarios" /> : (
-        <div className="overflow-x-auto">
+        <>
+        {/* Celular: una tarjeta por usuario con el mismo menú ⋯ de la tabla. */}
+        <ul className="md:hidden -mx-4 -mb-4 sm:-mx-5 sm:-mb-5 divide-y divide-slate-100 dark:divide-slate-700/60 border-t border-slate-100 dark:border-slate-700/60">
+          {usuarios.map((u) => (
+            <li key={u.id} className="flex items-center gap-3 py-3 pl-4 sm:pl-5 pr-2">
+              <div className="avatar">{iniciales(`${u.nombre} ${u.apellidoP}`)}</div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[15px] font-semibold text-slate-800 dark:text-slate-100 truncate">{u.nombre} {u.apellidoP} {u.apellidoM || ''}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{u.email}</p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <Badge color={rolColor[u.rol]}>{ROLES_LABEL[u.rol]}</Badge>
+                  <Badge color={u.activo ? 'green' : 'red'}>{u.activo ? 'Activo' : 'Inactivo'}</Badge>
+                  {u.claveAgente && <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">Clave {u.claveAgente}</span>}
+                </div>
+              </div>
+              <div className="shrink-0 [&_button]:h-11 [&_button]:w-11">
+                <MenuAcciones
+                  small
+                  label={`Acciones de ${u.nombre}`}
+                  items={accionesUsuario(u)}
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead><tr className="text-left text-xs uppercase text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700"><th className="py-2 pr-4">Nombre</th><th className="py-2 pr-4">Email</th><th className="py-2 pr-4">Teléfono</th><th className="py-2 pr-4">Clave</th><th className="py-2 pr-4">Rol</th><th className="py-2 pr-4">Estado</th><th className="py-2 pr-4">Creado</th><th></th></tr></thead>
             <tbody>
@@ -283,13 +343,7 @@ function EquipoTab() {
                     <MenuAcciones
                       small
                       label={`Acciones de ${u.nombre}`}
-                      items={[
-                        { label: 'Editar', onClick: () => openEdit(u) },
-                        !u.activo && { label: 'Invitar', onClick: () => invitar(u) },
-                        { label: u.activo ? 'Desactivar' : 'Activar', onClick: () => toggleActivo(u) },
-                        u.rol !== 'SUPERADMIN' && u.id !== user?.id && 'sep',
-                        u.rol !== 'SUPERADMIN' && u.id !== user?.id && { label: 'Eliminar definitivamente', onClick: () => { setErrEliminar(''); setBloqueo(null); setToDelete(u); }, danger: true },
-                      ]}
+                      items={accionesUsuario(u)}
                     />
                   </td>
                 </tr>
@@ -297,6 +351,7 @@ function EquipoTab() {
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <Modal open={open} onClose={() => setOpen(false)} title={editing ? 'Editar usuario' : 'Nuevo usuario'}>
@@ -355,7 +410,7 @@ function EquipoTab() {
               Vence el {fechaCorta(invitacion.expiraEn)}.
             </p>
             <div className="flex gap-2">
-              <input className="input flex-1 font-mono text-xs" readOnly value={linkInvitacion(invitacion.token)} onFocus={(e) => e.target.select()} />
+              <input className="input flex-1 min-w-0 font-mono text-xs" readOnly value={linkInvitacion(invitacion.token)} onFocus={(e) => e.target.select()} />
               <button type="button" onClick={copiarLink} className="btn-secondary shrink-0">{copiado ? 'Copiado' : 'Copiar'}</button>
             </div>
             <div className="flex justify-end pt-2">

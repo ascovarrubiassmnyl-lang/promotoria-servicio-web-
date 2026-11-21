@@ -22,6 +22,16 @@ const diaLabel = (iso) => {
   return fechaCorta(iso);
 };
 
+// Fecha relativa para la fila compacta del celular ("hace 5 min", "hace 3 h").
+const haceCuanto = (iso) => {
+  const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (min < 1) return 'ahora';
+  if (min < 60) return `hace ${min} min`;
+  if (min < 60 * 24) return `hace ${Math.floor(min / 60)} h`;
+  // De ayer hacia atrás el día ya lo dice el encabezado del grupo.
+  return hora(iso);
+};
+
 const ESTADOS = [
   { valor: 'todas', label: 'Todas' },
   { valor: 'no-leidas', label: 'Sin leer' },
@@ -33,13 +43,13 @@ function Fila({ n, onAbrir, onLeida, onEliminar }) {
   const navegable = !!n.datos?.url;
   return (
     <div
-      className={`flex items-start gap-3 rounded-xl border px-4 py-3 transition ${
+      className={`flex min-h-[56px] items-start gap-2.5 rounded-xl border py-2.5 pl-3 pr-1 transition md:gap-3 md:px-4 md:py-3 ${
         n.leida
           ? 'border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800'
           : 'border-brand-200 bg-brand-50/50 dark:border-brand-500/30 dark:bg-brand-500/5'
       } hover:border-slate-300 dark:hover:border-slate-600`}
     >
-      <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ring-1 ring-inset ${info.marker}`}>
+      <span className={`mt-0.5 flex h-8 w-8 shrink-0 md:h-9 md:w-9 items-center justify-center rounded-full ring-1 ring-inset ${info.marker}`}>
         {info.icon}
       </span>
 
@@ -49,16 +59,23 @@ function Fila({ n, onAbrir, onLeida, onEliminar }) {
         disabled={!navegable}
         className={`min-w-0 flex-1 text-left ${navegable ? 'cursor-pointer' : 'cursor-default'}`}
       >
-        <div className="flex items-center gap-2">
+        {/* Escritorio: tipo arriba del título. En celular el ícono ya dice el
+            tipo, así que la línea se ahorra y el punto de "sin leer" va junto
+            al título. */}
+        <div className="hidden items-center gap-2 md:flex">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{info.label}</p>
           {!n.leida && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${info.dot}`} aria-label="Sin leer" />}
         </div>
-        <p className="mt-0.5 text-sm font-semibold text-slate-800 dark:text-slate-100">{n.titulo}</p>
-        <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-300">{n.cuerpo}</p>
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100 md:mt-0.5 md:block">
+          {!n.leida && <span className={`h-2 w-2 shrink-0 rounded-full md:hidden ${info.dot}`} aria-label="Sin leer" />}
+          <span className="min-w-0 truncate md:whitespace-normal">{n.titulo}</span>
+        </p>
+        <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-slate-600 dark:text-slate-300 md:line-clamp-none md:text-sm md:leading-normal">{n.cuerpo}</p>
+        <p className="mt-1 text-xs text-slate-400 dark:text-slate-500 md:hidden">{haceCuanto(n.creadoEn)}</p>
       </button>
 
       <div className="flex shrink-0 items-center gap-1">
-        <span className="text-xs tabular-nums text-slate-400 dark:text-slate-500 whitespace-nowrap pt-0.5">
+        <span className="hidden text-xs tabular-nums text-slate-400 dark:text-slate-500 whitespace-nowrap pt-0.5 md:inline">
           {hora(n.creadoEn)}
         </span>
         <MenuAcciones
@@ -136,8 +153,30 @@ export default function Notificaciones() {
   };
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="space-y-3 md:space-y-5">
+      {/* Celular: título + sin leer + "marcar todas" en una sola línea. */}
+      <div className="flex min-h-[44px] items-center justify-between gap-3 md:hidden">
+        <h1 className="flex min-w-0 items-baseline gap-2 text-xl font-bold text-slate-800 dark:text-slate-100">
+          Notificaciones
+          {noLeidas > 0 && (
+            <span className="whitespace-nowrap text-sm font-semibold tabular-nums text-brand-600 dark:text-brand-400">
+              {noLeidas} sin leer
+            </span>
+          )}
+        </h1>
+        {noLeidas > 0 && (
+          <button
+            type="button"
+            className="-mr-1 min-h-[44px] shrink-0 whitespace-nowrap px-1 text-[13px] font-semibold text-brand-600 disabled:opacity-50 dark:text-brand-400"
+            onClick={() => marcarTodas.mutate()}
+            disabled={marcarTodas.isPending}
+          >
+            Marcar leídas
+          </button>
+        )}
+      </div>
+
+      <div className="hidden flex-wrap items-start justify-between gap-3 md:flex">
         <div>
           <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Notificaciones</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
@@ -157,7 +196,7 @@ export default function Notificaciones() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="hidden grid-cols-1 sm:grid-cols-3 gap-3 md:grid">
         <div className="kpi kpi-accent">
           <p className="kpi-label">Sin leer</p>
           <p className="kpi-val tabular-nums">{noLeidas}</p>
@@ -178,7 +217,52 @@ export default function Notificaciones() {
       </div>
 
       {/* Filtros: estado + chips por tipo (el chip ES el filtro, con conteo) */}
-      <div className="card space-y-3">
+      {/* Celular: estado y tipo en UNA fila que se desliza de lado. */}
+      <div className="-mx-4 flex items-center gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden">
+        {ESTADOS.map((e) => (
+          <button
+            key={e.valor}
+            type="button"
+            aria-pressed={estado === e.valor}
+            onClick={() => cambiarEstado(e.valor)}
+            className={`min-h-[40px] shrink-0 whitespace-nowrap rounded-full px-3.5 text-[13px] font-semibold transition ${
+              estado === e.valor
+                ? 'bg-brand-600 text-white'
+                : 'bg-slate-100 text-slate-600 dark:bg-slate-700/60 dark:text-slate-300'
+            }`}
+          >
+            {e.label}
+            {e.valor === 'no-leidas' && noLeidas > 0 && (
+              <span className="ml-1.5 tabular-nums opacity-80">{noLeidas}</span>
+            )}
+          </button>
+        ))}
+        <span className="h-5 w-px shrink-0 bg-slate-200 dark:bg-slate-700" aria-hidden />
+        {Object.entries(TIPOS_NOTIFICACION).map(([clave, info]) => {
+          const n = conteos[clave] || 0;
+          if (!n && tipo !== clave) return null;
+          const activo = tipo === clave;
+          return (
+            <button
+              key={clave}
+              type="button"
+              aria-pressed={activo}
+              onClick={() => cambiarTipo(activo ? null : clave)}
+              className={`inline-flex min-h-[40px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-[13px] font-semibold ring-1 ring-inset transition ${
+                activo
+                  ? info.marker
+                  : 'bg-white text-slate-600 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-600'
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${info.dot}`} />
+              {info.label}
+              <span className="tabular-nums opacity-70">{n}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="card hidden space-y-3 md:block">
         <div className="flex flex-wrap items-center gap-2">
           {ESTADOS.map((e) => (
             <button
@@ -254,13 +338,13 @@ export default function Notificaciones() {
 
       {!isLoading && grupos.map((g) => (
         <div key={g.key}>
-          <div className="flex items-baseline gap-2.5 pb-2">
-            <h4 className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">{g.label}</h4>
+          <div className="flex items-baseline gap-2.5 pb-1.5 md:pb-2">
+            <h4 className="text-[13px] font-semibold uppercase tracking-wide md:text-[15px] md:normal-case md:tracking-normal text-slate-800 dark:text-slate-100">{g.label}</h4>
             <span className="text-[13px] text-slate-400 dark:text-slate-500">
               {g.items.length} aviso{g.items.length === 1 ? '' : 's'}
             </span>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-1.5 md:space-y-2">
             {g.items.map((n) => (
               <Fila key={n.id} n={n} onAbrir={abrir} onLeida={onLeida} onEliminar={setPorEliminar} />
             ))}
@@ -269,25 +353,30 @@ export default function Notificaciones() {
       ))}
 
       {paginas > 1 && (
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-center gap-3 md:justify-between">
           <button
             type="button"
-            className="btn-secondary"
+            className="btn-secondary max-md:h-11 max-md:w-11 max-md:justify-center max-md:p-0 max-md:text-lg"
+            aria-label="Página anterior"
             disabled={pagina <= 1}
             onClick={() => setPagina((p) => Math.max(p - 1, 1))}
           >
-            Anteriores
+            <span className="md:hidden" aria-hidden>‹</span>
+            <span className="hidden md:inline">Anteriores</span>
           </button>
           <span className="text-sm text-slate-500 dark:text-slate-400 tabular-nums">
-            Página {pagina} de {paginas}
+            <span className="hidden md:inline">Página {pagina} de {paginas}</span>
+            <span className="md:hidden">{pagina} de {paginas}</span>
           </span>
           <button
             type="button"
-            className="btn-secondary"
+            className="btn-secondary max-md:h-11 max-md:w-11 max-md:justify-center max-md:p-0 max-md:text-lg"
+            aria-label="Página siguiente"
             disabled={pagina >= paginas}
             onClick={() => setPagina((p) => Math.min(p + 1, paginas))}
           >
-            Siguientes
+            <span className="md:hidden" aria-hidden>›</span>
+            <span className="hidden md:inline">Siguientes</span>
           </button>
         </div>
       )}

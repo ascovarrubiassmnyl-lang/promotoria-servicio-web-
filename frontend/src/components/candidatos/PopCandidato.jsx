@@ -18,7 +18,7 @@ function BarraBloque({ bloque, umbralVerde, umbralAmarillo }) {
   const { barra } = infoRecomendacion(nivel);
   return (
     <div className="flex items-center gap-3">
-      <span className="w-40 shrink-0 text-xs text-slate-600 dark:text-slate-300 truncate" title={bloque.bloque}>
+      <span className="w-24 md:w-40 shrink-0 text-xs text-slate-600 dark:text-slate-300 truncate" title={bloque.bloque}>
         {bloque.bloque}
       </span>
       <div className="flex-1 h-2.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
@@ -184,7 +184,7 @@ export default function PopCandidato({ candidato, onCambio }) {
         title="POP · Evaluación de potencial"
         subtitle="Cuestionario ya listo. Se manda por link y el resultado llega solo."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 max-md:w-full max-md:[&>button]:flex-1 max-md:[&>button]:min-h-[44px] max-md:[&>button]:text-sm">
             <button onClick={() => setOpenPlantilla(true)} className="btn-secondary text-xs">Ver preguntas</button>
             <button
               onClick={() => (faltan.length ? setOpenCompletar(true) : setOpenEnviar(true))}
@@ -198,11 +198,13 @@ export default function PopCandidato({ candidato, onCambio }) {
         {faltan.length > 0 && (
           <p className="mb-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
             Antes de enviar el POP falta capturar: <strong>{faltan.join(', ')}</strong>.{' '}
-            <button onClick={() => setOpenCompletar(true)} className="underline font-medium">Completar ahora</button>
+            <button onClick={() => setOpenCompletar(true)} className="underline font-medium max-md:py-2">Completar ahora</button>
           </p>
         )}
         {envios.length === 0 ? (
-          <EmptyState message="Sin POP enviados. Manda uno con el botón de arriba para medir su potencial de ventas." />
+          <div className="max-md:[&>div]:py-1 max-md:[&>div]:text-left">
+            <EmptyState message="Sin POP enviados. Manda uno con el botón de arriba para medir su potencial de ventas." />
+          </div>
         ) : (
           <div className="space-y-2">
             {envios.map((e) => {
@@ -228,7 +230,7 @@ export default function PopCandidato({ candidato, onCambio }) {
                           : e.abiertoEn ? ' · lo abrió, sin terminar' : ' · sin abrir'}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 max-md:[&>div>button]:h-11 max-md:[&>div>button]:w-11">
                     {contestado ? (
                       <>
                         <span className="text-sm font-semibold tabular-nums text-slate-700 dark:text-slate-200">{e.puntaje}/100</span>

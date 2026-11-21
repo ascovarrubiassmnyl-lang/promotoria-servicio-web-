@@ -24,6 +24,8 @@ export default function ComisionesMensuales({ asesorId = null }) {
 
   return (
     <Card
+      plegable
+      resumen={actual ? `${nombreMes(mesActual)}: ${mxn(actual.cobrada)} cobrada` : `${anio}`}
       title="Comisiones"
       subtitle="Por recibo, según el año de cada póliza y su forma de pago"
       actions={(

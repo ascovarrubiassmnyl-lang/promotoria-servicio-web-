@@ -486,7 +486,7 @@ export default function ClienteDetalle() {
 
           {c.capturas?.length > 0 && <FormularioLandingCard capturas={c.capturas} fuente={c.fuenteCaptura} />}
 
-          <Card title="Resumen">
+          <Card title="Resumen" plegable resumen={`${resumen.polizas} póliza${resumen.polizas === 1 ? '' : 's'} · ${mxn(resumen.primaTotal)}`}>
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-lg bg-slate-50 dark:bg-slate-700/40 px-3 py-2.5">
                 <p className="text-lg font-bold tabular-nums text-slate-800 dark:text-slate-100">{resumen.polizas}</p>
@@ -517,7 +517,34 @@ export default function ClienteDetalle() {
             actions={<button onClick={() => setPolizaModal({ open: true, venta: null })} className="btn-primary text-xs py-1 px-2">+ Crear póliza</button>}
           >
             {c.ventas?.length ? (
-              <div className="overflow-x-auto">
+              <>
+              {/* Celular: una tarjeta por póliza en vez de la tabla de 6 columnas. */}
+              <ul className="md:hidden -my-1 divide-y divide-black/[0.06] dark:divide-white/[0.08]">
+                {c.ventas.map((v) => {
+                  const anulada = ['CANCELADA', 'RECHAZADA'].includes(v.estado);
+                  return (
+                    <li key={v.id} className="flex items-start gap-2 py-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-semibold text-slate-800 dark:text-slate-100">{v.productoCatalogo?.nombre || v.producto || '—'}</p>
+                        <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+                          <VentaBadge estado={v.estado} />
+                          <span className="tabular-nums">{mxn(v.primaAnual)} prima</span>
+                        </p>
+                        <p className="mt-1 text-xs">
+                          <span className={esVentaGanada(v) ? 'money-earned' : anulada ? 'tabular-nums text-slate-400 line-through' : 'money-pending'}>Comisión {mxn(v.comisionMonto)}</span>
+                        </p>
+                      </div>
+                      <MenuAcciones label={`Acciones de la póliza ${v.producto || ''}`} items={[
+                            { label: 'Editar póliza', onClick: () => setPolizaModal({ open: true, venta: v }) },
+                            'sep',
+                            v.estado !== 'CANCELADA' && { label: 'Cancelar póliza', danger: true, onClick: () => setCancelarPoliza(v) },
+                            { label: 'Eliminar definitivamente', danger: true, onClick: () => setDelPolizaId(v.id) },
+                          ]} />
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left text-xs uppercase text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
@@ -570,6 +597,7 @@ export default function ClienteDetalle() {
                   </tbody>
                 </table>
               </div>
+              </>
             ) : (
               <EmptyState message="Aún no tiene pólizas registradas." accion={{ label: '+ Registrar póliza', onClick: () => setPolizaModal({ open: true, venta: null }) }} />
             )}
@@ -614,7 +642,7 @@ export default function ClienteDetalle() {
 
           {/* Actividad reciente: mismo ActivityTimeline del módulo de Actividad,
               filtrado a este cliente (metadata.clienteId) */}
-          <Card title="Actividad reciente" subtitle="Eventos registrados sobre este cliente">
+          <Card title="Actividad reciente" subtitle="Eventos registrados sobre este cliente" plegable resumen={actividadCliente?.length ? `${actividadCliente.length} evento${actividadCliente.length === 1 ? '' : 's'}` : 'Sin actividad'}>
             <ActivityTimeline
               eventos={verTodaActividad ? (actividadCliente || []) : (actividadCliente || []).slice(0, ACTIVIDAD_VISIBLE)}
               loading={actividadLoading}
@@ -644,6 +672,8 @@ export default function ClienteDetalle() {
             </Card>
 
             <Card
+              plegable
+              resumen={recordatoriosCliente.length ? `${recordatoriosCliente.length}` : 'Ninguno'}
               title="Recordatorios sobre el cliente"
               subtitle="Pagos y renovaciones · el aviso te llega a ti para que lo contactes"
               actions={<button className="btn-secondary text-xs py-1 px-2" onClick={() => abrirNota('RECORDATORIO', 'CLIENTE')}>+ Recordatorio</button>}
@@ -653,6 +683,7 @@ export default function ClienteDetalle() {
           </div>
 
           <Card
+            plegable
             title="Archivos del cliente"
             subtitle="Identificaciones, solicitudes, pólizas escaneadas y cualquier documento del expediente"
             actions={
@@ -949,7 +980,7 @@ function ReferidosCard({ clienteId, referidoPor }) {
   const lista = referidosLista || [];
   return (
     <>
-      <Card title="Referidos" actions={<button className="btn-secondary text-xs py-1 px-2" onClick={() => setOpen(true)}>+ Registrar</button>}>
+      <Card title="Referidos" plegable actions={<button className="btn-secondary text-xs py-1 px-2" onClick={() => setOpen(true)}>+ Registrar</button>}>
         <div className="space-y-3">
           <div>
             <p className="kv-k">Referido por</p>

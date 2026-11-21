@@ -18,7 +18,7 @@ import { avisar } from '../lib/toast.js';
 // Selector de calificación 1–5 de una dimensión (0 = sin contestar).
 function Calificacion({ valor, onChange, disabled }) {
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-2 md:gap-1.5 max-md:flex-wrap">
       {[1, 2, 3, 4, 5].map((n) => (
         <button
           key={n}
@@ -26,7 +26,7 @@ function Calificacion({ valor, onChange, disabled }) {
           disabled={disabled}
           title={ESCALA[n]}
           onClick={() => onChange(n)}
-          className={`w-9 h-9 rounded-lg border text-sm font-semibold transition ${
+          className={`h-11 min-w-[44px] flex-1 md:min-w-0 md:flex-none md:w-9 md:h-9 rounded-lg border text-[15px] md:text-sm font-semibold transition ${
             valor === n
               ? 'border-brand-500 bg-brand-500 text-white'
               : valor > n
@@ -37,7 +37,7 @@ function Calificacion({ valor, onChange, disabled }) {
           {n}
         </button>
       ))}
-      <span className="ml-2 text-xs text-slate-400 dark:text-slate-500 min-w-[70px]">{valor >= 1 ? ESCALA[valor] : 'Sin contestar'}</span>
+      <span className="max-md:w-full md:ml-2 text-xs text-slate-400 dark:text-slate-500 min-w-[70px]">{valor >= 1 ? ESCALA[valor] : 'Sin contestar'}</span>
     </div>
   );
 }
@@ -59,7 +59,7 @@ function PasoEvaluacion({ titulo, nota, grupo, valores, setValores, onGuardar, g
       ) : (
         <div className="space-y-3">
           {grupo.map((d) => (
-            <div key={d.campo} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 border-b border-slate-50 dark:border-slate-700/60 pb-3 last:border-0">
+            <div key={d.campo} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-1.5 border-b border-slate-50 dark:border-slate-700/60 pb-3 last:border-0">
               <div className="sm:max-w-[46%]">
                 <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{d.label}</p>
                 <p className="text-xs text-slate-400 dark:text-slate-500">{d.desc}</p>
@@ -68,7 +68,7 @@ function PasoEvaluacion({ titulo, nota, grupo, valores, setValores, onGuardar, g
             </div>
           ))}
           <div className="flex justify-end">
-            <button className="btn-primary" disabled={!completo || guardando} onClick={onGuardar}>
+            <button className="btn-primary max-md:w-full max-md:min-h-[44px]" disabled={!completo || guardando} onClick={onGuardar}>
               {guardando ? 'Guardando…' : `Completar ${titulo.toLowerCase()}`}
             </button>
           </div>
@@ -84,12 +84,15 @@ function PasoEvaluacion({ titulo, nota, grupo, valores, setValores, onGuardar, g
 function ListaNotas({ notas, tipo, onCompletar, onEliminar }) {
   const items = (notas || []).filter((n) => (tipo === 'NOTA' ? n.tipo === 'NOTA' : n.tipo !== 'NOTA'));
   if (items.length === 0) {
+    // En celular el vacío es una sola línea: no ocupa media pantalla.
     return (
-      <EmptyState
-        message={tipo === 'NOTA'
-          ? 'Sin notas. Registra aquí lo que observes de esta persona.'
-          : 'Sin recordatorios. Programa uno para no perder el seguimiento.'}
-      />
+      <div className="max-md:[&>div]:py-1 max-md:[&>div]:text-left">
+        <EmptyState
+          message={tipo === 'NOTA'
+            ? 'Sin notas. Registra aquí lo que observes de esta persona.'
+            : 'Sin recordatorios. Programa uno para no perder el seguimiento.'}
+        />
+      </div>
     );
   }
   return (
@@ -117,6 +120,7 @@ function ListaNotas({ notas, tipo, onCompletar, onEliminar }) {
                 {n.asesor && ` · ${n.asesor.nombre} ${n.asesor.apellidoP}`}
               </p>
             </div>
+            <div className="shrink-0 max-md:-my-1.5 max-md:-mr-2 max-md:[&_button]:h-11 max-md:[&_button]:w-11">
             <MenuAcciones
               small
               items={[
@@ -127,6 +131,7 @@ function ListaNotas({ notas, tipo, onCompletar, onEliminar }) {
                 { label: 'Eliminar', danger: true, onClick: () => onEliminar(n) },
               ].filter(Boolean)}
             />
+            </div>
           </div>
         );
       })}
@@ -226,12 +231,12 @@ export default function CandidatoDetalle() {
     <div className="space-y-4">
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mb-1">
+        <div className="min-w-0 max-md:w-full">
+          <p className="text-xs text-slate-400 dark:text-slate-500 mb-1 truncate">
             <Link to="/candidatos" className="hover:text-slate-600 dark:hover:text-slate-300">Candidatos</Link> / {candidato.nombre} {candidato.apellidoP}
           </p>
-          <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">{candidato.nombre} {candidato.apellidoP} {candidato.apellidoM || ''}</h2>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100 max-md:w-full">{candidato.nombre} {candidato.apellidoP} {candidato.apellidoM || ''}</h2>
             <span className={`badge ${e.pill}`}>{e.label}</span>
             <span className={`inline-flex items-center gap-1.5 badge ${s.pill}`}>
               <span className={`w-2 h-2 rounded-full ${s.dot}`} />
@@ -243,8 +248,8 @@ export default function CandidatoDetalle() {
             {candidato.archivadoEn && <span className="badge bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300">Archivado</span>}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setOpenCita(true)} className="btn-primary">Agendar entrevista</button>
+        <div className="flex items-center gap-2 max-md:w-full max-md:[&>div>button]:h-11 max-md:[&>div>button]:w-11">
+          <button onClick={() => setOpenCita(true)} className="btn-primary max-md:flex-1 max-md:min-h-[44px]">Agendar entrevista</button>
           <MenuAcciones
             items={[
               { label: 'Editar datos', onClick: () => setOpenEditar(true) },
@@ -258,12 +263,15 @@ export default function CandidatoDetalle() {
       </div>
 
       {/* Stepper de etapas + avanzar */}
-      <Card>
-        <div className="flex flex-wrap items-center gap-2">
+      <Card className="max-md:[&>div]:p-3">
+        {/* En celular el stepper se desliza dentro de su propia caja y los
+            botones de avanzar bajan a su renglón; en escritorio, todo en línea. */}
+        <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center md:gap-2">
+          <div className="flex items-center gap-2 overflow-x-auto p-1 -m-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:contents">
           {ETAPAS_CANDIDATO.map((et, i) => (
-            <div key={et.value} className="flex items-center gap-2">
+            <div key={et.value} className="flex shrink-0 items-center gap-2 md:shrink">
               {i > 0 && <span className="w-4 border-t border-slate-200 dark:border-slate-600" />}
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+              <span className={`inline-flex items-center gap-1.5 whitespace-nowrap md:whitespace-normal rounded-full px-2.5 py-1 text-xs font-medium ${
                 et.orden < e.orden ? 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
                 : et.orden === e.orden ? et.pill + ' ring-2 ' + et.chipOn
                 : 'text-slate-400 dark:text-slate-500'
@@ -273,9 +281,10 @@ export default function CandidatoDetalle() {
               </span>
             </div>
           ))}
-          <div className="ml-auto flex gap-2">
+          </div>
+          <div className="flex max-md:flex-wrap gap-2 md:ml-auto max-md:empty:hidden">
             {siguientes.map((sig) => (
-              <button key={sig.value} onClick={() => cambiarEtapa(sig.value)} disabled={avanzando} className="btn-secondary text-xs">
+              <button key={sig.value} onClick={() => cambiarEtapa(sig.value)} disabled={avanzando} className="btn-secondary text-xs max-md:flex-1 max-md:min-h-[44px] max-md:text-sm">
                 Avanzar a {sig.label} →
               </button>
             ))}
@@ -302,12 +311,12 @@ export default function CandidatoDetalle() {
               ].filter(([, v]) => v != null && v !== '').map(([k, v]) => (
                 <div key={k} className="flex justify-between gap-3">
                   <dt className="kv-k">{k}</dt>
-                  <dd className="kv-v text-right">{v}</dd>
+                  <dd className="kv-v text-right min-w-0 break-words">{v}</dd>
                 </div>
               ))}
             </dl>
           </Card>
-          <Card title="Reclutamiento">
+          <Card title="Reclutamiento" plegable resumen={candidato.fuente}>
             <dl className="space-y-2 text-sm">
               <div className="flex justify-between gap-3"><dt className="kv-k">Fuente</dt><dd className="kv-v text-right">{candidato.fuente}</dd></div>
               {candidato.referidoPor && <div className="flex justify-between gap-3"><dt className="kv-k">Referido por</dt><dd className="kv-v text-right">{candidato.referidoPor}</dd></div>}
@@ -324,7 +333,9 @@ export default function CandidatoDetalle() {
               evaluación, no algo que se busque haciendo scroll hasta el final. */}
           <Card
             title="Notas"
-            actions={<button onClick={() => setOpenNota('NOTA')} className="btn-secondary text-xs">+ Nota</button>}
+            plegable
+            resumen={`${(candidato.notasSeguimiento || []).filter((n) => n.tipo === 'NOTA').length || 'Sin'} nota(s)`}
+            actions={<button onClick={() => setOpenNota('NOTA')} className="btn-secondary text-xs max-md:min-h-[44px] max-md:text-sm">+ Nota</button>}
           >
             <ListaNotas
               notas={candidato.notasSeguimiento}
@@ -335,8 +346,10 @@ export default function CandidatoDetalle() {
           </Card>
           <Card
             title="Recordatorios"
+            plegable
+            resumen={`${(candidato.notasSeguimiento || []).filter((n) => n.tipo !== 'NOTA' && !n.completada).length || 'Sin'} pendiente(s)`}
             subtitle="Te avisamos un día antes y el mismo día."
-            actions={<button onClick={() => setOpenNota('RECORDATORIO')} className="btn-secondary text-xs">+ Recordatorio</button>}
+            actions={<button onClick={() => setOpenNota('RECORDATORIO')} className="btn-secondary text-xs max-md:min-h-[44px] max-md:text-sm">+ Recordatorio</button>}
           >
             <ListaNotas
               notas={candidato.notasSeguimiento}
@@ -380,15 +393,17 @@ export default function CandidatoDetalle() {
 
           <Card
             title="Citas de reclutamiento"
-            actions={<button onClick={() => setOpenCita(true)} className="btn-secondary text-xs">+ Agendar</button>}
+            actions={<button onClick={() => setOpenCita(true)} className="btn-secondary text-xs max-md:min-h-[44px] max-md:text-sm">+ Agendar</button>}
           >
             {(candidato.citas || []).length === 0 ? (
-              <EmptyState message="Sin entrevistas agendadas. Agenda la primera con el botón de arriba." />
+              <div className="max-md:[&>div]:py-1 max-md:[&>div]:text-left">
+                <EmptyState message="Sin entrevistas agendadas. Agenda la primera con el botón de arriba." />
+              </div>
             ) : (
               <div className="space-y-2">
                 {candidato.citas.map((c) => (
                   <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 dark:border-slate-700 px-3 py-2.5">
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{c.titulo}</p>
                       <p className="text-xs text-slate-400 dark:text-slate-500">
                         {fechaCorta(c.fechaHoraInicio)} · {hora(c.fechaHoraInicio)}–{hora(c.fechaHoraFin)} · {infoTipoCita(c.modalidad).label}

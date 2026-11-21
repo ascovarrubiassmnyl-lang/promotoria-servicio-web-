@@ -784,9 +784,9 @@ export default function ClientesView({ asesorId = null, titulo = 'CRM', subtitul
                     </div>
                     {!verArchivados && (
                       <div className="mt-2 flex gap-2">
-                        {c.telefono && <a href={`tel:${c.telefono}`} className="btn-secondary justify-center px-3 py-1.5 text-xs">Llamar</a>}
-                        {wa && <a href={wa} target="_blank" rel="noreferrer" className="btn-secondary justify-center px-3 py-1.5 text-xs">WhatsApp</a>}
-                        <button type="button" onClick={() => setLlamada(c)} className="flex-1 whitespace-nowrap rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600">Registrar llamada</button>
+                        {c.telefono && <a href={`tel:${c.telefono}`} className="btn-secondary justify-center px-3.5 py-1.5 text-[13px]">Llamar</a>}
+                        {wa && <a href={wa} target="_blank" rel="noreferrer" className="btn-secondary justify-center px-3.5 py-1.5 text-[13px]">WhatsApp</a>}
+                        <button type="button" onClick={() => setLlamada(c)} className="min-h-[40px] min-w-0 flex-1 truncate rounded-full bg-amber-500 px-3 py-1.5 text-[13px] font-semibold text-white hover:bg-amber-600">Registrar llamada</button>
                       </div>
                     )}
                   </li>

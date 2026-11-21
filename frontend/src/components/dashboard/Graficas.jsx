@@ -52,7 +52,7 @@ function TooltipGrafica({ active, payload, label }) {
 // Prima colocada mes a mes contra la meta registrada de ese mes. Los datos
 // salen tal cual de /targets/historial (misma definición de "venta ganada" que
 // Pólizas y Metas): aquí no se recalcula ni se acumula nada.
-export function TendenciaVentas({ historial, admin }) {
+export function TendenciaVentas({ historial, admin, compacto = false }) {
   const { tema } = useTheme();
   const c = coloresGrafica(tema);
 
@@ -65,8 +65,11 @@ export function TendenciaVentas({ historial, admin }) {
   }));
   const hayDatos = datos.some((d) => d.prima > 0 || d.meta);
 
+  // En celular (compacto) una serie vacía no ocupa tarjeta.
+  if (compacto && historial && !hayDatos) return null;
+
   return (
-    <section className="card p-5 sm:p-7">
+    <section className={`card ${compacto ? 'p-4' : 'p-5 sm:p-7'}`}>
       <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Tendencia de ventas</h3>
       <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
         Prima colocada vs. {admin ? 'meta de promotoría' : 'tu meta'}, últimos 12 meses
@@ -81,7 +84,7 @@ export function TendenciaVentas({ historial, admin }) {
           {' '}para empezar la serie.
         </div>
       ) : (
-        <div className="mt-5 h-[260px] w-full">
+        <div className={`w-full ${compacto ? 'mt-3 h-[200px]' : 'mt-5 h-[260px]'}`}>
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={datos} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
               <defs>
@@ -91,12 +94,19 @@ export function TendenciaVentas({ historial, admin }) {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke={c.grid} vertical={false} />
-              <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: c.eje }} />
+              <XAxis
+                dataKey="label"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: compacto ? 12 : 11, fill: c.eje }}
+                {...(compacto ? { interval: 'preserveStartEnd', minTickGap: 28 } : {})}
+              />
               <YAxis
                 axisLine={false}
                 tickLine={false}
-                width={54}
-                tick={{ fontSize: 11, fill: c.eje }}
+                width={compacto ? 46 : 54}
+                tick={{ fontSize: compacto ? 12 : 11, fill: c.eje }}
+                {...(compacto ? { tickCount: 4 } : {})}
                 tickFormatter={mxnCompacto}
               />
               <Tooltip content={<TooltipGrafica />} cursor={{ stroke: c.grid }} />
@@ -134,13 +144,16 @@ export function TendenciaVentas({ historial, admin }) {
 // Desglose por ramo de la MISMA prima ganada del periodo que muestra el KPI
 // "Prima vendida" (por eso el centro de la dona reusa data.primaAnualTotal en
 // vez de sumar los segmentos: una sola cifra, un solo origen).
-export function PrimaPorRamo({ data, mes, anio }) {
+export function PrimaPorRamo({ data, mes, anio, compacto = false }) {
   const [activo, setActivo] = useState(null);
   const ramos = data.primaPorRamo || [];
   const totalSegmentos = ramos.reduce((s, r) => s + r.prima, 0);
 
+  // En celular (compacto) un mes sin pólizas ganadas no ocupa tarjeta.
+  if (compacto && ramos.length === 0) return null;
+
   return (
-    <section className="card p-5 sm:p-7">
+    <section className={`card ${compacto ? 'p-4' : 'p-5 sm:p-7'}`}>
       <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Prima por ramo</h3>
       <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
         De dónde viene la prima de {nombreMes(mes)} {anio}
@@ -153,15 +166,15 @@ export function PrimaPorRamo({ data, mes, anio }) {
         </div>
       ) : (
         <div className="mt-5 grid grid-cols-1 items-center gap-5 sm:grid-cols-2">
-          <div className="relative h-[200px] w-full">
+          <div className={`relative w-full ${compacto ? 'h-[180px]' : 'h-[200px]'}`}>
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
                   data={ramos}
                   dataKey="prima"
                   nameKey="ramo"
-                  innerRadius={58}
-                  outerRadius={88}
+                  innerRadius={compacto ? 54 : 58}
+                  outerRadius={compacto ? 80 : 88}
                   paddingAngle={2}
                   stroke="none"
                   isAnimationActive={false}
@@ -180,7 +193,7 @@ export function PrimaPorRamo({ data, mes, anio }) {
               <span className="text-lg font-bold tabular-nums text-slate-800 dark:text-slate-100">
                 {mxn(data.primaAnualTotal)}
               </span>
-              <span className="text-[11px] text-slate-400 dark:text-slate-500">prima del mes</span>
+              <span className="text-xs md:text-[11px] text-slate-400 dark:text-slate-500">prima del mes</span>
             </div>
           </div>
 
@@ -193,7 +206,7 @@ export function PrimaPorRamo({ data, mes, anio }) {
                   key={r.ramo}
                   type="button"
                   onClick={() => setActivo(seleccionado ? null : r.ramo)}
-                  className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition ${
+                  className={`flex min-h-[44px] w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition md:min-h-0 ${
                     seleccionado ? 'bg-slate-100 dark:bg-slate-700/60' : 'hover:bg-slate-50 dark:hover:bg-slate-700/40'
                   }`}
                 >
@@ -203,7 +216,7 @@ export function PrimaPorRamo({ data, mes, anio }) {
                   </span>
                   <span className="shrink-0 text-right">
                     <span className="block text-[13px] font-semibold tabular-nums text-slate-700 dark:text-slate-200">{mxn(r.prima)}</span>
-                    <span className="block text-[11px] tabular-nums text-slate-400 dark:text-slate-500">
+                    <span className="block text-xs md:text-[11px] tabular-nums text-slate-400 dark:text-slate-500">
                       {pct}% · {num(r.count)} {r.count === 1 ? 'póliza' : 'pólizas'}
                     </span>
                   </span>

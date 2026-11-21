@@ -68,7 +68,7 @@ export default function Candidatos() {
     } catch (e) { avisar(handleError(e), 'error'); }
   };
 
-  const chipBase = 'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition bg-white dark:bg-slate-800';
+  const chipBase = 'inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-3 py-1.5 min-h-[44px] md:min-h-0 text-sm font-medium transition bg-white dark:bg-slate-800';
   const chipOff = 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-600';
 
   return (
@@ -81,19 +81,20 @@ export default function Candidatos() {
             {verArchivados && ' · archivados'}
           </p>
         </div>
-        <button onClick={() => { setEditando(null); setOpenForm(true); }} className="btn-primary">+ Nuevo candidato</button>
+        <button onClick={() => { setEditando(null); setOpenForm(true); }} className="btn-primary min-h-[44px] md:min-h-0">+ Nuevo candidato</button>
       </div>
 
-      <div className="flex flex-wrap gap-3">
-        <input className="input flex-1 min-w-[220px]" placeholder="Buscar por nombre, teléfono, email, fuente…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <label className="inline-flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 cursor-pointer">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 md:gap-3">
+        <input className="input flex-1 min-w-[220px] min-h-[44px] md:min-h-0" placeholder="Buscar por nombre, teléfono, email, fuente…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <label className="inline-flex items-center gap-2 min-h-[44px] md:min-h-0 text-sm text-slate-500 dark:text-slate-400 cursor-pointer">
           <input type="checkbox" checked={verArchivados} onChange={(e) => setVerArchivados(e.target.checked)} />
           Ver archivados
         </label>
       </div>
 
-      {/* Chips de etapa = el filtro (con conteo), mismo patrón que Clientes. */}
-      <div className="flex flex-wrap gap-2">
+      {/* Chips de etapa = el filtro (con conteo), mismo patrón que Clientes.
+          En celular van en UNA fila que se desliza, no en varias filas. */}
+      <div className="flex gap-2 overflow-x-auto -mx-4 px-4 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:px-0 md:py-0 md:flex-wrap md:overflow-visible">
         {ETAPAS_CANDIDATO.map((e) => (
           <button
             key={e.value}
@@ -105,7 +106,7 @@ export default function Candidatos() {
             <span className="text-xs text-slate-400">{conteos.etapa[e.value] || 0}</span>
           </button>
         ))}
-        <span className="mx-1 border-l border-slate-200 dark:border-slate-700" />
+        <span className="mx-1 shrink-0 border-l border-slate-200 dark:border-slate-700" />
         {Object.values(SEMAFOROS).map((s) => (
           <button
             key={s.value}
@@ -123,7 +124,53 @@ export default function Candidatos() {
         {filas.length === 0 ? (
           <EmptyState message={candidatos?.length ? 'Ningún candidato coincide con el filtro' : 'Sin candidatos aún. Registra al primero con "+ Nuevo candidato".'} />
         ) : (
-          <table className="w-full text-sm">
+          <>
+          {/* Celular: tarjetas compactas; toda la fila abre el perfil. */}
+          <ul className="md:hidden divide-y divide-slate-100 dark:divide-slate-700/60">
+            {filas.map((c) => {
+              const e = infoEtapaCandidato(c.etapa);
+              const s = infoSemaforo(c.semaforo);
+              return (
+                <li key={c.id} className="flex items-stretch">
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/candidatos/${c.id}`)}
+                    className="min-w-0 flex-1 px-4 py-3 text-left active:bg-slate-50 dark:active:bg-slate-700/40"
+                  >
+                    <p className="text-[15px] font-semibold text-slate-800 dark:text-slate-100 truncate">
+                      {c.nombre} {c.apellidoP} {c.apellidoM || ''}
+                    </p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                      <span className={`badge ${e.pill}`}>{e.label}</span>
+                      <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+                        <span className={`w-2.5 h-2.5 rounded-full ${s.dot}`} />
+                        {s.label}
+                      </span>
+                    </div>
+                    <p className="mt-1.5 text-[13px] text-slate-500 dark:text-slate-400 tabular-nums truncate">
+                      {c.telefono}
+                      {c.proximaCita && ` · Cita ${fechaCorta(c.proximaCita.fechaHoraInicio)}, ${hora(c.proximaCita.fechaHoraInicio)}`}
+                    </p>
+                  </button>
+                  <div className="flex items-center pr-2 [&_button]:h-11 [&_button]:w-11">
+                    <MenuAcciones
+                      small
+                      label={`Acciones de ${c.nombre}`}
+                      items={[
+                        { label: 'Ver perfil', onClick: () => navigate(`/candidatos/${c.id}`) },
+                        { label: 'Editar', onClick: () => { setEditando(c); setOpenForm(true); } },
+                        'sep',
+                        c.archivadoEn
+                          ? { label: 'Restaurar', onClick: () => restaurar(c) }
+                          : { label: 'Archivar', danger: true, onClick: () => setToArchive(c) },
+                      ]}
+                    />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+          <table className="hidden md:table w-full text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-700">
                 <th className="px-4 py-3">Candidato</th>
@@ -179,6 +226,7 @@ export default function Candidatos() {
               })}
             </tbody>
           </table>
+          </>
         )}
       </div>
 

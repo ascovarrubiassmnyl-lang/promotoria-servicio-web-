@@ -210,3 +210,13 @@
     min-height: 44px;
   }
 }
+
+/* Celular: ningún botón del sistema mide menos de 40px de alto, aunque el
+   componente lo haya pedido compacto (text-xs py-1) pensando en el mouse. */
+@media (max-width: 767px) {
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger {
+    min-height: 40px;
+  }
+}

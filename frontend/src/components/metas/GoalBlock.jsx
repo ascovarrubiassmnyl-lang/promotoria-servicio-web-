@@ -9,7 +9,7 @@ function MarcadorRitmo({ fraccion, conEtiqueta = false }) {
   return (
     <div className="absolute -top-1 -bottom-1 w-0.5 rounded bg-slate-500 dark:bg-slate-300" style={{ left }}>
       {conEtiqueta && (
-        <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] font-semibold text-slate-400 dark:text-slate-500 whitespace-nowrap">
+        <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-xs md:text-[9px] font-semibold text-slate-400 dark:text-slate-500 whitespace-nowrap">
           ritmo
         </span>
       )}
@@ -33,14 +33,14 @@ export default function GoalBlock({ label, actual, meta, fraccion, money = false
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{label}</span>
         <span className={`badge ${st.pill}`}>{st.label}</span>
       </div>
-      <div className="flex items-baseline gap-2 mb-2.5">
+      <div className="flex flex-wrap md:flex-nowrap items-baseline gap-x-2 mb-2.5">
         <span className="text-3xl font-bold tabular-nums text-slate-800 dark:text-slate-100">{fmt(actual)}</span>
         <span className="text-sm font-medium tabular-nums text-slate-400 dark:text-slate-500">
           {sinMeta ? 'sin meta asignada' : `/ ${fmt(meta)} meta`}
         </span>
         {!sinMeta && <span className={`ml-auto text-xl font-bold tabular-nums ${st.text}`}>{pct}%</span>}
       </div>
-      <div className="relative h-3 rounded-full bg-slate-100 dark:bg-slate-700/60 mt-5">
+      <div className={`relative h-3 rounded-full bg-slate-100 dark:bg-slate-700/60 mt-5 ${sinMeta ? 'hidden md:block' : ''}`}>
         <div className={`h-full rounded-full ${st.bar} transition-all`} style={{ width: `${Math.min(pct, 100)}%` }} />
         <MarcadorRitmo fraccion={fraccion} conEtiqueta />
       </div>
@@ -71,6 +71,33 @@ export function MiniBar({ actual, meta, fraccion, money = false, compact = false
         <span>{fmt(actual)} / {fmt(meta)}</span>
         <span className={`font-bold ${st.text}`}>{pct}%</span>
       </div>
+    </div>
+  );
+}
+
+// Renglón compacto para celular: etiqueta, actual / meta, % y barra delgada
+// con el mismo marcador de ritmo. Sin meta solo muestra el avance real.
+export function FilaMetrica({ label, actual, meta, fraccion, money = false }) {
+  const fmt = money ? mxn : num;
+  const sinMeta = !meta || meta <= 0;
+  const pct = pctAvance(actual, meta);
+  const st = sinMeta ? ESTADOS_RITMO.SIN_META : infoRitmo(pct, fraccion);
+  return (
+    <div className="py-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="min-w-0 truncate text-sm font-medium text-slate-600 dark:text-slate-300">{label}</span>
+        <span className="shrink-0 text-sm tabular-nums text-slate-400 dark:text-slate-500">
+          <b className="font-semibold text-slate-800 dark:text-slate-100">{fmt(actual)}</b>
+          {' / '}{sinMeta ? '—' : fmt(meta)}
+          {!sinMeta && <span className={`ml-2 font-bold ${st.text}`}>{pct}%</span>}
+        </span>
+      </div>
+      {!sinMeta && (
+        <div className="relative mt-2 h-1.5 rounded-full bg-slate-100 dark:bg-slate-700/60">
+          <div className={`h-full rounded-full ${st.bar}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+          <MarcadorRitmo fraccion={fraccion} />
+        </div>
+      )}
     </div>
   );
 }

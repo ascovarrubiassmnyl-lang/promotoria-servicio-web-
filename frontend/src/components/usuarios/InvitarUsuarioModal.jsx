@@ -88,7 +88,7 @@ export default function InvitarUsuarioModal({ open, onClose }) {
               Vence el {fechaCorta(invitacion.expiraEn)}.
             </p>
             <div className="flex gap-2">
-              <input className="input flex-1 font-mono text-xs" readOnly value={linkInvitacion(invitacion.token)} onFocus={(e) => e.target.select()} />
+              <input className="input flex-1 min-w-0 font-mono text-xs" readOnly value={linkInvitacion(invitacion.token)} onFocus={(e) => e.target.select()} />
               <button type="button" onClick={copiarLink} className="btn-secondary shrink-0">{copiado ? 'Copiado' : 'Copiar'}</button>
             </div>
             <div className="flex justify-end pt-2">

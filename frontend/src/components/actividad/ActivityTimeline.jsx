@@ -26,21 +26,21 @@ const IconoPersona = () => (
 // Chips de metadatos estructurados del evento (cliente, producto·ramo, prima…)
 function MetaChips({ m }) {
   const chips = [];
-  const tag = 'inline-flex items-center gap-1.5 rounded-md bg-slate-100 dark:bg-slate-700/60 px-2 py-1 text-xs font-medium text-slate-600 dark:text-slate-300';
-  if (m.cliente) chips.push(<span key="cliente" className={tag}><IconoPersona />{m.cliente}</span>);
+  const tag = 'inline-flex max-w-full items-center gap-1 md:gap-1.5 rounded-md bg-slate-100 dark:bg-slate-700/60 px-1.5 py-0.5 md:px-2 md:py-1 text-xs font-medium text-slate-600 dark:text-slate-300 [&>svg]:shrink-0';
+  if (m.cliente) chips.push(<span key="cliente" className={tag}><IconoPersona /><span className="truncate">{m.cliente}</span></span>);
   if (m.producto) chips.push(<span key="producto" className={tag}>{m.producto}{m.ramo ? ` · ${RAMOS_LABEL[m.ramo] || m.ramo}` : ''}</span>);
   if (m.titulo) chips.push(<span key="titulo" className={tag}>{m.titulo}</span>);
   if (m.modalidad === 'ACOMPANAMIENTO') chips.push(<span key="modalidad" className={tag}>Acompañamiento</span>);
-  if (m.nota) chips.push(<span key="nota" className={tag}>{m.nota}</span>);
+  if (m.nota) chips.push(<span key="nota" className={tag}><span className="line-clamp-2 md:line-clamp-none">{m.nota}</span></span>);
   if (m.referido) chips.push(<span key="referido" className={tag}>{m.referido}</span>);
   if (m.prima != null) chips.push(
-    <span key="prima" className="inline-flex items-center rounded-md bg-emerald-50 dark:bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+    <span key="prima" className="inline-flex items-center rounded-md bg-emerald-50 dark:bg-emerald-500/10 px-1.5 py-0.5 md:px-2 md:py-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
       {mxn(m.prima)} prima
     </span>
   );
   if (m.proximoCobro) chips.push(<span key="proximo" className={tag}>Próximo cobro: {fechaCorta(m.proximoCobro)}</span>);
   if (!chips.length) return null;
-  return <div className="flex flex-wrap gap-1.5 mt-2">{chips}</div>;
+  return <div className="flex flex-wrap gap-1 md:gap-1.5 mt-1.5 md:mt-2">{chips}</div>;
 }
 
 function Evento({ e, primero, ultimo, mostrarAsesor }) {
@@ -50,23 +50,23 @@ function Evento({ e, primero, ultimo, mostrarAsesor }) {
   // texto pre-renderizado se muestran con ese texto crudo como fallback.
   const titulo = (estructurado && t.titulo(e.metadata)) || e.descripcion || t.label;
   return (
-    <div className="relative flex gap-4 py-1.5">
-      <div className="relative w-9 shrink-0 flex justify-center">
+    <div className="relative flex gap-2.5 md:gap-4 py-1 md:py-1.5">
+      <div className="relative w-7 md:w-9 shrink-0 flex justify-center">
         <span className={`absolute w-0.5 bg-slate-200 dark:bg-slate-700 ${primero ? 'top-1/2' : 'top-0'} ${ultimo ? 'bottom-1/2' : 'bottom-0'}`} aria-hidden />
-        <span className={`relative z-10 mt-1.5 flex h-9 w-9 items-center justify-center rounded-full ring-1 ring-inset ${t.marker}`}>
+        <span className={`relative z-10 mt-1.5 flex h-7 w-7 md:h-9 md:w-9 items-center justify-center rounded-full ring-1 ring-inset max-md:[&>svg]:h-3.5 max-md:[&>svg]:w-3.5 ${t.marker}`}>
           {t.icon}
         </span>
       </div>
-      <div className="flex-1 min-w-0 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 flex items-start justify-between gap-4 hover:border-slate-300 dark:hover:border-slate-600 transition">
+      <div className="flex-1 min-w-0 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 md:px-4 md:py-3 flex items-start justify-between gap-2 md:gap-4 hover:border-slate-300 dark:hover:border-slate-600 transition">
         <div className="min-w-0">
           <p className={`text-[11px] font-semibold uppercase tracking-wide mb-0.5 ${t.text}`}>{t.label}</p>
-          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{titulo}</p>
+          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 line-clamp-2 md:line-clamp-none break-words">{titulo}</p>
           {estructurado && <MetaChips m={e.metadata} />}
         </div>
         <div className="text-right shrink-0">
           <p className="text-xs text-slate-400 dark:text-slate-500 tabular-nums whitespace-nowrap pt-0.5">{hora(e.creadoEn)}</p>
           {mostrarAsesor && e.asesor && (
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{e.asesor.nombre} {e.asesor.apellidoP}</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 max-w-[88px] truncate md:max-w-none">{e.asesor.nombre} {e.asesor.apellidoP}</p>
           )}
         </div>
       </div>
@@ -89,7 +89,14 @@ export default function ActivityTimeline({ eventos, loading, mostrarAsesor = fal
   }, [eventos]);
 
   if (loading) return <div className="card"><EmptyState message="Cargando…" /></div>;
-  if (!grupos.length) return <div className="card"><EmptyState message={mensajeVacio} /></div>;
+  if (!grupos.length) {
+    return (
+      <>
+        <p className="md:hidden py-2 text-[13px] text-slate-500 dark:text-slate-400">{mensajeVacio}</p>
+        <div className="card hidden md:block"><EmptyState message={mensajeVacio} /></div>
+      </>
+    );
+  }
 
   return (
     <div>

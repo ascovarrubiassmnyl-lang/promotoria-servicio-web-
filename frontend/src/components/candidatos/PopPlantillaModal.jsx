@@ -147,11 +147,11 @@ export default function PopPlantillaModal({ open, onClose, plantilla = null, onS
 
         {/* Preguntas */}
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
               Preguntas <span className="font-normal text-slate-400">({preguntas.length} · {posibles} puntos posibles)</span>
             </h4>
-            <button type="button" onClick={agregarPregunta} className="btn-secondary text-xs">+ Agregar pregunta</button>
+            <button type="button" onClick={agregarPregunta} className="btn-secondary text-xs max-md:min-h-[44px] max-md:text-sm">+ Agregar pregunta</button>
           </div>
 
           {preguntas.map((p, i) => (
@@ -159,14 +159,14 @@ export default function PopPlantillaModal({ open, onClose, plantilla = null, onS
               <div className="flex items-start gap-2">
                 <span className="mt-2 text-xs font-semibold text-slate-400 w-5">{i + 1}</span>
                 <input
-                  className="input flex-1" required value={p.texto}
+                  className="input flex-1 min-w-0" required value={p.texto}
                   onChange={(e) => setPregunta(i, { texto: e.target.value })}
                   placeholder="Escribe la pregunta…"
                 />
                 {preguntas.length > 1 && (
                   <button
                     type="button" onClick={() => quitarPregunta(i)}
-                    className="mt-1.5 text-xs text-slate-400 hover:text-red-500"
+                    className="mt-1.5 max-md:mt-0 max-md:min-h-[44px] max-md:px-1 text-xs text-slate-400 hover:text-red-500"
                     title="Quitar pregunta"
                   >
                     Quitar
@@ -174,7 +174,7 @@ export default function PopPlantillaModal({ open, onClose, plantilla = null, onS
                 )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-7">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:pl-7">
                 <Field label="Tipo">
                   <select
                     className="input" value={p.tipo}
@@ -193,26 +193,26 @@ export default function PopPlantillaModal({ open, onClose, plantilla = null, onS
               </div>
 
               {p.tipo === 'TEXTO' ? (
-                <p className="pl-7 text-xs text-slate-400 dark:text-slate-500">
+                <p className="md:pl-7 text-xs text-slate-400 dark:text-slate-500">
                   Respuesta abierta: la lees tú, no suma puntos al resultado.
                 </p>
               ) : (
-                <div className="pl-7 space-y-1.5">
+                <div className="md:pl-7 space-y-1.5">
                   <div className="flex items-center justify-between">
                     <span className="label">Opciones y puntos</span>
-                    <button type="button" onClick={() => agregarOpcion(i)} className="text-xs text-brand-600 hover:underline">
+                    <button type="button" onClick={() => agregarOpcion(i)} className="text-xs max-md:text-sm max-md:min-h-[44px] max-md:px-2 text-brand-600 hover:underline">
                       + Opción
                     </button>
                   </div>
                   {p.opciones.map((o, j) => (
                     <div key={j} className="flex items-center gap-2">
                       <input
-                        className="input flex-1" required value={o.texto}
+                        className="input flex-1 min-w-0" required value={o.texto}
                         onChange={(e) => setOpcion(i, j, { texto: e.target.value })}
                         placeholder={`Opción ${j + 1}`}
                       />
                       <input
-                        type="number" min={0} max={100} className="input w-20 tabular-nums"
+                        type="number" min={0} max={100} className="input w-16 md:w-20 shrink-0 tabular-nums"
                         value={o.puntos}
                         onChange={(e) => setOpcion(i, j, { puntos: e.target.value })}
                         title="Puntos que otorga esta opción"
@@ -220,7 +220,8 @@ export default function PopPlantillaModal({ open, onClose, plantilla = null, onS
                       {p.opciones.length > 2 && (
                         <button
                           type="button" onClick={() => quitarOpcion(i, j)}
-                          className="text-xs text-slate-400 hover:text-red-500 px-1"
+                          className="text-xs max-md:text-lg max-md:min-h-[44px] max-md:min-w-[36px] text-slate-400 hover:text-red-500 px-1"
+                          aria-label="Quitar opción"
                           title="Quitar opción"
                         >
                           ×

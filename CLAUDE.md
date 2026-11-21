@@ -2672,3 +2672,34 @@ Seguridad (no relajar):
 - Migraciones: carpetas con timestamp en `backend/prisma/migrations` +
   `npx prisma migrate deploy` (el entorno no es interactivo: `migrate dev` falla;
   generar el SQL con `prisma migrate diff` si hace falta).
+
+## Celular / PWA (optimización móvil, 2026-11-20)
+
+La app se usa instalada en iPhone (390px). Pedido del usuario: nada amontonado,
+menos ruido, menos toques. **Todo lo de abajo aplica solo < md; escritorio no
+cambió.** Reglas para cualquier pantalla nueva:
+
+- **Nada de tablas en celular**: lista de tarjetas `md:hidden` + la tabla en
+  `hidden md:block`. Sin scroll horizontal de página (rejillas responsivas
+  siempre con `grid-cols-1` base y `minmax(0,1fr)`).
+- **Campos a 16px** (regla global al final de `index.css`): con menos, iOS
+  hace zoom al enfocar. **Botones `.btn-*` mínimo 40px** (misma hoja).
+- **`viewport-fit=cover` + safe-area** en encabezado móvil, `PantallaCompleta`,
+  `Modal` y `Drawer`.
+- **`Modal` = hoja desde abajo** en < sm: una columna (`.modal-cuerpo
+  .grid-cols-2` se colapsa; para un par que deba seguir lado a lado usar
+  `grid-cols-[1fr_1fr]`) y la última fila `flex justify-end` del formulario
+  queda fija al pie.
+- **`Card plegable`** (`ui.jsx`, con `resumen`): en celular nace cerrada y se
+  abre al tocar el encabezado; en md+ siempre abierta. Para bloques
+  secundarios (Resumen, Referidos, Actividad, Archivos, Comisiones, plan
+  semanal). Lo primario no se pliega.
+- **Filtros**: una fila deslizable de chips o una hoja "Filtros"
+  (`clientes/FiltrosMovil.jsx`), nunca varias filas de controles antes de la
+  lista. **Vacíos**: una línea, no una tarjeta alta (`EmptyState` es `py-6` en
+  celular).
+- **25 puntos** se captura por día con −/+ (`puntos/RegistroDiaMovil.jsx`);
+  **Roles y accesos** es selector de rol + lista de interruptores;
+  **invitados de una cita** son un resumen que se despliega.
+- El aviso de push bloqueado / "instala en iPhone" se cierra para siempre
+  (`localStorage`); la invitación a activar sigue siendo por sesión.

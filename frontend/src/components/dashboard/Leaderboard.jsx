@@ -98,7 +98,7 @@ function LeaderboardPodium({ rankings = [], money }) {
               <div className={`avatar !h-12 !w-12 text-base ring-2 ring-offset-2 ring-offset-white dark:ring-offset-slate-800 ${p.anillo}`}>
                 {iniciales(r.nombre)}
               </div>
-              <span className={`absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold ${p.fondo}`}>
+              <span className={`absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full text-xs md:text-[11px] font-bold ${p.fondo}`}>
                 {r.rank}
               </span>
             </div>
@@ -149,11 +149,11 @@ function LeaderboardRankings({ rankings = [], currentUserId, money, fraccion, mo
             } ${yo ? 'bg-brand-50/60 dark:bg-brand-900/20' : ''}`}
           >
             <span className="w-5 shrink-0 text-center text-sm font-semibold tabular-nums text-slate-400 dark:text-slate-500">{r.rank}</span>
-            <div className="avatar !h-8 !w-8 text-[11px]">{iniciales(r.nombre)}</div>
+            <div className="avatar !h-8 !w-8 text-xs md:text-[11px]">{iniciales(r.nombre)}</div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-slate-800 transition-colors group-hover:text-brand-600 dark:text-slate-100 dark:group-hover:text-brand-400">
                 {r.nombre}
-                {yo && <span className="ml-2 rounded-full bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700 dark:bg-brand-900/60 dark:text-brand-300">Tú</span>}
+                {yo && <span className="ml-2 rounded-full bg-brand-100 px-1.5 py-0.5 text-xs md:text-[10px] font-semibold text-brand-700 dark:bg-brand-900/60 dark:text-brand-300">Tú</span>}
               </p>
               <p className="mt-0.5 truncate text-xs text-slate-400 dark:text-slate-500">{r.detalle}</p>
               <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700/60">
@@ -182,7 +182,7 @@ function LeaderboardRankings({ rankings = [], currentUserId, money, fraccion, mo
               type="button"
               onClick={() => setPagina((p) => Math.max(1, p - 1))}
               disabled={pagina === 1}
-              className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700/40"
+              className="min-h-[44px] rounded-md border border-slate-200 px-4 py-1 text-xs font-medium md:min-h-0 md:px-2.5 text-slate-600 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700/40"
             >
               Anterior
             </button>
@@ -190,7 +190,7 @@ function LeaderboardRankings({ rankings = [], currentUserId, money, fraccion, mo
               type="button"
               onClick={() => setPagina((p) => Math.min(paginas, p + 1))}
               disabled={pagina === paginas}
-              className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700/40"
+              className="min-h-[44px] rounded-md border border-slate-200 px-4 py-1 text-xs font-medium md:min-h-0 md:px-2.5 text-slate-600 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700/40"
             >
               Siguiente
             </button>
@@ -235,7 +235,7 @@ export function RankingAsesores({ ranking = [], fraccion, mes, anio, currentUser
           aria-label="Ordenar el ranking por"
           value={metricaId}
           onChange={(e) => setMetricaId(e.target.value)}
-          className="input w-auto py-1.5 text-sm"
+          className="input w-auto min-h-[44px] py-1.5 text-base md:min-h-0 md:text-sm"
         >
           {METRICAS_RANKING.map((m) => (
             <option key={m.id} value={m.id}>{m.label}</option>

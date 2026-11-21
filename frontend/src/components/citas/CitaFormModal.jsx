@@ -39,6 +39,19 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
   const [form, setForm] = useState(null);
   const [err, setErr] = useState('');
   const [saving, setSaving] = useState(false);
+  // Solo celular (< sm, donde el Modal es una hoja): invitados opcionales,
+  // repetir, ubicación y notas se guardan tras "Más opciones" para que agendar
+  // sea título + tipo + horario. Los campos siguen montados (solo se ocultan
+  // con CSS), así que el formulario se comporta igual; en escritorio no cambia
+  // nada. Una vez abierta —o si algún campo ya trae dato— se queda abierta.
+  const [masOpciones, setMasOpciones] = useState(false);
+  useEffect(() => { if (open) setMasOpciones(false); }, [open]);
+  const opcionesConDato = !!(
+    form?.esPersonal || form?.ubicacion || form?.descripcion || form?.invitadosIds?.length
+    || (form?.recurrenciaTipo && form.recurrenciaTipo !== 'NO_REPITE')
+  );
+  // Pegajoso: si se vacía el campo que la abrió, no se cierra mientras escribes.
+  useEffect(() => { if (open && opcionesConDato) setMasOpciones(true); }, [open, opcionesConDato]);
 
   useEffect(() => {
     if (!open) return;
@@ -336,13 +349,84 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
     } catch (e2) { setErr(handleError(e2)); } finally { setSaving(false); }
   };
 
+  const opcionesAbiertas = masOpciones || opcionesConDato;
+  const ocultoEnCelular = opcionesAbiertas ? '' : 'max-sm:hidden';
+
+  const campoInvitados = (
+    <Field label={esReunion ? 'Invitados*' : 'Invitar a más personas (opcional)'}>
+                {/* Atajos para juntas y capacitaciones (solo promotora y
+                    secretaria): toda la plantilla de un clic, en vez de
+                    agregar asesor por asesor. */}
+                {esAdmin() && invitadosOpciones.length > 0 && (
+                  <div className="mb-2 flex flex-wrap gap-1.5">
+                    {invitadosOpciones.some((p) => p.rol === 'ASESOR') && (
+                      <button type="button" onClick={() => agregarInvitados((p) => p.rol === 'ASESOR')} className="max-sm:min-h-[40px] max-sm:px-3 rounded-lg border border-brand-300 dark:border-brand-700 px-2.5 py-1 text-xs font-semibold text-brand-700 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/30">
+                        + Todos los asesores
+                      </button>
+                    )}
+                    <button type="button" onClick={() => agregarInvitados(() => true)} className="max-sm:min-h-[40px] max-sm:px-3 rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                      + Todo el equipo
+                    </button>
+                  </div>
+                )}
+                <select
+                  className="input"
+                  value=""
+                  onChange={(e) => {
+                    const iid = e.target.value;
+                    if (!iid) return;
+                    setForm((f) => ({ ...f, invitadosIds: [...(f.invitadosIds || []), iid] }));
+                  }}
+                >
+                  <option value="">{invitadosOpciones.length ? 'Agregar invitado…' : 'Ya invitaste a todo el equipo'}</option>
+                  {invitadosOpciones.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.nombre} {p.apellidoP}{p.rol !== 'ASESOR' ? ` (${ROLES_LABEL[p.rol]})` : ''}
+                    </option>
+                  ))}
+                </select>
+                {invitadosElegidos.length > 0 && (
+                  <>
+                    <div className="mt-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                      <span>{invitadosElegidos.length === 1 ? '1 invitado' : `${invitadosElegidos.length} invitados`}</span>
+                      <button type="button" onClick={() => setForm((f) => ({ ...f, invitadosIds: [] }))} className="max-sm:min-h-[44px] max-sm:pl-3 font-semibold hover:text-red-600 dark:hover:text-red-400">Quitar todos</button>
+                    </div>
+                    <ul className="mt-1 max-h-48 space-y-1 overflow-y-auto">
+                      {invitadosElegidos.map((p) => (
+                        <li key={p.id} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-700/40 px-2.5 py-1.5 text-sm text-slate-600 dark:text-slate-300">
+                          <span className="min-w-0 truncate">
+                            {p.nombre} {p.apellidoP}
+                            {/* pushActivo solo viaja para quien administra. */}
+                            {p.pushActivo === false && (
+                              <span className="ml-2 text-xs text-amber-600 dark:text-amber-400" title="Verá la invitación en el CRM, pero no le llegará al celular hasta que active las notificaciones">sin aviso al celular</span>
+                            )}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setForm((f) => ({ ...f, invitadosIds: f.invitadosIds.filter((iid) => iid !== p.id) }))}
+                            className="max-sm:-my-1.5 max-sm:-mr-2 max-sm:min-h-[44px] max-sm:px-2 shrink-0 text-xs font-semibold text-slate-400 hover:text-red-600 dark:text-slate-500 dark:hover:text-red-400"
+                          >
+                            Quitar
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                  <span className="max-sm:hidden">Cada invitado recibe un aviso en sus notificaciones y en el celular para aceptar, rechazar o proponer otro horario.</span>
+          <span className="sm:hidden">A cada invitado le llega un aviso para aceptar o rechazar.</span>
+                </p>
+              </Field>
+  );
+
   return (
     <Modal open={open} onClose={onClose} title={editando ? (esPersonal ? 'Editar evento personal' : 'Reagendar / editar cita') : 'Agendar cita'}>
       <form onSubmit={submit} className="space-y-3">
         {/* Evento personal: bloqueo de agenda sin cliente (rojo). Desde la
             ficha de un cliente no aplica; al editar, el carácter no cambia. */}
         {!clienteId && !editando && (
-          <label className="flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-600 px-3 py-2.5 text-sm text-slate-600 dark:text-slate-300 cursor-pointer">
+          <label className="flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-600 px-3 py-2.5 max-sm:min-h-[44px] text-sm text-slate-600 dark:text-slate-300 cursor-pointer">
             <input
               type="checkbox"
               checked={esPersonal}
@@ -350,12 +434,17 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
             />
             <span className="inline-flex items-center gap-1.5">
               <span className={`w-2 h-2 rounded-full ${CLASIFICACIONES.PERSONAL.dot}`} />
-              Evento personal (sin cliente — bloquea tu agenda)
+              <span>Evento personal <span className="max-sm:hidden">(sin cliente — bloquea tu agenda)</span><span className="sm:hidden text-slate-400 dark:text-slate-500">· bloquea tu agenda</span></span>
             </span>
           </label>
         )}
         {esPersonal && !editando && (
-          <p className="-mt-1 rounded-lg bg-slate-50 dark:bg-slate-700/40 px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+          <p className="sm:hidden -mt-1 text-xs text-slate-500 dark:text-slate-400">
+            ¿Bloqueo fijo (ej. comida)? Usa <strong>Repetir</strong> más abajo.
+          </p>
+        )}
+        {esPersonal && !editando && (
+          <p className="max-sm:hidden -mt-1 rounded-lg bg-slate-50 dark:bg-slate-700/40 px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
             Para bloquear un horario fijo (ej. la hora de comida todos los días), marca <strong>Repetir</strong> más abajo — cada día bloqueado queda como una cita independiente que puedes mover o borrar sin afectar a las demás.
             {esAdmin() && (
               <> ¿Es una junta o capacitación con el equipo? Desmarca esta casilla y elige <strong>Tipo de cita → Reunión de equipo</strong>: así puedes invitar a los asesores.</>
@@ -375,7 +464,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
               {promotores?.filter((p) => p.id !== user?.id).map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellidoP} (promotora)</option>)}
               {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
             </select>
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">No toda cita es con un asesor: elige a la promotora o "Sin asesor" si es tuya.</p>
+            <p className="max-sm:hidden text-xs text-slate-400 dark:text-slate-500 mt-1">No toda cita es con un asesor: elige a la promotora o "Sin asesor" si es tuya.</p>
           </Field>
         )}
         {!editando && !clienteId && !esPersonal && !modalidadPropia && (
@@ -429,7 +518,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
               >
                 {Object.values(TIPOS_CITA).filter((t) => esAdmin() || !MODALIDADES_PROMOTOR.includes(t.value)).map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
-              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+              <p className={`text-xs text-slate-400 dark:text-slate-500 mt-1 ${esReunion ? '' : 'max-sm:hidden'}`}>
                 {esReunion
                   ? 'Junta de arranque o capacitación: no lleva cliente. Cada invitado recibe el aviso para aceptar o rechazar.'
                   : modalidadPropia ? 'Agenda del promotor: no necesita asesor ni cliente.' : '"Acompañamiento" = el promotor asiste contigo a la cita.'}
@@ -447,7 +536,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
                       también puede quedarse la cita: ej. una PRP que dirige. */}
                   {!promotores?.some((p) => p.id === user?.id) && <option value={user?.id}>Mi agenda ({user?.nombre})</option>}
                 </select>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                <p className="max-sm:hidden text-xs text-slate-400 dark:text-slate-500 mt-1">
                   {esReunion ? 'La reunión queda en su calendario y las respuestas de los invitados le llegan a esa persona.' : 'La cita queda en su calendario y ocupa su agenda.'}
                 </p>
               </Field>
@@ -492,7 +581,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
                   <option value="">Sin candidato (ej. sesión grupal)</option>
                   {candidatos?.map((c) => <option key={c.id} value={c.id}>{c.nombre} {c.apellidoP} {c.apellidoM || ''}</option>)}
                 </select>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">La cita quedará ligada al expediente del candidato.</p>
+                <p className="max-sm:hidden text-xs text-slate-400 dark:text-slate-500 mt-1">La cita quedará ligada al expediente del candidato.</p>
               </Field>
             )}
             {/* Invitar a más personas (2026-09-25, pedido del usuario: "en
@@ -508,72 +597,10 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
                 para el promotor de acompañamiento, ahora generalizada. Solo
                 al crear: agregar o quitar invitados de una cita ya agendada
                 se hace desde su ficha en el calendario. */}
-            {!editando && (
-              <Field label={esReunion ? 'Invitados*' : 'Invitar a más personas (opcional)'}>
-                {/* Atajos para juntas y capacitaciones (solo promotora y
-                    secretaria): toda la plantilla de un clic, en vez de
-                    agregar asesor por asesor. */}
-                {esAdmin() && invitadosOpciones.length > 0 && (
-                  <div className="mb-2 flex flex-wrap gap-1.5">
-                    {invitadosOpciones.some((p) => p.rol === 'ASESOR') && (
-                      <button type="button" onClick={() => agregarInvitados((p) => p.rol === 'ASESOR')} className="rounded-lg border border-brand-300 dark:border-brand-700 px-2.5 py-1 text-xs font-semibold text-brand-700 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/30">
-                        + Todos los asesores
-                      </button>
-                    )}
-                    <button type="button" onClick={() => agregarInvitados(() => true)} className="rounded-lg border border-slate-200 dark:border-slate-600 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                      + Todo el equipo
-                    </button>
-                  </div>
-                )}
-                <select
-                  className="input"
-                  value=""
-                  onChange={(e) => {
-                    const iid = e.target.value;
-                    if (!iid) return;
-                    setForm((f) => ({ ...f, invitadosIds: [...(f.invitadosIds || []), iid] }));
-                  }}
-                >
-                  <option value="">{invitadosOpciones.length ? 'Agregar invitado…' : 'Ya invitaste a todo el equipo'}</option>
-                  {invitadosOpciones.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.nombre} {p.apellidoP}{p.rol !== 'ASESOR' ? ` (${ROLES_LABEL[p.rol]})` : ''}
-                    </option>
-                  ))}
-                </select>
-                {invitadosElegidos.length > 0 && (
-                  <>
-                    <div className="mt-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                      <span>{invitadosElegidos.length === 1 ? '1 invitado' : `${invitadosElegidos.length} invitados`}</span>
-                      <button type="button" onClick={() => setForm((f) => ({ ...f, invitadosIds: [] }))} className="font-semibold hover:text-red-600 dark:hover:text-red-400">Quitar todos</button>
-                    </div>
-                    <ul className="mt-1 max-h-48 space-y-1 overflow-y-auto">
-                      {invitadosElegidos.map((p) => (
-                        <li key={p.id} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-700/40 px-2.5 py-1.5 text-sm text-slate-600 dark:text-slate-300">
-                          <span className="min-w-0 truncate">
-                            {p.nombre} {p.apellidoP}
-                            {/* pushActivo solo viaja para quien administra. */}
-                            {p.pushActivo === false && (
-                              <span className="ml-2 text-xs text-amber-600 dark:text-amber-400" title="Verá la invitación en el CRM, pero no le llegará al celular hasta que active las notificaciones">sin aviso al celular</span>
-                            )}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setForm((f) => ({ ...f, invitadosIds: f.invitadosIds.filter((iid) => iid !== p.id) }))}
-                            className="shrink-0 text-xs font-semibold text-slate-400 hover:text-red-600 dark:text-slate-500 dark:hover:text-red-400"
-                          >
-                            Quitar
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
-                  Cada invitado recibe un aviso en sus notificaciones y en el celular para aceptar, rechazar o proponer otro horario.
-                </p>
-              </Field>
-            )}
+            {/* En celular, cuando es opcional, vive dentro de "Más opciones"
+                (copia más abajo); en una reunión de equipo es obligatorio y
+                se queda aquí. */}
+            {!editando && (esReunion ? campoInvitados : <div className="max-sm:hidden">{campoInvitados}</div>)}
 
             <Field label="Clasificación (color en el calendario)">
               <div className="grid grid-cols-3 gap-2">
@@ -630,15 +657,18 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
         {inicioValido && finValido && !finDespuesDeInicio ? (
           <p className="text-xs text-red-600 dark:text-red-400">El fin debe ser posterior al inicio.</p>
         ) : (
-          <p className="text-xs text-slate-400 dark:text-slate-500 -mt-1">Duración por defecto: 30 min. El fin se ajusta solo al cambiar el inicio.</p>
+          <p className="max-sm:hidden text-xs text-slate-400 dark:text-slate-500 -mt-1">Duración por defecto: 30 min. El fin se ajusta solo al cambiar el inicio.</p>
         )}
 
         {/* Repetir: solo al agendar. Cada instancia generada es una cita
             independiente (se edita/cancela sola, sin afectar a las demás).
             Combinado con "Evento personal" es la forma de bloquear un horario
             fijo recurrente (ej. hora de comida): no hace falta un modelo aparte. */}
+        {!editando && !esPersonal && !esReunion && opcionesAbiertas && (
+          <div className="sm:hidden">{campoInvitados}</div>
+        )}
         {!editando && (
-          <Field label={esPersonal ? 'Repetir este bloqueo' : 'Repetir'}>
+          <Field className={ocultoEnCelular} label={esPersonal ? 'Repetir este bloqueo' : 'Repetir'}>
             <select
               className="input"
               value={form.recurrenciaTipo}
@@ -660,7 +690,7 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
                             ...f,
                             recurrenciaDias: activo ? f.recurrenciaDias.filter((d) => d !== idx) : [...(f.recurrenciaDias || []), idx],
                           }))}
-                          className={`w-9 h-9 rounded-lg border text-xs font-medium transition ${
+                          className={`w-9 h-9 max-sm:h-11 max-sm:w-auto max-sm:flex-1 rounded-lg border text-xs font-medium transition ${
                             activo
                               ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300'
                               : 'border-slate-200 text-slate-500 hover:text-slate-700 dark:border-slate-600 dark:text-slate-400 dark:hover:text-slate-200'
@@ -696,15 +726,31 @@ export default function CitaFormModal({ open, onClose, onSaved, cita = null, cli
           </div>
         )}
 
-        <Field label={esPersonal ? 'Ubicación (opcional)' : canal.ubicacionLabel}>
+        <Field className={ocultoEnCelular} label={esPersonal ? 'Ubicación (opcional)' : canal.ubicacionLabel}>
           <input className="input" value={form.ubicacion} onChange={(e) => setForm({ ...form, ubicacion: e.target.value })} placeholder={esPersonal ? 'Ubicación (opcional)' : canal.ubicacionLabel} />
         </Field>
-        <Field label="Notas">
+        <Field className={ocultoEnCelular} label="Notas">
           <textarea className="input" rows={2} value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Objetivo de la cita" />
         </Field>
 
+        {!opcionesAbiertas && (
+          <button
+            type="button"
+            onClick={() => setMasOpciones(true)}
+            className="sm:hidden flex min-h-[44px] w-full items-center justify-between rounded-lg border border-slate-200 px-3 text-left text-sm font-semibold text-slate-600 dark:border-slate-600 dark:text-slate-300"
+          >
+            <span>
+              Más opciones
+              <span className="ml-1.5 font-normal text-slate-400 dark:text-slate-500">
+                {editando ? 'ubicación, notas' : 'invitar, repetir, ubicación, notas'}
+              </span>
+            </span>
+            <span aria-hidden className="text-slate-400 dark:text-slate-500">+</span>
+          </button>
+        )}
+
         {!editando && (
-          <p className="rounded-lg bg-slate-50 dark:bg-slate-700/50 px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
+          <p className="max-sm:hidden rounded-lg bg-slate-50 dark:bg-slate-700/50 px-3 py-2 text-xs text-slate-500 dark:text-slate-400">
             Se guardará como <strong>Programada</strong>. El estado cambia después con las acciones de la cita (completar, cancelar, no asistió).
           </p>
         )}

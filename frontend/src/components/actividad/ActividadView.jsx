@@ -76,7 +76,7 @@ export default function ActividadView({
 
   const limpiar = () => { setTipoActivo(null); setOffset(0); onLimpiar?.(); };
 
-  const chipBase = 'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition bg-white dark:bg-slate-800';
+  const chipBase = 'inline-flex shrink-0 items-center gap-1.5 md:gap-2 whitespace-nowrap rounded-full border h-11 md:h-auto px-3 md:py-1.5 text-[13px] md:text-sm font-medium transition bg-white dark:bg-slate-800';
   const chipOff = 'border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-600';
 
   return (
@@ -93,7 +93,17 @@ export default function ActividadView({
 
       {banner}
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* Celular: semana solo con flechas; tocar la fecha regresa a esta semana */}
+      <div className="flex items-center justify-between gap-2 md:hidden">
+        <button onClick={() => setOffset((o) => o - 1)} aria-label="Semana anterior" className="btn-secondary h-11 w-11 shrink-0 !p-0 text-base">←</button>
+        <button onClick={() => setOffset(0)} disabled={offset === 0} className="min-w-0 flex-1 h-11 text-center">
+          <span className="block truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{labelSemana(semana)}</span>
+          {offset !== 0 && <span className="block text-xs font-medium text-brand-600 dark:text-brand-400">Volver a esta semana</span>}
+        </button>
+        <button onClick={() => setOffset((o) => o + 1)} aria-label="Semana siguiente" className="btn-secondary h-11 w-11 shrink-0 !p-0 text-base">→</button>
+      </div>
+
+      <div className="hidden md:flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-1.5">
           <button onClick={() => setOffset((o) => o - 1)} className="btn-secondary px-3">← Semana anterior</button>
           <button onClick={() => setOffset(0)} className={`btn-secondary px-3 ${offset === 0 ? '!bg-slate-100 dark:!bg-slate-700' : ''}`}>Esta semana</button>
@@ -104,13 +114,13 @@ export default function ActividadView({
       </div>
 
       {/* Los chips de tipo SON el filtro: toggle con conteo, sin dropdown redundante */}
-      <div className="flex flex-wrap gap-2">
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:flex-wrap md:overflow-visible md:px-0">
         <button
           onClick={() => setTipoActivo(null)}
           className={`${chipBase} ${tipoActivo === null ? 'border-transparent ring-[1.5px] ring-inset ring-brand-500 dark:ring-brand-400 text-slate-800 dark:text-slate-100' : chipOff}`}
         >
           Todos
-          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${tipoActivo === null ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
+          <span className={`rounded-full px-1.5 md:px-2 py-0.5 text-xs font-semibold tabular-nums ${tipoActivo === null ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
             {data?.length ?? 0}
           </span>
         </button>
@@ -125,7 +135,7 @@ export default function ActividadView({
             >
               <span className={`h-2 w-2 rounded-full ${t.dot}`} />
               {t.label}
-              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${on ? t.badgeOn : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
+              <span className={`rounded-full px-1.5 md:px-2 py-0.5 text-xs font-semibold tabular-nums ${on ? t.badgeOn : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
                 {conteos[tipo] || 0}
               </span>
             </button>

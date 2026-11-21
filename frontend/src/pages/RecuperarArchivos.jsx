@@ -61,7 +61,7 @@ export default function RecuperarArchivos() {
   return (
     <div className="space-y-5 max-w-5xl">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-900 dark:text-white">Recuperar archivos perdidos</h1>
+        <h1 className="text-xl md:text-2xl font-semibold text-slate-900 dark:text-white">Recuperar archivos perdidos</h1>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-3xl">
           Algunos documentos se borraron del servidor en una actualización del sistema. Sus datos siguen
           capturados: solo falta el PDF. Elige <strong>todos los archivos a la vez</strong> desde tu computadora
@@ -70,7 +70,23 @@ export default function RecuperarArchivos() {
       </div>
 
       {data && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="card md:hidden grid grid-cols-3 divide-x divide-black/[0.06] dark:divide-white/[0.08] px-1 py-3 text-center">
+          <div className="px-2">
+            <p className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">{data.total}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Registrados</p>
+          </div>
+          <div className="px-2">
+            <p className={`text-lg font-semibold tabular-nums ${perdidos.length ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>{perdidos.length}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Por recuperar</p>
+          </div>
+          <div className="px-2">
+            <p className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">{tamano(data.bytesGuardados)}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Espacio usado</p>
+          </div>
+        </div>
+      )}
+      {data && (
+        <div className="hidden md:grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="kpi"><div className="kpi-label">Documentos registrados</div><div className="kpi-val tabular-nums">{data.total}</div></div>
           <div className={`kpi ${perdidos.length ? 'kpi-amber' : 'kpi-green'}`}>
             <div className="kpi-label">Por recuperar</div><div className="kpi-val tabular-nums">{perdidos.length}</div>
@@ -88,7 +104,7 @@ export default function RecuperarArchivos() {
             <p className="text-sm text-slate-600 dark:text-slate-300">
               Puedes seleccionar la carpeta completa: los archivos que no correspondan se ignoran.
             </p>
-            <label className={`btn-primary cursor-pointer whitespace-nowrap ${progreso ? 'opacity-60 pointer-events-none' : ''}`}>
+            <label className={`btn-primary h-11 md:h-auto cursor-pointer whitespace-nowrap ${progreso ? 'opacity-60 pointer-events-none' : ''}`}>
               {progreso ? `Subiendo ${progreso.hechos} de ${progreso.total}…` : 'Elegir archivos'}
               <input ref={input} type="file" multiple className="hidden" onChange={(e) => subir(e.target.files)} />
             </label>
@@ -111,9 +127,31 @@ export default function RecuperarArchivos() {
       <Card title="Pendientes" subtitle={perdidos.length ? 'Si un archivo cambió de nombre, ábrelo desde la ficha del cliente y súbelo ahí.' : undefined}>
         {isLoading && <p className="text-sm text-slate-500 py-6 text-center">Revisando archivos…</p>}
         {error && <p className="text-sm text-red-600 py-6 text-center">{handleError(error)}</p>}
-        {data && !perdidos.length && <EmptyState message="No hay archivos perdidos. Todos los documentos están guardados." />}
+        {data && !perdidos.length && (
+          <>
+            <p className="md:hidden text-[13px] text-slate-500 dark:text-slate-400">No hay archivos perdidos. Todos los documentos están guardados.</p>
+            <div className="hidden md:block"><EmptyState message="No hay archivos perdidos. Todos los documentos están guardados." /></div>
+          </>
+        )}
         {perdidos.length > 0 && (
-          <div className="overflow-x-auto -mx-4 sm:mx-0">
+          <ul className="md:hidden divide-y divide-black/[0.06] dark:divide-white/[0.08]">
+            {perdidos.map((d) => (
+              <li key={d.id}>
+                <Link to={`/clientes/${d.cliente.id}`} className="flex min-h-[52px] items-center gap-3 py-2.5">
+                  <span className="min-w-0 flex-1">
+                    <span className="block break-all text-sm font-medium leading-snug text-slate-800 dark:text-slate-100 line-clamp-2">{d.nombre}</span>
+                    <span className="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400">
+                      <span className="text-brand-600 dark:text-brand-400">{d.cliente.nombre} {d.cliente.apellidoP}</span> · {fechaCorta(d.creadoEn)}
+                    </span>
+                  </span>
+                  <svg className="h-4 w-4 shrink-0 text-slate-300 dark:text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+        {perdidos.length > 0 && (
+          <div className="hidden md:block overflow-x-auto -mx-4 sm:mx-0">
             <table className="w-full text-sm">
               <thead className="text-xs uppercase text-slate-500 dark:text-slate-400 text-left">
                 <tr><th className="px-4 py-2">Archivo</th><th className="px-4 py-2">Cliente</th><th className="px-4 py-2">Subido</th></tr>

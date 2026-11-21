@@ -5,19 +5,34 @@ import { infoEtapa } from './clientes/etapas.js';
 import { infoEstadoCita } from './citas/tipos.js';
 import { suscribirToasts } from '../lib/toast.js';
 
-export function Card({ children, className = '', title, subtitle, actions }) {
+// `plegable`: SOLO en celular (< md) la tarjeta nace cerrada y se abre al
+// tocar su encabezado; desde md siempre está abierta, como siempre. Es para
+// bloques secundarios de pantallas largas (2026-11-20, optimización móvil):
+// el contenido sigue ahí, pero no alarga la pantalla hasta que se pide.
+// `resumen` es el texto corto que se ve junto al título mientras está cerrada.
+export function Card({ children, className = '', title, subtitle, actions, plegable = false, resumen = null }) {
+  const [abierta, setAbierta] = useState(false);
+  const oculta = plegable && !abierta;
   return (
     <div className={`card ${className}`}>
       {(title || actions) && (
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-black/[0.06] dark:border-white/[0.08] px-5 py-3.5">
+        <div className={`flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-3.5 ${oculta ? 'md:border-b' : 'border-b'} border-black/[0.06] dark:border-white/[0.08]`}>
           <div className="min-w-0 flex-1 basis-48">
-            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
-            {subtitle && <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{subtitle}</p>}
+            {plegable ? (
+              <button type="button" onClick={() => setAbierta((v) => !v)} aria-expanded={abierta} className="-my-3 flex min-h-[44px] w-full items-center gap-2 text-left md:my-0 md:min-h-0 md:pointer-events-none">
+                <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
+                {resumen != null && <span className="truncate text-xs text-slate-400 dark:text-slate-500 md:hidden">{resumen}</span>}
+                <svg className={`ml-auto h-4 w-4 shrink-0 text-slate-400 transition-transform md:hidden ${abierta ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+              </button>
+            ) : (
+              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
+            )}
+            {subtitle && <p className={`text-xs text-slate-400 dark:text-slate-500 mt-0.5 ${oculta ? 'hidden md:block' : ''}`}>{subtitle}</p>}
           </div>
-          {actions}
+          {actions && <div className={oculta ? 'hidden md:block' : ''}>{actions}</div>}
         </div>
       )}
-      <div className="p-5">{children}</div>
+      <div className={`p-4 sm:p-5 ${oculta ? 'hidden md:block' : ''}`}>{children}</div>
     </div>
   );
 }
@@ -181,7 +196,7 @@ export function SelectorBuscable({ value, onChange, opciones = [], placeholder =
 // hacer ahí mismo (2026-10-13, auditoría: los vacíos eran solo texto gris).
 export function EmptyState({ message = 'Sin datos', accion = null }) {
   return (
-    <div className="text-center py-12 text-sm text-slate-400 dark:text-slate-500">
+    <div className="text-center py-6 md:py-12 text-sm text-slate-400 dark:text-slate-500">
       <p>{message}</p>
       {accion && <button type="button" onClick={accion.onClick} className="btn-secondary mt-3 text-sm">{accion.label}</button>}
     </div>
@@ -231,8 +246,8 @@ export function MenuAcciones({ items, small = false, label = 'Más acciones' }) 
         aria-label={label}
         onClick={() => setOpen((o) => !o)}
         className={`inline-flex items-center justify-center rounded-lg transition ${small
-          ? 'h-7 w-7 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
-          : 'h-9 w-9 border border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60'}`}
+          ? 'h-10 w-10 md:h-7 md:w-7 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
+          : 'h-11 w-11 md:h-9 md:w-9 border border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60'}`}
       >
         <svg className={small ? 'w-4 h-4' : 'w-5 h-5'} viewBox="0 0 24 24" fill="currentColor">
           <circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" />
@@ -251,7 +266,7 @@ export function MenuAcciones({ items, small = false, label = 'Más acciones' }) 
               key={it.label}
               type="button"
               onClick={() => { setOpen(false); it.onClick(); }}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition ${it.danger
+              className={`w-full text-left px-3 py-3 md:py-2 rounded-lg text-[15px] md:text-sm font-medium transition ${it.danger
                 ? 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10'
                 : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'}`}
             >{it.label}</button>

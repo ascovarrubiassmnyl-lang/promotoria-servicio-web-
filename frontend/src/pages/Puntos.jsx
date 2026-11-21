@@ -344,7 +344,7 @@ export default function Puntos() {
         </p>
       </Card>
 
-      <Card title="Planeación de la semana" subtitle="Las cuatro listas del formato. Se guardan al salir del campo.">
+      <Card plegable resumen="4 listas" title="Planeación de la semana" subtitle="Las cuatro listas del formato. Se guardan al salir del campo.">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {LISTAS_PLAN.map(([campo, titulo]) => (
             <div key={campo}>
@@ -369,7 +369,7 @@ export default function Puntos() {
       </Card>
 
       {esAdmin() && (
-        <Card title="Equipo · puntos de la semana" subtitle="Seguimiento por asesor (misma semana seleccionada).">
+        <Card plegable title="Equipo · puntos de la semana" subtitle="Seguimiento por asesor (misma semana seleccionada).">
           {!resumen?.filas?.length ? (
             <EmptyState message="Sin asesores activos." />
           ) : (

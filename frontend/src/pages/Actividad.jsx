@@ -24,9 +24,9 @@ export default function Actividad() {
       mostrarAsesor={esAdmin() && !asesorId}
       onLimpiar={esAdmin() ? () => setAsesorId('') : undefined}
       filtrosExtra={esAdmin() ? (
-        <div>
-          <label className="block text-xs uppercase text-slate-400 dark:text-slate-500 mb-1">Asesor</label>
-          <select className="input w-auto" value={asesorId} onChange={(e) => setAsesorId(e.target.value)}>
+        <div className="w-full md:w-auto">
+          <label className="hidden md:block text-xs uppercase text-slate-400 dark:text-slate-500 mb-1">Asesor</label>
+          <select aria-label="Asesor" className="input h-11 md:h-auto md:w-auto" value={asesorId} onChange={(e) => setAsesorId(e.target.value)}>
             <option value="">Todos los asesores</option>
             {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
           </select>

@@ -4,10 +4,11 @@ import { api, handleError } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { Card, EmptyState, NumeroFormateado } from '../components/ui.jsx';
 import { mxn, num, nombreMes } from '../lib/format.js';
-import GoalBlock, { MiniBar } from '../components/metas/GoalBlock.jsx';
+import GoalBlock, { MiniBar, FilaMetrica } from '../components/metas/GoalBlock.jsx';
 import { infoRitmo, pctAvance, diasPeriodo, ESTADOS_RITMO } from '../components/metas/ritmo.js';
 import { METRICAS, sinMetas, cumplimiento, ESTADOS_CUMPLIMIENTO } from '../components/metas/metricas.js';
 import ProcesoVentas from '../components/dashboard/ProcesoVentas.jsx';
+import useIsMobile from '../hooks/useIsMobile.js';
 
 // recharts pesa ~400 kB: las gráficas se cargan aparte (misma convención que
 // tenían en Inicio y que el 3D decorativo). Las dos salen del mismo módulo.
@@ -26,7 +27,44 @@ const GraficaCargando = () => (
 // endpoints y componentes de antes, sin definiciones nuevas. Prima por ramo y
 // proceso vienen de /metricas (sección `dashboard`): sin ella solo se ve la
 // tendencia.
-function AnalisisDelMes({ admin, mes, anio }) {
+// Celular (< md): los bloques secundarios viven detrás de un encabezado que
+// se abre al tocarlo, y su contenido (consultas y recharts incluidos) no se
+// monta hasta entonces. En escritorio no existe: pinta a los hijos tal cual.
+function Plegable({ titulo, nota, esMovil, children }) {
+  const [abierto, setAbierto] = useState(false);
+  if (!esMovil) return children;
+  return (
+    <section>
+      <button
+        type="button"
+        aria-expanded={abierto}
+        onClick={() => setAbierto((v) => !v)}
+        className="card flex min-h-[56px] w-full items-center justify-between gap-3 px-4 py-3 text-left"
+      >
+        <span className="min-w-0">
+          <span className="block text-base font-semibold text-slate-800 dark:text-slate-100">{titulo}</span>
+          {nota && <span className="block truncate text-xs text-slate-400 dark:text-slate-500">{nota}</span>}
+        </span>
+        <Chevron abierto={abierto} />
+      </button>
+      {abierto && <div className="mt-3">{children}</div>}
+    </section>
+  );
+}
+
+function Chevron({ abierto }) {
+  return (
+    <svg
+      viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      className={`h-5 w-5 shrink-0 text-slate-400 transition-transform motion-reduce:transition-none dark:text-slate-500 ${abierto ? 'rotate-180' : ''}`}
+      aria-hidden="true"
+    >
+      <path d="m5 7.5 5 5 5-5" />
+    </svg>
+  );
+}
+
+function AnalisisDelMes({ admin, mes, anio, esMovil = false }) {
   const { puede } = useAuth();
   const verMetricas = puede('dashboard');
   const { data: historial } = useQuery({
@@ -43,6 +81,35 @@ function AnalisisDelMes({ admin, mes, anio }) {
     queryFn: async () => (await api.get('/metricas/proceso-ventas', { params: { mes, anio } })).data,
     enabled: verMetricas,
   });
+  // Celular: cada bloque sin datos se oculta solo (compacto); si ya cargó
+  // todo y no quedó ninguno, una línea en vez de tres tarjetas vacías.
+  if (esMovil) {
+    const cargando = !historial || (verMetricas && (!dashboard || !proceso));
+    const hayTendencia = (historial?.periodos || []).some((p) => (p.actual?.prima || 0) > 0 || p.meta?.metaPrimaMonto);
+    const hayRamos = verMetricas && (dashboard?.primaPorRamo || []).length > 0;
+    const hayProceso = verMetricas && (proceso?.niveles || []).some((n) => n.count > 0);
+    if (cargando) return <p className="px-1 py-3 text-sm text-slate-400 dark:text-slate-500">Cargando…</p>;
+    if (!hayTendencia && !hayRamos && !hayProceso) {
+      return <p className="px-1 py-3 text-sm text-slate-500 dark:text-slate-400">Aún no hay datos para analizar en {nombreMes(mes)} {anio}.</p>;
+    }
+    const cargandoGrafica = <p className="px-1 py-3 text-sm text-slate-400 dark:text-slate-500">Cargando gráfica…</p>;
+    return (
+      <div className="space-y-3">
+        {hayTendencia && (
+          <Suspense fallback={cargandoGrafica}>
+            <TendenciaVentas historial={historial} admin={admin} compacto />
+          </Suspense>
+        )}
+        {hayRamos && (
+          <Suspense fallback={cargandoGrafica}>
+            <PrimaPorRamo data={dashboard} mes={mes} anio={anio} compacto />
+          </Suspense>
+        )}
+        {hayProceso && <ProcesoVentas proceso={proceso} compacto />}
+      </div>
+    );
+  }
+
   return (
     <section className="space-y-4">
       <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">Análisis del mes</h2>
@@ -86,18 +153,18 @@ function Reconciliacion({ equipo }) {
   });
   return (
     <div className="mt-5 rounded-xl bg-slate-50 dark:bg-slate-700/40 px-4 py-3">
-      <div className="mb-2 text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+      <div className="mb-2 text-xs md:text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
         Reconciliación · suma de metas individuales vs meta de promotoría
       </div>
       <div className="grid grid-cols-1 gap-x-8 gap-y-1.5 sm:grid-cols-2 xl:grid-cols-3 text-sm">
         {filas.map((f) => (
-          <div key={f.key} className="flex items-baseline justify-between gap-3">
+          <div key={f.key} className="flex items-baseline justify-between gap-3 py-1 md:py-0">
             <span className="text-slate-500 dark:text-slate-400">{f.corto}</span>
-            <span className="tabular-nums font-semibold text-slate-700 dark:text-slate-200">
+            <span className="tabular-nums font-semibold text-slate-700 dark:text-slate-200 text-right md:text-left">
               {f.fmt(f.suma)} / {f.fmt(f.objetivo)}
-              {f.gap > 0 && <span className="ml-2 font-semibold text-amber-600 dark:text-amber-400">Por asignar {f.fmt(f.gap)}</span>}
-              {f.gap < 0 && <span className="ml-2 font-semibold text-red-600 dark:text-red-400">Sobreasignado {f.fmt(-f.gap)}</span>}
-              {f.gap === 0 && <span className="ml-2 font-semibold text-emerald-600 dark:text-emerald-400">Cubierta</span>}
+              {f.gap > 0 && <span className="block md:inline md:ml-2 font-semibold text-amber-600 dark:text-amber-400">Por asignar {f.fmt(f.gap)}</span>}
+              {f.gap < 0 && <span className="block md:inline md:ml-2 font-semibold text-red-600 dark:text-red-400">Sobreasignado {f.fmt(-f.gap)}</span>}
+              {f.gap === 0 && <span className="block md:inline md:ml-2 font-semibold text-emerald-600 dark:text-emerald-400">Cubierta</span>}
             </span>
           </div>
         ))}
@@ -115,13 +182,13 @@ function CamposMeta({ valores, onChange, autoFocus = false }) {
       {m.label}
       {m.money ? (
         <NumeroFormateado
-          className="w-32 mt-1" placeholder={m.placeholder}
+          className="w-full md:w-32 mt-1 min-h-[44px] md:min-h-0 text-base md:text-sm" placeholder={m.placeholder}
           value={valores[m.key]} autoFocus={autoFocus && i === 0}
           onChange={(v) => onChange({ ...valores, [m.key]: v })}
         />
       ) : (
         <input
-          type="number" min="0" className="input w-32 mt-1" placeholder={m.placeholder}
+          type="number" min="0" inputMode="numeric" className="input w-full md:w-32 mt-1 min-h-[44px] md:min-h-0 text-base md:text-sm" placeholder={m.placeholder}
           value={valores[m.key]} autoFocus={autoFocus && i === 0}
           onChange={(e) => onChange({ ...valores, [m.key]: e.target.value })}
         />
@@ -171,12 +238,166 @@ function BloquesMeta({ meta, actual, fraccion }) {
   );
 }
 
+// Celular: la prima es el bloque principal (con su marcador de ritmo y
+// proyección) y el resto de métricas una lista compacta. Una métrica sin meta
+// y sin avance no ocupa renglón.
+function ResumenMovil({ meta, actual, fraccion }) {
+  const prima = METRICAS.find((m) => m.key === 'prima');
+  const resto = METRICAS.filter((m) => m.key !== 'prima' && (meta?.[m.campo] || (actual?.[m.key] ?? 0) > 0));
+  return (
+    <>
+      <GoalBlock label={prima.label} actual={actual?.prima ?? 0} meta={meta?.[prima.campo]} fraccion={fraccion} money />
+      {resto.length > 0 && (
+        <div className="mt-4 divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700/60 dark:border-slate-700/60">
+          {resto.map((m) => (
+            <FilaMetrica key={m.key} label={m.label} actual={actual?.[m.key] ?? 0} meta={meta?.[m.campo]} fraccion={fraccion} money={m.money} />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// Celular: una tarjeta por asesor (lugar, nombre, estado y prima vs meta). Al
+// tocarla se despliegan las demás métricas y la edición de su meta — el mismo
+// estado `editRow` y el mismo guardado que la tabla de escritorio.
+function AsesoresMovil({ filas, fraccion, totalPrimaEquipo, editRow, setEditRow, onEditar, onGuardar, saving }) {
+  const [abiertoId, setAbiertoId] = useState(null);
+  return (
+    <ul className="-my-2 divide-y divide-slate-100 dark:divide-slate-700/60">
+      {filas.map((f, i) => {
+        const editando = editRow?.asesorId === f.id;
+        const abierto = editando || abiertoId === f.id;
+        const resto = METRICAS.filter((m) => m.key !== 'prima' && (f.meta?.[m.campo] || f.actual[m.key] > 0));
+        return (
+          <li key={f.id}>
+            <button
+              type="button"
+              aria-expanded={abierto}
+              onClick={() => setAbiertoId(abierto ? null : f.id)}
+              disabled={editando}
+              className="flex min-h-[64px] w-full items-center gap-3 py-3 text-left"
+            >
+              <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-xs font-bold text-slate-500 dark:bg-slate-700 dark:text-slate-300">{i + 1}</span>
+              <span className="block min-w-0 flex-1">
+                <span className="flex items-center justify-between gap-2">
+                  <span className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{f.nombre}</span>
+                  <span className={`badge shrink-0 ${f.st.pill}`}>{f.st.label}</span>
+                </span>
+                <span className="mt-2 block">
+                  {f.meta?.metaPrimaMonto
+                    ? <MiniBar actual={f.actual.prima} meta={f.meta.metaPrimaMonto} fraccion={fraccion} money />
+                    : <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400">Prima {mxn(f.actual.prima)} · sin meta de prima</span>}
+                </span>
+              </span>
+              <Chevron abierto={abierto} />
+            </button>
+
+            {abierto && !editando && (
+              <div className="pb-4">
+                {resto.length > 0 && (
+                  <div className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700/60 dark:border-slate-700/60">
+                    {resto.map((m) => (
+                      <FilaMetrica key={m.key} label={m.label} actual={f.actual[m.key]} meta={f.meta?.[m.campo]} fraccion={fraccion} money={m.money} />
+                    ))}
+                  </div>
+                )}
+                {totalPrimaEquipo > 0 && (
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                    {Math.round((f.actual.prima / totalPrimaEquipo) * 100)}% de la prima del equipo
+                  </p>
+                )}
+                {f.meta?.metaIngresoMonto ? (
+                  <div className="mt-3 rounded-xl bg-slate-50 px-4 py-3 text-sm dark:bg-slate-700/40">
+                    <div className="mb-1 text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">Meta de ingreso (PRP)</div>
+                    <MetaIngresoNota fila={f} />
+                  </div>
+                ) : null}
+                <button type="button" className="btn-secondary mt-3 min-h-[44px] w-full" onClick={() => onEditar(f)}>
+                  {f.sinMeta ? 'Asignar meta' : 'Editar meta'}
+                </button>
+              </div>
+            )}
+
+            {editando && (
+              <div className="pb-4">
+                <div className="grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-700/40">
+                  <CamposMeta valores={editRow.valores} onChange={(valores) => setEditRow({ ...editRow, valores })} />
+                  <label className="label col-span-2 !mb-0">
+                    Meta de ingreso (PRP)
+                    <NumeroFormateado
+                      className="mt-1 min-h-[44px] w-full text-base" placeholder="Ingreso MXN"
+                      value={editRow.ingreso}
+                      onChange={(v) => setEditRow({ ...editRow, ingreso: v })}
+                    />
+                  </label>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button type="button" className="btn-secondary min-h-[44px]" onClick={() => setEditRow(null)}>Cancelar</button>
+                  <button type="button" className="btn-primary min-h-[44px]" onClick={onGuardar} disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button>
+                </div>
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+// Celular: el historial como lista de periodos (sin tabla ni scroll
+// horizontal). Los periodos sin meta registrada no ocupan renglón.
+function HistorialMovil({ filas }) {
+  const conMeta = filas.filter((f) => f.cump.clave !== 'SIN_META');
+  const sinMeta = filas.length - conMeta.length;
+  return (
+    <>
+      <ul className="divide-y divide-slate-100 dark:divide-slate-700/60">
+        {conMeta.map((f) => {
+          const st = ESTADOS_CUMPLIMIENTO[f.cump.clave];
+          return (
+            <li key={`${f.anio}-${f.mes}`} className="py-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{nombreMes(f.mes)} {f.anio}</span>
+                <span className="flex shrink-0 items-center gap-2">
+                  {!f.enCurso && <span className="text-xs tabular-nums text-slate-400 dark:text-slate-500">{f.cump.cumplidas}/{f.cump.total}</span>}
+                  <span className={`badge ${st.pill}`}>{st.label}</span>
+                </span>
+              </div>
+              <dl className="mt-2 space-y-1">
+                {f.cump.metricas.map((m) => {
+                  const fmt = m.money ? mxn : num;
+                  const clase = m.cumplida
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : f.enCurso ? 'text-slate-700 dark:text-slate-200' : 'text-red-600 dark:text-red-400';
+                  return (
+                    <div key={m.key} className="flex items-baseline justify-between gap-3 text-sm">
+                      <dt className="text-slate-500 dark:text-slate-400">{m.corto}</dt>
+                      <dd className={`tabular-nums font-semibold ${clase}`}>
+                        {fmt(m.logrado)} <span className="font-normal text-slate-400 dark:text-slate-500">/ {fmt(m.objetivo)}</span>
+                      </dd>
+                    </div>
+                  );
+                })}
+              </dl>
+            </li>
+          );
+        })}
+      </ul>
+      {sinMeta > 0 && (
+        <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+          {conMeta.length === 0 ? 'Ningún periodo de este rango tiene meta registrada.' : `${sinMeta} ${sinMeta === 1 ? 'periodo sin meta registrada no se muestra' : 'periodos sin meta registrada no se muestran'}.`}
+        </p>
+      )}
+    </>
+  );
+}
 
 // Historial de metas: un renglón por mes con la meta que se registró y si se
 // alcanzó. La meta ya "se reinicia" sola cada mes (Target/TargetEquipo son una
 // fila por mes+año); esto es la memoria de esos periodos — cumplidos y no
 // cumplidos — sin tener que ir cambiando el selector mes por mes.
-function Historial({ admin, asesores, mes, anio }) {
+function Historial({ admin, asesores, mes, anio, esMovil = false }) {
   const [meses, setMeses] = useState(12);
   const [scope, setScope] = useState(''); // '' = promotoría (solo admin)
   const asesorId = admin ? scope : '';
@@ -193,6 +414,36 @@ function Historial({ admin, asesores, mes, anio }) {
   });
   const cerrados = filas.filter((f) => !f.enCurso && f.cump.clave !== 'SIN_META');
   const logrados = cerrados.filter((f) => f.cump.clave === 'CUMPLIDA').length;
+
+  if (esMovil) {
+    return (
+      <div className="card p-4">
+        <div className={`grid gap-2 ${admin ? 'grid-cols-2' : ''}`}>
+          {admin && (
+            <select aria-label="Historial de" className="input min-h-[44px] text-base" value={scope} onChange={(e) => setScope(e.target.value)}>
+              <option value="">Promotoría</option>
+              {asesores.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+            </select>
+          )}
+          <select aria-label="Periodos a mostrar" className="input min-h-[44px] text-base" value={meses} onChange={(e) => setMeses(+e.target.value)}>
+            {[6, 12, 24].map((n) => <option key={n} value={n}>Últimos {n} meses</option>)}
+          </select>
+        </div>
+        {!data ? (
+          <p className="py-3 text-sm text-slate-400 dark:text-slate-500">Cargando…</p>
+        ) : (
+          <>
+            {cerrados.length > 0 && (
+              <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
+                <b className="text-slate-700 dark:text-slate-200">{logrados} de {cerrados.length}</b> periodos cerrados con meta se cumplieron por completo.
+              </p>
+            )}
+            <div className="mt-1"><HistorialMovil filas={filas} /></div>
+          </>
+        )}
+      </div>
+    );
+  }
 
   return (
     <Card
@@ -273,6 +524,7 @@ export default function Targets() {
   const qc = useQueryClient();
   const { esAdmin } = useAuth();
   const admin = esAdmin();
+  const esMovil = useIsMobile();
   const now = new Date();
   const [mes, setMes] = useState(now.getMonth() + 1);
   const [anio, setAnio] = useState(now.getFullYear());
@@ -312,6 +564,11 @@ export default function Targets() {
     } catch (e) { setErr(handleError(e)); } finally { setSaving(false); }
   };
 
+  const editarFila = (f) => {
+    setEditRow({ asesorId: f.id, valores: valoresDe(f.meta), ingreso: f.meta?.metaIngresoMonto ?? '' });
+    setErr('');
+  };
+
   const guardarEquipo = async (e) => {
     e.preventDefault(); setSaving(true); setErr('');
     try {
@@ -347,10 +604,10 @@ export default function Targets() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">{admin ? 'Metas / Targets' : 'Mi meta'}</h2>
         <div className="flex gap-2">
-          <select className="input w-auto" value={mes} onChange={(e) => { setMes(+e.target.value); setEditRow(null); setEditTeam(null); }}>
+          <select aria-label="Mes" className="input w-auto min-h-[44px] text-base md:min-h-0 md:text-sm" value={mes} onChange={(e) => { setMes(+e.target.value); setEditRow(null); setEditTeam(null); }}>
             {Array.from({ length: 12 }, (_, i) => <option key={i} value={i + 1}>{nombreMes(i + 1)}</option>)}
           </select>
-          <input type="number" className="input w-24" value={anio} onChange={(e) => { setAnio(+e.target.value); setEditRow(null); setEditTeam(null); }} />
+          <input type="number" aria-label="Año" inputMode="numeric" className="input w-24 min-h-[44px] text-base md:min-h-0 md:text-sm" value={anio} onChange={(e) => { setAnio(+e.target.value); setEditRow(null); setEditTeam(null); }} />
         </div>
       </div>
       {err && <p className="text-sm text-red-600">{err}</p>}
@@ -361,10 +618,10 @@ export default function Targets() {
           title={`Meta de la promotoría · ${periodo}`}
           subtitle="Objetivo agregado de todo el equipo"
           actions={(
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <ChipTranscurrido mes={mes} anio={anio} />
               {!editTeam && (
-                <button className="btn-secondary" onClick={() => setEditTeam({ valores: valoresDe(metaEquipo) })}>
+                <button className="btn-secondary min-h-[44px] md:min-h-0" onClick={() => setEditTeam({ valores: valoresDe(metaEquipo) })}>
                   {metaEquipo ? 'Editar meta' : 'Asignar meta'}
                 </button>
               )}
@@ -372,17 +629,19 @@ export default function Targets() {
           )}
         >
           {editTeam && (
-            <form onSubmit={guardarEquipo} className="mb-5 flex flex-wrap items-end gap-3 rounded-xl bg-slate-50 dark:bg-slate-700/40 p-4">
+            <form onSubmit={guardarEquipo} className="mb-5 grid grid-cols-2 gap-3 rounded-xl bg-slate-50 dark:bg-slate-700/40 p-3 md:flex md:flex-wrap md:items-end md:p-4">
               <CamposMeta valores={editTeam.valores} onChange={(valores) => setEditTeam({ valores })} />
-              <div className="flex gap-2">
-                <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button>
-                <button type="button" className="btn-secondary" onClick={() => setEditTeam(null)}>Cancelar</button>
+              <div className="col-span-2 grid grid-cols-2 gap-2 md:flex">
+                <button type="submit" className="btn-primary min-h-[44px] md:min-h-0" disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button>
+                <button type="button" className="btn-secondary min-h-[44px] md:min-h-0" onClick={() => setEditTeam(null)}>Cancelar</button>
               </div>
             </form>
           )}
           {metaEquipo || editTeam ? (
             <>
-              <BloquesMeta meta={metaEquipo} actual={equipo?.actual} fraccion={fraccion} />
+              {esMovil
+                ? <ResumenMovil meta={metaEquipo} actual={equipo?.actual} fraccion={fraccion} />
+                : <BloquesMeta meta={metaEquipo} actual={equipo?.actual} fraccion={fraccion} />}
               <Reconciliacion equipo={equipo} />
             </>
           ) : (
@@ -394,7 +653,12 @@ export default function Targets() {
       {/* Nivel 2 — metas individuales */}
       {admin ? (
         <Card title={`Metas por asesor · ${periodo}`} subtitle="Avance individual contra la meta asignada, en las 6 métricas">
-          {filas.length === 0 ? <EmptyState message="Sin asesores activos" /> : (
+          {filas.length === 0 ? <EmptyState message="Sin asesores activos" /> : esMovil ? (
+            <AsesoresMovil
+              filas={filas} fraccion={fraccion} totalPrimaEquipo={totalPrimaEquipo}
+              editRow={editRow} setEditRow={setEditRow} onEditar={editarFila} onGuardar={guardarFila} saving={saving}
+            />
+          ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -468,7 +732,7 @@ export default function Targets() {
                             <td className="py-3 text-right">
                               <button
                                 className="text-sm font-semibold text-brand-600 hover:underline dark:text-brand-400"
-                                onClick={() => { setEditRow({ asesorId: f.id, valores: valoresDe(f.meta), ingreso: f.meta?.metaIngresoMonto ?? '' }); setErr(''); }}
+                                onClick={() => editarFila(f)}
                               >
                                 {f.sinMeta ? 'Asignar meta' : 'Editar meta'}
                               </button>
@@ -483,6 +747,23 @@ export default function Targets() {
             </div>
           )}
         </Card>
+      ) : esMovil ? (
+        /* Vista asesor en celular: prima vs meta arriba, el resto en lista. */
+        <section className="card p-4">
+          <div className="mb-4"><ChipTranscurrido mes={mes} anio={anio} /></div>
+          {miSinMeta && (
+            <p className="mb-4 rounded-xl bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+              Aún no tienes meta para {periodo}. Pídesela a tu promotora; este es tu avance real.
+            </p>
+          )}
+          <ResumenMovil meta={mio?.meta} actual={mio?.actual} fraccion={fraccion} />
+          {mio?.meta?.metaIngresoMonto ? (
+            <div className="mt-4 rounded-xl bg-slate-50 dark:bg-slate-700/40 px-4 py-3 text-sm">
+              <div className="mb-1 text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">Meta de ingreso (PRP)</div>
+              <MetaIngresoNota fila={mio} />
+            </div>
+          ) : null}
+        </section>
       ) : (
         /* Vista asesor: solo su meta y su avance. La API ya fuerza el alcance. */
         <Card
@@ -505,10 +786,14 @@ export default function Targets() {
         </Card>
       )}
 
-      <AnalisisDelMes admin={admin} mes={mes} anio={anio} />
+      <Plegable esMovil={esMovil} titulo="Análisis del mes" nota="Tendencia, prima por ramo y proceso de ventas">
+        <AnalisisDelMes admin={admin} mes={mes} anio={anio} esMovil={esMovil} />
+      </Plegable>
 
       {/* Historial: periodos anteriores con su meta y su resultado */}
-      <Historial admin={admin} asesores={asesores} mes={mes} anio={anio} />
+      <Plegable esMovil={esMovil} titulo="Historial" nota={admin ? 'Metas de meses anteriores y su resultado' : 'Tus metas de meses anteriores y su resultado'}>
+        <Historial admin={admin} asesores={asesores} mes={mes} anio={anio} esMovil={esMovil} />
+      </Plegable>
     </div>
   );
 }

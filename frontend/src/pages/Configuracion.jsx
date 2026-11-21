@@ -38,10 +38,10 @@ export default function Configuracion() {
         </p>
       </div>
 
-      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-700 overflow-x-auto">
+      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-700 overflow-x-auto max-md:overflow-y-hidden max-md:-mx-4 max-md:px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {tabs.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap ${tab === t.id ? 'border-brand-600 text-brand-600 dark:text-brand-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
+            className={`shrink-0 min-h-[44px] md:min-h-0 px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap ${tab === t.id ? 'border-brand-600 text-brand-600 dark:text-brand-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
             {t.label}
           </button>
         ))}
@@ -79,6 +79,9 @@ function Toggle({ on, locked, onClick, title }) {
 function RolesTab({ esSuperadmin }) {
   const qc = useQueryClient();
   const [saving, setSaving] = useState(false);
+  // Solo celular: la matriz rol × sección no cabe a lo ancho, así que se
+  // elige un rol y se listan sus secciones con un interruptor por fila.
+  const [rolMovil, setRolMovil] = useState(ROLES_MATRIZ[0]);
 
   const { data } = useQuery({
     queryKey: ['config-politicas'],
@@ -117,7 +120,7 @@ function RolesTab({ esSuperadmin }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+      <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 md:px-4 md:py-3 text-[13px] md:text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
         <span aria-hidden className="mt-0.5">⚠️</span>
         <p>
           Define aquí qué ve cada <b>rol</b>: cambiarlo afecta a todos los usuarios con ese rol.
@@ -130,7 +133,48 @@ function RolesTab({ esSuperadmin }) {
         subtitle="El acceso de cada persona parte de su rol. El servidor valida cada permiso: sin política, el acceso se niega."
       >
         {!politicas ? <EmptyState message="Cargando políticas…" /> : (
-          <div className="overflow-x-auto">
+          <>
+          {/* Celular: selector de rol + una fila por sección. Mismos handlers,
+              mismos candados y la misma confirmación que la matriz. */}
+          <div className="md:hidden">
+            <label className="label" htmlFor="rol-movil">Rol</label>
+            <select id="rol-movil" className="input min-h-[44px]" value={rolMovil} onChange={(e) => setRolMovil(e.target.value)}>
+              {ROLES_MATRIZ.map((r) => <option key={r} value={r}>{ROLES_LABEL[r]}</option>)}
+            </select>
+            <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+              {conteo[rolMovil] || 0} usuario(s) activo(s){rolMovil === 'SUPERADMIN' ? ' · acceso total, no editable' : ''}
+            </p>
+            <ul className="mt-3 -mx-4 -mb-4 sm:-mx-5 sm:-mb-5 divide-y divide-slate-100 dark:divide-slate-700/60 border-t border-slate-100 dark:border-slate-700/60">
+              {SECCIONES.map((s) => {
+                const bloqueado = rolMovil === 'SUPERADMIN';
+                const pisoAsesor = !ROLES_ADMIN.includes(rolMovil) && s.soloAdmin;
+                const on = politicas[rolMovil]?.[s.id] === true;
+                const locked = bloqueado || pisoAsesor || !esSuperadmin || saving;
+                return (
+                  <li key={s.id}>
+                    <button
+                      type="button"
+                      disabled={locked}
+                      aria-pressed={on}
+                      onClick={() => cambiar(rolMovil, s.id, !on)}
+                      className="flex w-full min-h-[56px] items-center justify-between gap-3 px-4 sm:px-5 py-2.5 text-left enabled:active:bg-slate-50 dark:enabled:active:bg-slate-700/40"
+                    >
+                      <span className="min-w-0">
+                        <span className="block text-[15px] font-medium text-slate-800 dark:text-slate-100">{s.label}</span>
+                        <span className="block text-xs text-slate-500 dark:text-slate-400">
+                          {pisoAsesor ? 'Sección de administración: requiere rol Admin' : s.desc}
+                        </span>
+                      </span>
+                      <span aria-hidden className={`relative inline-flex h-[26px] w-[46px] shrink-0 rounded-full transition-colors ${on ? 'bg-emerald-500' : 'bg-slate-200 dark:bg-slate-600'} ${locked ? 'opacity-50' : ''}`}>
+                        <span className={`absolute top-[2px] h-[22px] w-[22px] rounded-full bg-white shadow transition-all ${on ? 'left-[22px]' : 'left-[2px]'}`} />
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs uppercase text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
@@ -172,8 +216,9 @@ function RolesTab({ esSuperadmin }) {
               </tbody>
             </table>
           </div>
+          </>
         )}
-        {!esSuperadmin && <p className="mt-3 text-xs text-slate-400">Solo un Súper Administrador puede editar el acceso por rol.</p>}
+        {!esSuperadmin && <p className="mt-3 max-md:mt-8 text-xs text-slate-400">Solo un Súper Administrador puede editar el acceso por rol.</p>}
       </Card>
     </div>
   );
@@ -246,15 +291,15 @@ function GoogleCalendarPanel() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-3 mb-4">
             <Estado label="Conexión" valor={estado.conectado ? 'Conectada' : 'Sin conectar'} color={estado.conectado ? 'green' : 'slate'} />
             <Estado label="Cuenta" valor={estado.email || '—'} color="slate" />
           </div>
           <div className="flex flex-wrap gap-2">
             {estado.conectado ? (
-              <button onClick={desconectar} disabled={busy} className="btn-secondary">Desconectar</button>
+              <button onClick={desconectar} disabled={busy} className="btn-secondary min-h-[44px] md:min-h-0">Desconectar</button>
             ) : (
-              <button onClick={conectar} disabled={busy} className="btn-primary">Conectar con Google</button>
+              <button onClick={conectar} disabled={busy} className="btn-primary min-h-[44px] md:min-h-0">Conectar con Google</button>
             )}
           </div>
         </>
@@ -302,7 +347,7 @@ function NotificacionesTab() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2 md:gap-3 mb-4">
         <Estado label="Soporte" valor={status === 'unsupported' ? 'No soportado' : 'Soportado'} color={status === 'unsupported' ? 'red' : 'green'} />
         <Estado label="Permiso" valor={status === 'granted' ? 'Concedido' : status === 'denied' ? 'Bloqueado' : 'Pendiente'} color={status === 'granted' ? 'green' : status === 'denied' ? 'red' : 'amber'} />
         <Estado label="Suscripción" valor={activa ? 'Activa' : rota ? 'Necesita renovarse' : 'Inactiva'} color={activa ? 'green' : rota ? 'amber' : 'slate'} />
@@ -313,11 +358,11 @@ function NotificacionesTab() {
       <div className="flex flex-wrap gap-2">
         {activa ? (
           <>
-            <button onClick={test} disabled={busy} className="btn-secondary">Enviar prueba</button>
-            <button onClick={revoke} disabled={busy} className="btn-secondary">Desactivar</button>
+            <button onClick={test} disabled={busy} className="btn-secondary min-h-[44px] md:min-h-0">Enviar prueba</button>
+            <button onClick={revoke} disabled={busy} className="btn-secondary min-h-[44px] md:min-h-0">Desactivar</button>
           </>
         ) : (
-          <button onClick={grant} disabled={busy || status === 'unsupported' || status === 'denied'} className="btn-primary">Activar notificaciones</button>
+          <button onClick={grant} disabled={busy || status === 'unsupported' || status === 'denied'} className="btn-primary min-h-[44px] md:min-h-0">Activar notificaciones</button>
         )}
       </div>
 
@@ -346,9 +391,9 @@ function Estado({ label, valor, color }) {
     slate: 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200',
   };
   return (
-    <div className="rounded-lg border border-slate-100 dark:border-slate-700 p-3">
-      <p className="text-xs uppercase text-slate-500 dark:text-slate-400">{label}</p>
-      <span className={`inline-block mt-1 px-2 py-0.5 rounded text-xs font-medium ${colors[color]}`}>{valor}</span>
+    <div className="rounded-lg border border-slate-100 dark:border-slate-700 px-3 py-2.5 md:p-3 max-md:flex max-md:items-center max-md:justify-between max-md:gap-3">
+      <p className="text-xs uppercase text-slate-500 dark:text-slate-400 max-md:shrink-0">{label}</p>
+      <span className={`inline-block mt-1 max-md:mt-0 max-md:min-w-0 max-md:truncate px-2 py-0.5 rounded text-xs font-medium ${colors[color]}`}>{valor}</span>
     </div>
   );
 }
@@ -416,20 +461,20 @@ function BitacoraTab() {
     <Card
       title="Registro de cambios de permisos"
       subtitle="Quién cambió qué acceso, cuándo y sobre quién. Indispensable en control de acceso."
-      actions={<button className="btn-secondary" onClick={exportar} disabled={!logs?.length}>Exportar</button>}
+      actions={<button className="btn-secondary min-h-[44px] md:min-h-0" onClick={exportar} disabled={!logs?.length}>Exportar</button>}
     >
       {!logs ? <EmptyState message="Cargando bitácora…" /> : logs.length === 0 ? (
         <EmptyState message="Aún no hay cambios registrados" />
       ) : (
-        <ul className="divide-y divide-slate-100 dark:divide-slate-700/60">
+        <ul className="divide-y divide-slate-100 dark:divide-slate-700/60 max-md:-my-2">
           {logs.map((l) => (
             <li key={l.id} className="flex gap-3 py-3">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300">
                 <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
               </span>
               <div className="min-w-0">
-                <p className="text-sm text-slate-700 dark:text-slate-200"><b>{l.actorNombre}</b> {textoLog(l)}</p>
-                <p className="text-xs text-slate-400">{cuando(l.creadoEn)}</p>
+                <p className="text-sm text-slate-700 dark:text-slate-200 break-words"><b>{l.actorNombre}</b> {textoLog(l)}</p>
+                <p className="text-xs text-slate-400 max-md:mt-0.5">{cuando(l.creadoEn)}</p>
               </div>
             </li>
           ))}

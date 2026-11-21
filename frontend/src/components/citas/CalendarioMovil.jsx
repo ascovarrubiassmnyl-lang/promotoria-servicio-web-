@@ -17,8 +17,8 @@ import { avisar } from '../../lib/toast.js';
 const DIAS_SEM = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 const DIAS_LARGO = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 const ALTO_HORA = 56; // px por hora en la vista Día
-const ALTO_GAP = 34; // px de la fila "Sin citas · …" colapsada
-const COL_HORA = 46; // ancho de la columna de etiquetas de hora
+const ALTO_GAP = 44; // px de la fila "Sin citas · …" colapsada
+const COL_HORA = 48; // ancho de la columna de etiquetas de hora
 
 const startOfWeek = (d) => {
   const r = new Date(d);
@@ -58,28 +58,28 @@ function CardCita({ c, onClick, esAdmin }) {
           {c.titulo}
         </span>
         <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ${color.chip}`}>
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold ${color.chip}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${color.dot}`} />
             {color.label}
           </span>
           <CitaBadge estado={c.estado} />
           {c.invitacionEstado === 'PENDIENTE' && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
               ⏳ Por confirmar
             </span>
           )}
           {MODALIDADES_PROMOTOR.includes(c.modalidad) && (
-            <span className="text-[11px] text-slate-400 dark:text-slate-500">
+            <span className="text-xs text-slate-400 dark:text-slate-500">
               {infoTipoCita(c.modalidad).label}{c.candidato ? ` · ${c.candidato.nombre} ${c.candidato.apellidoP}` : ''}
             </span>
           )}
           {c.cliente || MODALIDADES_PROMOTOR.includes(c.modalidad) ? (
-            <span className="text-[11px] text-slate-400 dark:text-slate-500">{canal.label}</span>
+            <span className="text-xs text-slate-400 dark:text-slate-500">{canal.label}</span>
           ) : (
-            <span className="text-[11px] text-slate-400 dark:text-slate-500">Sin cliente</span>
+            <span className="text-xs text-slate-400 dark:text-slate-500">Sin cliente</span>
           )}
           {esAdmin && c.asesor && (
-            <span className="text-[11px] text-slate-400 dark:text-slate-500">{c.asesor.nombre} {c.asesor.apellidoP}</span>
+            <span className="text-xs text-slate-400 dark:text-slate-500">{c.asesor.nombre} {c.asesor.apellidoP}</span>
           )}
         </span>
       </span>
@@ -87,6 +87,14 @@ function CardCita({ c, onClick, esAdmin }) {
     </button>
   );
 }
+
+// Estado de un invitado en corto, para la lista compacta de la ficha.
+const ESTADO_INVITADO = {
+  ACEPTADA: { label: 'Aceptó', cls: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' },
+  RECHAZADA: { label: 'Rechazó', cls: 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300' },
+  SUGERIDA: { label: 'Propone otra hora', cls: 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },
+  PENDIENTE: { label: 'Por confirmar', cls: 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },
+};
 
 // Chip de opción del bottom sheet de filtros (área táctil ≥ 44px).
 function OpcionChip({ on, onClick, dot, children }) {
@@ -352,6 +360,22 @@ export default function CalendarioMovil() {
   // (escritorio) para el comentario completo del porqué.
   const [sugiriendoInvitadoId, setSugiriendoInvitadoId] = useState(null);
   const [sugerenciaInvitado, setSugerenciaInvitado] = useState({ inicio: '', fin: '', nota: '' });
+  // Lista de invitados de la ficha: resumida en una fila, se despliega al tocar.
+  const [verInvitados, setVerInvitados] = useState(false);
+  const [quitandoInvitado, setQuitandoInvitado] = useState(null);
+  useEffect(() => { setVerInvitados(false); }, [detalle?.id]);
+
+  // El dueño quita una invitación de más (misma acción que en escritorio).
+  const quitarInvitado = async (c, inv) => {
+    if (!window.confirm(`¿Quitar a ${inv.usuario?.nombre} de esta cita?`)) return;
+    setQuitandoInvitado(inv.id);
+    try {
+      await api.delete(`/citas/${c.id}/invitados/${inv.id}`);
+      setDetalle((d) => (d && d.id === c.id ? { ...d, invitados: (d.invitados || []).filter((i) => i.id !== inv.id) } : d));
+      qc.invalidateQueries(['citas-cal']);
+      qc.invalidateQueries(['citas']);
+    } catch (e2) { avisar(handleError(e2), 'error'); } finally { setQuitandoInvitado(null); }
+  };
 
   const responderInvitado = async (c, inv, respuesta) => {
     try {
@@ -565,7 +589,7 @@ export default function CalendarioMovil() {
   const canalDet = detalle ? infoCanal(detalle.tipo) : null;
   const detalleViva = detalle ? CITA_VIVA.includes(detalle.estado) : false;
 
-  const btnAccion = 'flex-1 min-h-[44px] rounded-xl border px-3 text-[13px] font-semibold transition ' + focoAnillo;
+  const btnAccion = 'flex-1 min-w-0 min-h-[44px] whitespace-nowrap rounded-xl border px-2 text-[13px] font-semibold transition ' + focoAnillo;
 
   return (
     <div className="relative">
@@ -580,7 +604,7 @@ export default function CalendarioMovil() {
                 role="tab"
                 aria-selected={view === v}
                 onClick={() => setView(v)}
-                className={`min-h-[36px] rounded-[10px] px-3.5 text-[13px] font-semibold transition ${focoAnillo} ${
+                className={`min-h-[40px] rounded-[10px] px-3.5 text-[13px] font-semibold transition ${focoAnillo} ${
                   view === v
                     ? 'bg-white text-brand-700 shadow-sm dark:bg-slate-700 dark:text-brand-300'
                     : 'text-slate-500 dark:text-slate-400'
@@ -590,14 +614,14 @@ export default function CalendarioMovil() {
           </div>
         </div>
 
-        <div className="mt-2.5 flex items-center gap-2">
+        <div className="mt-2.5 flex items-center gap-1.5">
           <button onClick={() => step(-1)} aria-label="Periodo anterior" className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 ${focoAnillo}`}>‹</button>
-          <button onClick={goHoy} className={`h-11 shrink-0 rounded-xl border border-slate-200 bg-white px-3.5 text-[13px] font-semibold text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 ${focoAnillo}`}>Hoy</button>
+          <button onClick={goHoy} className={`h-11 shrink-0 rounded-xl border border-slate-200 bg-white px-3 text-[13px] font-semibold text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 ${focoAnillo}`}>Hoy</button>
           <button onClick={() => step(1)} aria-label="Periodo siguiente" className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 ${focoAnillo}`}>›</button>
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{tituloPeriodo}</span>
+          <span className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-slate-700 dark:text-slate-200">{tituloPeriodo}</span>
           <button
             onClick={() => setSheetFiltros(true)}
-            className={`flex h-11 shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 text-[13px] font-semibold text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 ${focoAnillo}`}
+            className={`flex h-11 shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[13px] font-semibold text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 ${focoAnillo}`}
           >
             Filtros
             {hayFiltros && <span className="h-1.5 w-1.5 rounded-full bg-brand-600 dark:bg-brand-400" />}
@@ -617,7 +641,7 @@ export default function CalendarioMovil() {
                   aria-current={sel ? 'date' : undefined}
                   className={`flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 transition ${focoAnillo} ${sel ? 'bg-brand-600' : 'active:bg-slate-200/60 dark:active:bg-slate-700/60'}`}
                 >
-                  <span className={`text-[10px] font-bold uppercase tracking-wide ${sel ? 'text-white/80' : 'text-slate-400 dark:text-slate-500'}`}>{DIAS_SEM[i]}</span>
+                  <span className={`text-[11px] font-bold uppercase tracking-wide ${sel ? 'text-white/80' : 'text-slate-400 dark:text-slate-500'}`}>{DIAS_SEM[i]}</span>
                   <span className={`text-[16px] font-semibold leading-tight ${sel ? 'text-white' : esHoy(d) ? 'text-brand-600 dark:text-brand-400' : 'text-slate-700 dark:text-slate-200'}`}>{d.getDate()}</span>
                   <span className="flex h-[5px] items-center gap-[2.5px]">
                     {pips.map((dot, j) => (
@@ -668,9 +692,9 @@ export default function CalendarioMovil() {
           )
         )}
         {fPromotor && view !== 'dia' && (
-          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11.5px] text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+          <div className="mb-3 flex flex-wrap items-center gap-x-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1 text-[13px] text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
             <span>Los horarios de <strong className="font-semibold">{promotorVisto ? `${promotorVisto.nombre} ${promotorVisto.apellidoP}` : 'el promotor'}</strong> se ven por día.</span>
-            <button onClick={() => setView('dia')} className={`font-bold text-brand-600 dark:text-brand-400 ${focoAnillo}`}>Ver en la vista Día</button>
+            <button onClick={() => setView('dia')} className={`min-h-[44px] font-bold text-brand-600 dark:text-brand-400 ${focoAnillo}`}>Ver en la vista Día</button>
           </div>
         )}
         {isLoading ? (
@@ -708,20 +732,20 @@ export default function CalendarioMovil() {
                 {tl.segs.map((seg) =>
                   seg.tipo === 'hora' ? (
                     <div key={`h${seg.h}`} className="flex border-b border-slate-100 last:border-b-0 dark:border-slate-700/60" style={{ height: ALTO_HORA }}>
-                      <div className="shrink-0 border-r border-slate-100 pr-2 pt-1.5 text-right text-[10.5px] font-semibold text-slate-400 dark:border-slate-700/60 dark:text-slate-500" style={{ width: COL_HORA }}>
+                      <div className="shrink-0 border-r border-slate-100 pr-1.5 pt-1.5 text-right text-xs font-medium tabular-nums text-slate-400 dark:border-slate-700/60 dark:text-slate-500" style={{ width: COL_HORA }}>
                         {etHora(seg.h)}
                       </div>
                     </div>
                   ) : (
                     <div
                       key={`g${seg.horas[0]}`}
-                      className="flex items-center border-b border-slate-100 bg-slate-50/60 pr-3 text-[11.5px] font-semibold text-slate-400 dark:border-slate-700/60 dark:bg-slate-900/30 dark:text-slate-500"
+                      className="flex items-center border-b border-slate-100 bg-slate-50/60 pr-1 text-xs font-semibold text-slate-400 dark:border-slate-700/60 dark:bg-slate-900/30 dark:text-slate-500"
                       style={{ height: ALTO_GAP, paddingLeft: COL_HORA + 8 }}
                     >
                       Sin citas · {etHora(seg.horas[0])} – {etHora(seg.horas[seg.horas.length - 1] + 1)}
                       <button
                         onClick={() => setExpandido((prev) => new Set([...prev, ...seg.horas]))}
-                        className={`ml-auto min-h-[34px] px-2 font-bold text-brand-600 dark:text-brand-400 ${focoAnillo}`}
+                        className={`ml-auto min-h-[44px] px-3 font-bold text-brand-600 dark:text-brand-400 ${focoAnillo}`}
                       >Mostrar</button>
                     </div>
                   )
@@ -738,7 +762,7 @@ export default function CalendarioMovil() {
                       style={{ top: b.y, height: b.alto }}
                     >
                       {b.alto >= 22 && (
-                        <div className={`text-[10.5px] font-semibold ${DISPONIBILIDAD_ESTILO.texto}`}>{DISPONIBILIDAD_ESTILO.label}</div>
+                        <div className={`text-xs font-semibold leading-tight ${DISPONIBILIDAD_ESTILO.texto}`}>{DISPONIBILIDAD_ESTILO.label}</div>
                       )}
                     </div>
                   ))}
@@ -762,7 +786,7 @@ export default function CalendarioMovil() {
                         }}
                       >
                         <span className="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-100">{e.c.titulo}</span>
-                        <span className={`truncate text-[11.5px] ${color.text} ${e.corta ? 'shrink-0' : ''}`}>
+                        <span className={`truncate text-xs ${color.text} ${e.corta ? 'shrink-0' : ''}`}>
                           <span className="tabular-nums">{hora(e.c.fechaHoraInicio)}</span> · {e.c.cliente ? canal.label : color.label}
                           {e.mas ? ` · +${e.mas} más` : ''}
                         </span>
@@ -796,10 +820,10 @@ export default function CalendarioMovil() {
                     <div className="flex items-center gap-3">
                       <div className="w-9 shrink-0 text-center">
                         <div className={`text-[19px] font-bold leading-none ${esHoy(d) ? 'text-brand-600 dark:text-brand-400' : 'text-slate-800 dark:text-slate-100'}`}>{d.getDate()}</div>
-                        <div className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">{DIAS_SEM[d.getDay()]}</div>
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">{DIAS_SEM[d.getDay()]}</div>
                       </div>
                       <div className="flex-1 border-t border-slate-200 dark:border-slate-700" />
-                      <span className="text-[11.5px] font-semibold text-slate-400 dark:text-slate-500">
+                      <span className="text-xs font-semibold text-slate-400 dark:text-slate-500">
                         {items.length === 1 ? '1 cita' : `${items.length} citas`}
                       </span>
                     </div>
@@ -812,7 +836,7 @@ export default function CalendarioMovil() {
         ) : (
           <div className="space-y-4">
             <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-800/75">
-              <div className="grid grid-cols-7 pb-1 text-center text-[10px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              <div className="grid grid-cols-7 pb-1 text-center text-[11px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                 {DIAS_SEM.map((d) => <div key={d} className="py-1">{d.slice(0, 1)}</div>)}
               </div>
               <div className="grid grid-cols-7">
@@ -868,7 +892,7 @@ export default function CalendarioMovil() {
         {esAdmin() && (
           <>
             <h4 className="mb-2 mt-2 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Asesor</h4>
-            <select className="input" value={fAsesor} onChange={(e) => setFAsesor(e.target.value)}>
+            <select className="input min-h-[44px]" value={fAsesor} onChange={(e) => setFAsesor(e.target.value)}>
               <option value="">Todos los asesores</option>
               <option value="__mios__">Mis acompañamientos</option>
               <option value={user?.id}>Mi agenda</option>
@@ -962,19 +986,20 @@ export default function CalendarioMovil() {
                   </p>
                   <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">Hasta que la aceptes no ocupa tu agenda.</p>
                   {!sugiriendo ? (
-                    <div className="mt-2 flex flex-wrap gap-2">
+                    <div className="mt-2 grid grid-cols-3 gap-2">
                       <button
                         onClick={() => responderInvitacion(detalle, 'ACEPTADA')}
-                        className={`${btnAccion} flex-1 border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-400`}
+                        className={`${btnAccion} border-emerald-300 bg-white text-emerald-700 dark:border-emerald-700 dark:bg-transparent dark:text-emerald-400`}
                       >✓ Aceptar</button>
                       <button
                         onClick={() => responderInvitacion(detalle, 'RECHAZADA')}
-                        className={`${btnAccion} flex-1 border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300`}
+                        className={`${btnAccion} border-slate-300 bg-white text-slate-600 dark:border-slate-600 dark:bg-transparent dark:text-slate-300`}
                       >Rechazar</button>
                       <button
                         onClick={() => { setSugiriendo(true); setSugerencia({ inicio: isoLocalInput(new Date(detalle.fechaHoraInicio)), fin: isoLocalInput(new Date(detalle.fechaHoraFin)), nota: '' }); }}
-                        className={`${btnAccion} w-full border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300`}
-                      >↻ Sugerir otra hora</button>
+                        aria-label="Sugerir otra hora"
+                        className={`${btnAccion} border-slate-300 bg-white text-slate-600 dark:border-slate-600 dark:bg-transparent dark:text-slate-300`}
+                      >Otra hora</button>
                     </div>
                   ) : (
                     <div className="mt-2 space-y-2 rounded-lg border border-amber-200 bg-white/60 p-2.5 dark:border-amber-800 dark:bg-transparent">
@@ -1004,8 +1029,8 @@ export default function CalendarioMovil() {
                   </p>
                   {detalle.sugerenciaNota && <p className="mt-0.5 text-xs italic text-amber-700 dark:text-amber-300">"{detalle.sugerenciaNota}"</p>}
                   <div className="mt-2 flex gap-2">
-                    <button onClick={() => responderSugerencia(detalle, true)} className={`${btnAccion} flex-1 border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-400`}>✓ Aceptar nuevo horario</button>
-                    <button onClick={() => responderSugerencia(detalle, false)} className={`${btnAccion} flex-1 border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300`}>No me sirve</button>
+                    <button onClick={() => responderSugerencia(detalle, true)} className={`${btnAccion} border-emerald-300 bg-white text-emerald-700 dark:border-emerald-700 dark:bg-transparent dark:text-emerald-400`}>✓ Aceptar horario</button>
+                    <button onClick={() => responderSugerencia(detalle, false)} className={`${btnAccion} border-slate-300 bg-white text-slate-600 dark:border-slate-600 dark:bg-transparent dark:text-slate-300`}>No me sirve</button>
                   </div>
                 </div>
               ) : (
@@ -1021,80 +1046,135 @@ export default function CalendarioMovil() {
             {/* Invitados adicionales (2026-09-25): mismo patrón que la
                 invitación de acompañamiento de arriba, pero uno por invitado
                 — ver CalendarioView.jsx (escritorio) para el detalle. */}
-            {detalle.invitados?.length > 0 && (
-              <div className="space-y-2">
-                {detalle.invitados.map((inv) => {
-                  const soyEsteInvitado = inv.usuarioId === user?.id;
-                  const nombreInv = `${inv.usuario?.nombre || ''} ${inv.usuario?.apellidoP || ''}`.trim();
-                  if (soyEsteInvitado && inv.estado === 'PENDIENTE') {
-                    return (
-                      <div key={inv.id} className="rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-900/25">
-                        <p className="text-[13px] font-semibold text-amber-900 dark:text-amber-200">
-                          {detalle.asesor?.nombre} {detalle.asesor?.apellidoP} te invitó a esta cita.
-                        </p>
-                        <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">Hasta que la aceptes no ocupa tu agenda.</p>
-                        {sugiriendoInvitadoId !== inv.id ? (
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <button onClick={() => responderInvitado(detalle, inv, 'ACEPTADA')} className={`${btnAccion} flex-1 border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-400`}>✓ Aceptar</button>
-                            <button onClick={() => responderInvitado(detalle, inv, 'RECHAZADA')} className={`${btnAccion} flex-1 border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300`}>Rechazar</button>
-                            <button onClick={() => { setSugiriendoInvitadoId(inv.id); setSugerenciaInvitado({ inicio: isoLocalInput(new Date(detalle.fechaHoraInicio)), fin: isoLocalInput(new Date(detalle.fechaHoraFin)), nota: '' }); }} className={`${btnAccion} w-full border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300`}>↻ Sugerir otra hora</button>
-                          </div>
-                        ) : (
-                          <div className="mt-2 space-y-2 rounded-lg border border-amber-200 bg-white/60 p-2.5 dark:border-amber-800 dark:bg-transparent">
-                            <label className="block text-xs font-medium text-slate-500 dark:text-slate-400">Nuevo inicio*
-                              <input type="datetime-local" className="input mt-1" value={sugerenciaInvitado.inicio} onChange={(e) => setSugerenciaInvitado({ ...sugerenciaInvitado, inicio: e.target.value })} />
-                            </label>
-                            <label className="block text-xs font-medium text-slate-500 dark:text-slate-400">Nuevo fin*
-                              <input type="datetime-local" className="input mt-1" value={sugerenciaInvitado.fin} onChange={(e) => setSugerenciaInvitado({ ...sugerenciaInvitado, fin: e.target.value })} />
-                            </label>
-                            <label className="block text-xs font-medium text-slate-500 dark:text-slate-400">Nota (opcional)
-                              <input className="input mt-1" value={sugerenciaInvitado.nota} onChange={(e) => setSugerenciaInvitado({ ...sugerenciaInvitado, nota: e.target.value })} placeholder="Ej. Tengo junta, ¿te va mejor a esta hora?" />
-                            </label>
-                            <div className="flex gap-2">
-                              <button onClick={() => enviarSugerenciaInvitado(detalle, inv)} className={`${btnAccion} flex-1 border-brand-300 text-brand-700 dark:border-brand-700 dark:text-brand-400`}>Enviar propuesta</button>
-                              <button onClick={() => setSugiriendoInvitadoId(null)} className={`${btnAccion} flex-1 border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300`}>Cancelar</button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  }
-                  if (!soyEsteInvitado && detalle.asesorId === user?.id && inv.estado === 'SUGERIDA' && inv.sugerenciaInicio) {
-                    return (
-                      <div key={inv.id} className="rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-900/25">
-                        <p className="text-[13px] font-semibold text-amber-900 dark:text-amber-200">{nombreInv} propuso otro horario:</p>
-                        <p className="mt-0.5 text-[13px] font-semibold text-amber-900 dark:text-amber-200">
-                          {fechaCorta(inv.sugerenciaInicio)} · {hora(inv.sugerenciaInicio)} – {hora(inv.sugerenciaFin)}
-                        </p>
-                        {inv.sugerenciaNota && <p className="mt-0.5 text-xs italic text-amber-700 dark:text-amber-300">"{inv.sugerenciaNota}"</p>}
-                        <div className="mt-2 flex gap-2">
-                          <button onClick={() => responderSugerenciaInvitado(detalle, inv, true)} className={`${btnAccion} flex-1 border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-400`}>✓ Aceptar nuevo horario</button>
-                          <button onClick={() => responderSugerenciaInvitado(detalle, inv, false)} className={`${btnAccion} flex-1 border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300`}>No me sirve</button>
+            {detalle.invitados?.length > 0 && (() => {
+              const invitados = detalle.invitados;
+              const soyDueno = detalle.asesorId === user?.id;
+              const nombreDe = (inv) => `${inv.usuario?.nombre || ''} ${inv.usuario?.apellidoP || ''}`.trim();
+              // Lo que pide una respuesta se queda a la vista; el resto de la
+              // lista se resume en una fila (una junta con 10+ invitados
+              // llenaba media ficha).
+              const miInvitacion = invitados.find((inv) => inv.usuarioId === user?.id && inv.estado === 'PENDIENTE');
+              const propuestas = soyDueno
+                ? invitados.filter((inv) => inv.usuarioId !== user?.id && inv.estado === 'SUGERIDA' && inv.sugerenciaInicio)
+                : [];
+              const cuenta = (estado) => invitados.filter((inv) => inv.estado === estado).length;
+              const aceptaron = cuenta('ACEPTADA');
+              const rechazaron = cuenta('RECHAZADA');
+              const sugirieron = cuenta('SUGERIDA');
+              const pendientes = cuenta('PENDIENTE');
+              return (
+                <div className="space-y-2">
+                  {miInvitacion && (
+                    <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-900/25">
+                      <p className="text-[13px] font-semibold text-amber-900 dark:text-amber-200">
+                        {detalle.asesor?.nombre} {detalle.asesor?.apellidoP} te invitó a esta cita.
+                      </p>
+                      <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">Hasta que la aceptes no ocupa tu agenda.</p>
+                      {sugiriendoInvitadoId !== miInvitacion.id ? (
+                        <div className="mt-2 grid grid-cols-3 gap-2">
+                          <button onClick={() => responderInvitado(detalle, miInvitacion, 'ACEPTADA')} className={`${btnAccion} border-emerald-300 bg-white text-emerald-700 dark:border-emerald-700 dark:bg-transparent dark:text-emerald-400`}>✓ Aceptar</button>
+                          <button onClick={() => responderInvitado(detalle, miInvitacion, 'RECHAZADA')} className={`${btnAccion} border-slate-300 bg-white text-slate-600 dark:border-slate-600 dark:bg-transparent dark:text-slate-300`}>Rechazar</button>
+                          <button
+                            onClick={() => { setSugiriendoInvitadoId(miInvitacion.id); setSugerenciaInvitado({ inicio: isoLocalInput(new Date(detalle.fechaHoraInicio)), fin: isoLocalInput(new Date(detalle.fechaHoraFin)), nota: '' }); }}
+                            aria-label="Sugerir otra hora"
+                            className={`${btnAccion} border-slate-300 bg-white text-slate-600 dark:border-slate-600 dark:bg-transparent dark:text-slate-300`}
+                          >Otra hora</button>
                         </div>
+                      ) : (
+                        <div className="mt-2 space-y-2 rounded-lg border border-amber-200 bg-white/60 p-2.5 dark:border-amber-800 dark:bg-transparent">
+                          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400">Nuevo inicio*
+                            <input type="datetime-local" className="input mt-1" value={sugerenciaInvitado.inicio} onChange={(e) => setSugerenciaInvitado({ ...sugerenciaInvitado, inicio: e.target.value })} />
+                          </label>
+                          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400">Nuevo fin*
+                            <input type="datetime-local" className="input mt-1" value={sugerenciaInvitado.fin} onChange={(e) => setSugerenciaInvitado({ ...sugerenciaInvitado, fin: e.target.value })} />
+                          </label>
+                          <label className="block text-xs font-medium text-slate-500 dark:text-slate-400">Nota (opcional)
+                            <input className="input mt-1" value={sugerenciaInvitado.nota} onChange={(e) => setSugerenciaInvitado({ ...sugerenciaInvitado, nota: e.target.value })} placeholder="Ej. Tengo junta, ¿te va mejor a esta hora?" />
+                          </label>
+                          <div className="flex gap-2">
+                            <button onClick={() => enviarSugerenciaInvitado(detalle, miInvitacion)} className={`${btnAccion} border-brand-300 text-brand-700 dark:border-brand-700 dark:text-brand-400`}>Enviar propuesta</button>
+                            <button onClick={() => setSugiriendoInvitadoId(null)} className={`${btnAccion} border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300`}>Cancelar</button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {propuestas.map((inv) => (
+                    <div key={inv.id} className="rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-900/25">
+                      <p className="text-[13px] font-semibold text-amber-900 dark:text-amber-200">{nombreDe(inv)} propuso otro horario:</p>
+                      <p className="mt-0.5 text-[13px] font-semibold text-amber-900 dark:text-amber-200">
+                        {fechaCorta(inv.sugerenciaInicio)} · {hora(inv.sugerenciaInicio)} – {hora(inv.sugerenciaFin)}
+                      </p>
+                      {inv.sugerenciaNota && <p className="mt-0.5 text-xs italic text-amber-700 dark:text-amber-300">"{inv.sugerenciaNota}"</p>}
+                      <div className="mt-2 flex gap-2">
+                        <button onClick={() => responderSugerenciaInvitado(detalle, inv, true)} className={`${btnAccion} border-emerald-300 bg-white text-emerald-700 dark:border-emerald-700 dark:bg-transparent dark:text-emerald-400`}>✓ Aceptar horario</button>
+                        <button onClick={() => responderSugerenciaInvitado(detalle, inv, false)} className={`${btnAccion} border-slate-300 bg-white text-slate-600 dark:border-slate-600 dark:bg-transparent dark:text-slate-300`}>No me sirve</button>
                       </div>
-                    );
-                  }
-                  return (
-                    <p key={inv.id} className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[13px] font-medium mr-2 ${
-                      inv.estado === 'ACEPTADA' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-                      : inv.estado === 'RECHAZADA' ? 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'
-                      : 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'}`}>
-                      {infoInvitacion(inv.estado)?.icono} {nombreInv}: {infoInvitacion(inv.estado)?.label}
-                      {inv.estado === 'SUGERIDA' && inv.sugerenciaInicio ? ` · propone ${fechaCorta(inv.sugerenciaInicio)} ${hora(inv.sugerenciaInicio)}` : ''}
-                    </p>
-                  );
-                })}
-              </div>
-            )}
+                    </div>
+                  ))}
+
+                  {/* Resumen de invitados: una fila; al tocar, la lista. */}
+                  <div className="rounded-xl border border-slate-200 dark:border-slate-700">
+                    <button
+                      type="button"
+                      onClick={() => setVerInvitados((v) => !v)}
+                      aria-expanded={verInvitados}
+                      className={`flex min-h-[44px] w-full items-center gap-2 rounded-xl px-3 text-left ${focoAnillo}`}
+                    >
+                      <span className="min-w-0 flex-1 py-2 leading-snug text-[13px] text-slate-600 dark:text-slate-300">
+                        <span className="font-semibold text-emerald-700 dark:text-emerald-400">{aceptaron} {aceptaron === 1 ? 'aceptó' : 'aceptaron'}</span>
+                        {' · '}
+                        <span className="font-semibold text-amber-700 dark:text-amber-400">{pendientes} por confirmar</span>
+                        {' · '}
+                        <span className={rechazaron ? 'font-semibold text-red-600 dark:text-red-400' : ''}>{rechazaron} {rechazaron === 1 ? 'rechazó' : 'rechazaron'}</span>
+                        {sugirieron > 0 && <>{' · '}<span className="font-semibold text-amber-700 dark:text-amber-400">{sugirieron} {sugirieron === 1 ? 'propone' : 'proponen'} otra hora</span></>}
+                      </span>
+                      <span className={`shrink-0 text-slate-400 transition-transform motion-reduce:transition-none dark:text-slate-500 ${verInvitados ? 'rotate-90' : ''}`} aria-hidden>›</span>
+                    </button>
+                    {verInvitados && (
+                      <ul className="divide-y divide-slate-100 border-t border-slate-100 dark:divide-slate-700/60 dark:border-slate-700/60">
+                        {invitados.map((inv) => {
+                          const est = ESTADO_INVITADO[inv.estado] || ESTADO_INVITADO.PENDIENTE;
+                          return (
+                            <li key={inv.id} className="flex min-h-[44px] items-center gap-2 pl-3 pr-1">
+                              <span className="min-w-0 flex-1 py-1.5">
+                                <span className="block truncate text-[13px] text-slate-700 dark:text-slate-200">
+                                  {nombreDe(inv)}{inv.usuarioId === user?.id ? ' (tú)' : ''}
+                                </span>
+                                {inv.estado === 'SUGERIDA' && inv.sugerenciaInicio && (
+                                  <span className="block truncate text-xs text-slate-400 dark:text-slate-500">
+                                    Propone {fechaCorta(inv.sugerenciaInicio)} · {hora(inv.sugerenciaInicio)}
+                                  </span>
+                                )}
+                              </span>
+                              <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${est.cls} ${soyDueno ? '' : 'mr-2'}`}>{est.label}</span>
+                              {soyDueno && (
+                                <button
+                                  type="button"
+                                  disabled={quitandoInvitado === inv.id}
+                                  onClick={() => quitarInvitado(detalle, inv)}
+                                  aria-label={`Quitar a ${nombreDe(inv)}`}
+                                  className={`grid h-11 w-9 shrink-0 place-items-center rounded-lg text-slate-400 disabled:opacity-40 dark:text-slate-500 ${focoAnillo}`}
+                                >✕</button>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
             {/* Quien solo fue invitado (no es dueño ni administra) no gestiona
                 la cita: responde su invitación arriba y nada más (el PATCH le
                 respondería 403). */}
             {(esAdmin() || detalle.asesorId === user?.id) && (<>
-            <div className="flex flex-wrap gap-2 pt-1">
+            <div className="grid grid-cols-2 gap-2 pt-1">
               {detalleViva && (
                 <button onClick={() => cambiarEstado(detalle, 'COMPLETADA')} className={`${btnAccion} border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-400`}>✓ Completar</button>
               )}
-              <button onClick={() => abrirReagendar(detalle)} className={`${btnAccion} border-slate-200 text-slate-600 dark:border-slate-600 dark:text-slate-300`}>Reagendar</button>
+              <button onClick={() => abrirReagendar(detalle)} className={`${btnAccion} ${detalleViva ? '' : 'col-span-2'} border-slate-200 text-slate-600 dark:border-slate-600 dark:text-slate-300`}>Reagendar</button>
               {detalleViva && (
                 <>
                   <button onClick={() => cambiarEstado(detalle, 'CANCELADA')} className={`${btnAccion} border-slate-200 text-slate-600 dark:border-slate-600 dark:text-slate-300`}>Cancelar cita</button>

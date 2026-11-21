@@ -290,8 +290,8 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
               {p.numeroPoliza && <span className="tabular-nums">· Póliza {p.numeroPoliza}</span>}
             </div>
           </div>
-          <div className="text-right space-y-2.5">
-            <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="w-full space-y-2.5 sm:w-auto sm:text-right">
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
               <VentaBadge estado={p.estado} />
               {/* Situación operativa de la póliza emitida: es OTRO campo,
                   no el estado administrativo que decide la comisión. */}
@@ -303,7 +303,7 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
                 {infoSemaforo(semaforoPago(p)).label}
               </span>
             </div>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap gap-2 sm:justify-end">
               {puedeValidar && (
                 <>
                   <button onClick={() => validar('RECHAZADA')} className="btn-secondary text-xs py-1.5 px-2.5 !text-red-600 dark:!text-red-400">Rechazar</button>
@@ -414,7 +414,7 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
           <DocumentoPoliza polizaId={polizaId} venta={p} readOnly={readOnly} onVer={verArchivo} />
 
           {/* Coberturas */}
-          <Card title="Coberturas">
+          <Card plegable title="Coberturas">
             {coberturas.length === 0 ? (
               <p className="text-sm text-slate-400 dark:text-slate-500">Sin coberturas registradas.{!readOnly && ' Agrégalas con "Editar".'}</p>
             ) : coberturas.map((c, i) => (
@@ -456,7 +456,7 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
           {/* Comisión a lo largo de la vida de la póliza: % por año de
               póliza, por recibo según la forma de pago, y lo cobrado. */}
           {comision && (
-            <Card title="Comisión de la póliza" subtitle="Información interna del asesor">
+            <Card plegable title="Comisión de la póliza" subtitle="Información interna del asesor">
               <div className="mb-4 grid grid-cols-3 gap-3">
                 <div className="kpi kpi-green">
                   <p className="kpi-label">Cobrada a la fecha</p>
@@ -552,7 +552,7 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
           </Card>
 
           {/* Calendario de recibos (recordatorios de pago reales) */}
-          <Card title={`Calendario de recibos (${recibos.length})`}>
+          <Card plegable title={`Calendario de recibos (${recibos.length})`}>
             {recibos.length === 0 ? (
               <p className="text-sm text-slate-400 dark:text-slate-500">
                 Sin recibos programados. {!readOnly && 'Configura "Próximo pago" para generar recordatorios automáticos.'}
@@ -601,7 +601,7 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
         <div className="space-y-4">
           {/* Asegurados: quiénes están cubiertos. Distinto de los
               beneficiarios, que son quienes cobran el siniestro. */}
-          <Card title="Asegurados">
+          <Card plegable title="Asegurados">
             {asegurados.length === 0 ? (
               <p className="text-sm text-slate-400 dark:text-slate-500">
                 Sin asegurados capturados: se entiende que el asegurado es el contratante.
@@ -622,7 +622,7 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
           </Card>
 
           {/* Beneficiarios */}
-          <Card title="Beneficiarios">
+          <Card plegable title="Beneficiarios">
             {beneficiarios.length === 0 ? (
               <p className="text-sm text-slate-400 dark:text-slate-500">Sin beneficiarios registrados.{!readOnly && ' Agrégalos con "Editar".'}</p>
             ) : beneficiarios.map((b, i) => (
@@ -634,7 +634,7 @@ export default function PolicyDetail({ polizaId, readOnly = false, onBack, onEdi
           </Card>
 
           {/* Datos administrativos */}
-          <Card title="Datos administrativos">
+          <Card plegable title="Datos administrativos">
             <FilaAdmin label="Aseguradora" valor={ASEGURADORA} />
             <FilaAdmin label="Número de póliza" valor={p.numeroPoliza || '—'} />
             <FilaAdmin label="Ramo" valor={RAMOS_LABEL[p.ramo] || p.ramo} />

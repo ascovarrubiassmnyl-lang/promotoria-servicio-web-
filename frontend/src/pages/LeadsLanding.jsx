@@ -4,6 +4,7 @@ import { Card, EmptyState, MenuAcciones, Modal, Field } from '../components/ui.j
 import { handleError } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { fechaHora } from '../lib/format.js';
+import { ligaWhatsApp } from '../components/clientes/RegistrarLlamadaModal.jsx';
 import { ETAPAS_SELECCIONABLES, infoEtapa } from '../components/clientes/etapas.js';
 import {
   urlCaptura, useFuentesCaptura, useLeadsRecibidos, useGuardarFuente,
@@ -23,7 +24,7 @@ function Copiar({ texto, label = 'Copiar', className = '' }) {
     try { await navigator.clipboard.writeText(texto); setOk(true); setTimeout(() => setOk(false), 1800); } catch { /* sin clipboard */ }
   };
   return (
-    <button type="button" onClick={copiar} className={`btn-secondary text-xs px-2.5 py-1.5 shrink-0 ${className}`}>
+    <button type="button" onClick={copiar} className={`btn-secondary text-xs px-3 h-11 md:h-auto md:px-2.5 md:py-1.5 shrink-0 ${className}`}>
       {ok ? 'Copiado ✓' : label}
     </button>
   );
@@ -31,7 +32,7 @@ function Copiar({ texto, label = 'Copiar', className = '' }) {
 
 function Codigo({ children }) {
   return (
-    <pre className="text-[11px] leading-relaxed bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-lg p-3 overflow-x-auto whitespace-pre text-slate-700 dark:text-slate-300">
+    <pre className="max-w-full text-xs md:text-[11px] leading-relaxed bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded-lg p-3 overflow-x-auto whitespace-pre text-slate-700 dark:text-slate-300">
       {children}
     </pre>
   );
@@ -134,7 +135,7 @@ function TarjetaFuente({ f, onEditar, onRegenerar, onEliminar, onVerLeads }) {
   const etapa = infoEtapa(f.etapaInicial);
 
   return (
-    <div className="card p-4 flex flex-col gap-3">
+    <div className="card min-w-0 p-4 flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -168,11 +169,11 @@ function TarjetaFuente({ f, onEditar, onRegenerar, onEliminar, onVerLeads }) {
       <div className="grid grid-cols-2 gap-2 text-center">
         <button type="button" onClick={() => onVerLeads(f.id)} className="rounded-lg bg-slate-50 dark:bg-slate-900/40 py-2 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition">
           <p className="text-lg font-bold tabular-nums text-slate-800 dark:text-slate-100">{f.totalRecibidos}</p>
-          <p className="text-[11px] uppercase tracking-wide text-slate-400">Leads recibidos</p>
+          <p className="text-xs md:text-[11px] md:uppercase md:tracking-wide text-slate-500 md:text-slate-400">Leads recibidos</p>
         </button>
         <div className="rounded-lg bg-slate-50 dark:bg-slate-900/40 py-2">
           <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mt-1">{f.ultimoUsoEn ? fechaHora(f.ultimoUsoEn) : 'Aún no'}</p>
-          <p className="text-[11px] uppercase tracking-wide text-slate-400 mt-0.5">Último lead</p>
+          <p className="text-xs md:text-[11px] md:uppercase md:tracking-wide text-slate-500 md:text-slate-400 mt-0.5">Último lead</p>
         </div>
       </div>
 
@@ -185,26 +186,26 @@ function TarjetaFuente({ f, onEditar, onRegenerar, onEliminar, onVerLeads }) {
               <Copiar texto={url} />
             </div>
           </div>
-          <button type="button" onClick={() => setVerCodigo((v) => !v)} className="text-xs font-medium text-brand-600 dark:text-brand-400 text-left hover:underline">
+          <button type="button" onClick={() => setVerCodigo((v) => !v)} className="min-h-[44px] md:min-h-0 text-[13px] md:text-xs font-medium text-brand-600 dark:text-brand-400 text-left hover:underline">
             {verCodigo ? 'Ocultar cómo conectarla' : 'Ver cómo conectarla (código y prueba)'}
           </button>
           {verCodigo && (
             <div className="space-y-3">
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-xs font-medium text-slate-600 dark:text-slate-300">Código para el formulario del sitio</p>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <p className="min-w-0 text-xs font-medium text-slate-600 dark:text-slate-300">Código para el formulario del sitio</p>
                   <Copiar texto={snippetFetch(url)} />
                 </div>
                 <Codigo>{snippetFetch(url)}</Codigo>
               </div>
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-xs font-medium text-slate-600 dark:text-slate-300">Prueba desde la terminal</p>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <p className="min-w-0 text-xs font-medium text-slate-600 dark:text-slate-300">Prueba desde la terminal</p>
                   <Copiar texto={snippetCurl(url)} />
                 </div>
                 <Codigo>{snippetCurl(url)}</Codigo>
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400 break-words">
                 Campos: <b>nombre</b>, <b>telefono</b> (al menos uno), email, modalidad, origen, etapa, fecha.
                 Cualquier otro campo que mande el sitio se guarda tal cual y lo ves en la ficha del lead.
                 Si agregas un campo oculto <code>website</code> vacío, sirve de trampa contra bots.
@@ -237,14 +238,14 @@ function TablaLeads({ todos, fuentes, fuenteId, setFuenteId }) {
   return (
     <Card
       title="Leads recibidos"
-      subtitle="Cada envío de formulario. Clic en una fila para abrir la ficha del contacto."
+      subtitle="Cada envío de formulario. Toca uno para abrir la ficha del contacto."
       actions={(
         <div className="flex w-full gap-2 sm:w-auto">
-          <select className="input min-w-0 flex-1 sm:w-auto sm:flex-none text-sm py-1.5" value={fuenteId} onChange={(e) => { setFuenteId(e.target.value); setPagina(1); }}>
+          <select className="input min-w-0 flex-1 h-11 md:h-auto sm:w-auto sm:flex-none text-sm py-1.5" value={fuenteId} onChange={(e) => { setFuenteId(e.target.value); setPagina(1); }}>
             <option value="">Todas las landings</option>
             {fuentes.map((f) => <option key={f.id} value={f.id}>{f.nombre}</option>)}
           </select>
-          <select className="input min-w-0 flex-1 sm:w-auto sm:flex-none text-sm py-1.5" value={resultado} onChange={(e) => { setResultado(e.target.value); setPagina(1); }}>
+          <select className="input min-w-0 flex-1 h-11 md:h-auto sm:w-auto sm:flex-none text-sm py-1.5" value={resultado} onChange={(e) => { setResultado(e.target.value); setPagina(1); }}>
             <option value="">Sin spam</option>
             <option value="CREADO">Nuevos contactos</option>
             <option value="CITA_AGENDADA">Agendaron cita</option>
@@ -255,9 +256,64 @@ function TablaLeads({ todos, fuentes, fuenteId, setFuenteId }) {
       )}
     >
       {isLoading ? <EmptyState message="Cargando…" /> : leads.length === 0 ? (
-        <EmptyState message="Todavía no llegan leads. Conecta una landing y haz una prueba desde tu celular." />
+        <>
+          <p className="md:hidden text-[13px] text-slate-500 dark:text-slate-400">Todavía no llegan leads. Conecta una landing y haz una prueba desde tu celular.</p>
+          <div className="hidden md:block"><EmptyState message="Todavía no llegan leads. Conecta una landing y haz una prueba desde tu celular." /></div>
+        </>
       ) : (
-        <div className="-mx-5 -my-5 overflow-x-auto">
+        <>
+        <ul className="md:hidden -my-1 divide-y divide-black/[0.06] dark:divide-white/[0.08]">
+          {leads.map((l) => {
+            const r = RESULTADOS[l.resultado];
+            const puedeAbrir = l.cliente && !l.cliente.archivadoEn;
+            const wa = ligaWhatsApp(l.telefono);
+            const tel = String(l.telefono || '').replace(/[^\d+]/g, '');
+            const cuerpo = (
+              <>
+                <span className="flex items-center gap-2">
+                  <span className="min-w-0 truncate text-[15px] font-semibold text-slate-800 dark:text-slate-100">{l.nombre || 'Sin nombre'}</span>
+                  {l.cliente?.leadSinVer && <span className="badge shrink-0 bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300">Nuevo</span>}
+                </span>
+                <span className="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400">
+                  {[l.fuente?.nombre || 'Landing eliminada', todos && l.fuente?.usuario ? `${l.fuente.usuario.nombre} ${l.fuente.usuario.apellidoP}` : null, fechaHora(l.recibidoEn)].filter(Boolean).join(' · ')}
+                </span>
+                <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <span className={`badge ${r?.cls || ''}`}>{r?.label || l.resultado}</span>
+                  {l.cita && <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400">{fechaHora(l.cita.fechaHoraInicio)}</span>}
+                  {l.modalidad && <span className="text-xs text-slate-500 dark:text-slate-400">{l.modalidad}</span>}
+                </span>
+              </>
+            );
+            const btn = 'inline-flex h-11 w-11 items-center justify-center rounded-full transition active:scale-[0.97]';
+            return (
+              <li key={l.id} className="flex items-center gap-2 py-2.5">
+                {puedeAbrir ? (
+                  <button type="button" onClick={() => navigate(`/clientes/${l.cliente.id}`)} className="min-w-0 flex-1 text-left">{cuerpo}</button>
+                ) : (
+                  <div className="min-w-0 flex-1">{cuerpo}</div>
+                )}
+                {l.telefono && (
+                  <div className="flex shrink-0 gap-1.5">
+                    <a href={`tel:${tel}`} aria-label={`Llamar a ${l.nombre || 'este contacto'}`} className={`${btn} bg-slate-900/[0.06] text-slate-700 dark:bg-white/[0.1] dark:text-slate-200`}>
+                      <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 01-2.2 2 19.8 19.8 0 01-8.6-3.1 19.5 19.5 0 01-6-6A19.8 19.8 0 012.1 4.2 2 2 0 014.1 2h3a2 2 0 012 1.7c.1 1 .4 1.9.7 2.8a2 2 0 01-.5 2.1L8.1 9.9a16 16 0 006 6l1.3-1.3a2 2 0 012.1-.4c.9.3 1.8.6 2.8.7a2 2 0 011.7 2z" /></svg>
+                    </a>
+                    <a href={wa || waLink(l.telefono)} target="_blank" rel="noreferrer" aria-label={`WhatsApp a ${l.nombre || 'este contacto'}`} className={`${btn} bg-emerald-600/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300`}>
+                      <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 01-12.6 7.3L3 20.5l1.8-5.2A8.4 8.4 0 1121 11.5z" /></svg>
+                    </a>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+        {data?.paginas > 1 && (
+          <div className="md:hidden mt-3 flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+            <button className="btn-secondary h-11 px-4" disabled={pagina <= 1} onClick={() => setPagina((p) => p - 1)}>Anterior</button>
+            <span className="tabular-nums">{data.pagina} de {data.paginas}</span>
+            <button className="btn-secondary h-11 px-4" disabled={pagina >= data.paginas} onClick={() => setPagina((p) => p + 1)}>Siguiente</button>
+          </div>
+        )}
+        <div className="hidden md:block -mx-5 -my-5 overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-100 dark:border-slate-700">
@@ -318,6 +374,7 @@ function TablaLeads({ todos, fuentes, fuenteId, setFuenteId }) {
             </div>
           )}
         </div>
+        </>
       )}
     </Card>
   );
@@ -348,26 +405,46 @@ export default function LeadsLanding() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Agrega tu sitio web</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+          <h1 className="text-xl md:text-2xl font-bold text-slate-800 dark:text-slate-100">Agrega tu sitio web</h1>
+          <p className="text-[13px] md:text-sm text-slate-500 dark:text-slate-400 mt-1">
             Conecta tu landing o formulario: cada persona que lo llene entra sola a tu CRM, con el nombre del sitio del que vino.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center justify-between gap-2 md:w-auto md:justify-start">
           {esAdmin() && (
-            <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 mr-2">
+            <label className="flex min-h-[44px] items-center gap-2 text-sm text-slate-600 dark:text-slate-300 mr-2 md:min-h-0">
               <input type="checkbox" checked={todos} onChange={(e) => { setTodos(e.target.checked); setFuenteId(''); }} />
               Ver todo el equipo
             </label>
           )}
-          <button className="btn-primary" onClick={() => setModal({ open: true, fuente: null })}>+ Conectar landing</button>
+          <button className={`btn-primary h-11 md:h-auto ${esAdmin() ? '' : 'w-full md:w-auto'}`} onClick={() => setModal({ open: true, fuente: null })}>+ Conectar landing</button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="card md:hidden px-1 py-3">
+        <div className="grid grid-cols-3 divide-x divide-black/[0.06] dark:divide-white/[0.08] text-center">
+          <div className="px-2">
+            <p className="text-xl font-semibold tabular-nums text-brand-600 dark:text-brand-400">{activas}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Recibiendo</p>
+          </div>
+          <div className="px-2">
+            <p className="text-xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{total}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Leads</p>
+          </div>
+          <div className="px-2">
+            <p className={`text-xl font-semibold tabular-nums ${sinVer > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-slate-100'}`}>{sinVer}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Sin ver</p>
+          </div>
+        </div>
+        {sinVer > 0 && (
+          <button className="mt-1 h-11 w-full text-[13px] font-medium text-brand-600 dark:text-brand-400" onClick={() => marcarVistos.mutate()}>Marcar todos como vistos</button>
+        )}
+      </div>
+
+      <div className="hidden md:grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="kpi kpi-accent">
           <p className="kpi-label">Landings recibiendo</p>
           <p className="kpi-val tabular-nums">{activas}</p>
@@ -390,7 +467,7 @@ export default function LeadsLanding() {
       </div>
 
       {isLoading ? <EmptyState message="Cargando…" /> : fuentes.length === 0 ? (
-        <div className="card p-8 text-center">
+        <div className="card p-5 md:p-8 text-center">
           <p className="font-semibold text-slate-700 dark:text-slate-200">Aún no conectas ninguna landing</p>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
             Crea una (por ejemplo "Landing tarjeta QR"), copia su URL y pásala a quien hace tu sitio. Para cada sitio nuevo, crea otra con su propio nombre.
@@ -398,7 +475,7 @@ export default function LeadsLanding() {
           <button className="btn-primary mt-4" onClick={() => setModal({ open: true, fuente: null })}>+ Conectar mi primera landing</button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4">
           {fuentes.map((f) => (
             <TarjetaFuente key={f.id} f={f}
               onEditar={(x) => setModal({ open: true, fuente: x })}

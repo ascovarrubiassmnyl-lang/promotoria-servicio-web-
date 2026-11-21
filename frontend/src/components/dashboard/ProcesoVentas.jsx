@@ -18,7 +18,7 @@ const DOTS_PROCESO = ['bg-slate-400', 'bg-sky-500', 'bg-violet-500', 'bg-teal-50
 // marca en ámbar como cuello de botella.
 const CUELLO_BOTELLA_PCT = 50;
 
-export default function ProcesoVentas({ proceso }) {
+export default function ProcesoVentas({ proceso, compacto = false }) {
   // UNA sola lectura del proceso (antes eran dos, "Pipeline" y "Actividad",
   // en un toggle): el usuario pidió consolidarlas porque medían "casi las
   // mismas métricas solo divididas" y obligaban a reconciliar dos embudos.
@@ -32,8 +32,11 @@ export default function ProcesoVentas({ proceso }) {
   ), null);
   const idxPeor = peor ? niveles.indexOf(peor) : -1;
 
+  // En celular (compacto) un proceso sin actividad no ocupa tarjeta.
+  if (compacto && total === 0) return null;
+
   return (
-    <section className="card p-5 sm:p-7">
+    <section className={`card ${compacto ? 'p-4' : 'p-5 sm:p-7'}`}>
       <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Proceso de ventas</h3>
       <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
         Lo que pasó este mes, del prospecto nuevo a la póliza pagada
@@ -51,9 +54,12 @@ export default function ProcesoVentas({ proceso }) {
             {niveles.map((n, i) => (
               <div key={n.clave}>
                 {n.conversionPct != null && (
-                  <p className="py-0.5 pl-[104px] text-[11px] tabular-nums text-slate-400 dark:text-slate-500 sm:pl-[132px]">
-                    <span className={n.conversionPct < CUELLO_BOTELLA_PCT ? 'font-bold text-amber-600 dark:text-amber-400' : ''}>
-                      {niveles[i - 1].label} → {n.label}: {n.conversionPct}%
+                  <p className="py-0.5 pl-[104px] text-xs md:text-[11px] tabular-nums text-slate-400 dark:text-slate-500 sm:pl-[132px]">
+                    <span
+                      className={n.conversionPct < CUELLO_BOTELLA_PCT ? 'font-bold text-amber-600 dark:text-amber-400' : ''}
+                      aria-label={`${niveles[i - 1].label} a ${n.label}: ${n.conversionPct}%`}
+                    >
+                      {compacto ? `↓ ${n.conversionPct}%` : `${niveles[i - 1].label} → ${n.label}: ${n.conversionPct}%`}
                     </span>
                   </p>
                 )}

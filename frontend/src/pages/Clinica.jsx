@@ -6,16 +6,17 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { Card, Modal, Field, EmptyState, Badge, MenuAcciones } from '../components/ui.jsx';
 import { fechaCorta, isoLocalDateInput } from '../lib/format.js';
 import { rangoSemana, labelSemana, isoDia } from '../lib/semana.js';
+import { ligaWhatsApp } from '../components/clientes/RegistrarLlamadaModal.jsx';
 
 // Clínica telefónica: digitaliza el "Evaluador de Prospectos" semanal (meta:
 // 10 citas por semana) + registro de sesiones de clínica (meta: 2 por semana).
 // Mapa único de resultados del prospecto — no duplicar labels/colores.
 const RESULTADOS = {
-  PENDIENTE: { value: 'PENDIENTE', label: 'Pendiente', badge: 'slate' },
-  CONTACTADO: { value: 'CONTACTADO', label: 'Contactado', badge: 'blue' },
-  CITA_OBTENIDA: { value: 'CITA_OBTENIDA', label: 'Cita obtenida', badge: 'green' },
-  CONVERTIDO: { value: 'CONVERTIDO', label: 'Convertido en cliente', badge: 'purple' },
-  DESCARTADO: { value: 'DESCARTADO', label: 'Descartado', badge: 'red' },
+  PENDIENTE: { value: 'PENDIENTE', label: 'Pendiente', corto: 'Pendiente', badge: 'slate', chipOn: 'bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900' },
+  CONTACTADO: { value: 'CONTACTADO', label: 'Contactado', corto: 'Contactado', badge: 'blue', chipOn: 'bg-blue-600 text-white dark:bg-blue-500' },
+  CITA_OBTENIDA: { value: 'CITA_OBTENIDA', label: 'Cita obtenida', corto: 'Cita', badge: 'green', chipOn: 'bg-emerald-600 text-white dark:bg-emerald-500' },
+  CONVERTIDO: { value: 'CONVERTIDO', label: 'Convertido en cliente', corto: 'Convertido', badge: 'purple' },
+  DESCARTADO: { value: 'DESCARTADO', label: 'Descartado', corto: 'Descartado', badge: 'red', chipOn: 'bg-red-600 text-white dark:bg-red-500' },
 };
 const infoResultado = (v) => RESULTADOS[v] || { value: v, label: v || '—', badge: 'slate' };
 
@@ -125,6 +126,125 @@ function ProspectoFormModal({ open, onClose, onSaved, prospecto = null, semanaIn
   );
 }
 
+// Teléfono marcable a partir del campo libre "contacto" (puede traer texto):
+// solo se ofrecen Llamar / WhatsApp si hay al menos 10 dígitos.
+function telefonoDe(contacto) {
+  const digitos = String(contacto || '').replace(/\D/g, '');
+  return digitos.length >= 10 ? digitos : null;
+}
+
+const IconoTel = () => (
+  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M22 16.9v3a2 2 0 01-2.2 2 19.8 19.8 0 01-8.6-3.1 19.5 19.5 0 01-6-6A19.8 19.8 0 012.1 4.2 2 2 0 014.1 2h3a2 2 0 012 1.7c.1 1 .4 1.9.7 2.8a2 2 0 01-.5 2.1L8.1 9.9a16 16 0 006 6l1.3-1.3a2 2 0 012.1-.4c.9.3 1.8.6 2.8.7a2 2 0 011.7 2z" />
+  </svg>
+);
+const IconoWa = () => (
+  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M21 11.5a8.4 8.4 0 01-12.6 7.3L3 20.5l1.8-5.2A8.4 8.4 0 1121 11.5z" />
+  </svg>
+);
+
+// Tarjeta de un prospecto en celular (< md): nombre, Llamar / WhatsApp, el
+// resultado a un toque y el resto del perfil detrás de "Ver detalles".
+function ProspectoTarjeta({ p, onResultado, onVerExpediente, menu }) {
+  const [abierto, setAbierto] = useState(false);
+  const res = infoResultado(p.resultado);
+  const tel = telefonoDe(p.contacto);
+  const wa = tel ? ligaWhatsApp(tel) : null;
+  const detalles = [
+    p.contacto && !tel ? ['Contacto', p.contacto] : null,
+    p.edad ? ['Edad', `${p.edad} años`] : null,
+    p.estadoCivil ? ['Estado civil', p.estadoCivil] : null,
+    p.ocupacion ? ['Ocupación', p.ocupacion] : null,
+    p.dependientes ? ['Dependientes', p.dependientes] : null,
+    p.tieneSeguro !== null && p.tieneSeguro !== undefined ? ['¿Tiene seguro?', p.tieneSeguro ? 'Sí' : 'No'] : null,
+    p.fechaEntrevista ? ['Entrevista', fechaCorta(p.fechaEntrevista)] : null,
+    p.planSeguimiento ? ['Plan de seguimiento', p.planSeguimiento] : null,
+  ].filter(Boolean);
+  const btn = 'inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-full text-sm font-medium transition active:scale-[0.97]';
+
+  return (
+    <li className="py-3 first:pt-0 last:pb-0">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[15px] font-semibold leading-snug text-slate-800 dark:text-slate-100 break-words">{p.nombre}</p>
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 break-words">
+            {[p.parentesco, tel ? p.contacto : null].filter(Boolean).join(' · ') || (tel ? '' : 'Sin teléfono')}
+          </p>
+        </div>
+        <div className="-mr-1 -mt-1 shrink-0">{menu}</div>
+      </div>
+
+      {(tel || p.cliente) && (
+        <div className="mt-2 flex gap-2">
+          {tel && (
+            <a href={`tel:${tel.length === 10 ? `+52${tel}` : `+${tel}`}`} className={`${btn} bg-brand-600 text-white dark:bg-brand-500`}>
+              <IconoTel /> Llamar
+            </a>
+          )}
+          {wa && (
+            <a href={wa} target="_blank" rel="noreferrer" className={`${btn} bg-emerald-600/10 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300`}>
+              <IconoWa /> WhatsApp
+            </a>
+          )}
+          {p.cliente && (
+            <button type="button" onClick={onVerExpediente} className={`${btn} bg-slate-900/[0.06] text-slate-700 dark:bg-white/[0.1] dark:text-slate-200`}>
+              Expediente
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="mt-2">
+        {p.resultado === 'CONVERTIDO' ? (
+          <Badge color={res.badge}>{res.label}</Badge>
+        ) : (
+          <div role="group" aria-label={`Resultado de ${p.nombre}`} className="flex gap-0.5 rounded-full bg-slate-900/[0.06] p-0.5 dark:bg-white/[0.08]">
+            {Object.values(RESULTADOS).filter((r) => r.value !== 'CONVERTIDO').map((r) => {
+              const on = p.resultado === r.value;
+              return (
+                <button
+                  key={r.value}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => !on && onResultado(r.value)}
+                  className={`h-10 min-w-0 flex-1 rounded-full px-1 text-xs font-medium transition ${on ? `${r.chipOn} shadow-sm` : 'text-slate-600 dark:text-slate-300'}`}
+                >
+                  {r.corto}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {detalles.length > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={() => setAbierto((v) => !v)}
+            aria-expanded={abierto}
+            className="mt-1 inline-flex h-11 items-center gap-1 text-[13px] font-medium text-brand-600 dark:text-brand-400"
+          >
+            {abierto ? 'Ocultar detalles' : 'Ver detalles'}
+            <svg className={`h-4 w-4 transition-transform ${abierto ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+          </button>
+          {abierto && (
+            <dl className="space-y-1.5 rounded-xl bg-slate-50 p-3 text-[13px] dark:bg-slate-900/40">
+              {detalles.map(([k, v]) => (
+                <div key={k} className="flex gap-3">
+                  <dt className="w-28 shrink-0 text-slate-500 dark:text-slate-400">{k}</dt>
+                  <dd className="min-w-0 flex-1 break-words text-slate-800 dark:text-slate-100">{v}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </>
+      )}
+    </li>
+  );
+}
+
 export default function Clinica() {
   const { esAdmin, user } = useAuth();
   const qc = useQueryClient();
@@ -226,22 +346,33 @@ export default function Clinica() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Clínica telefónica</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+          <p className="hidden md:block text-sm text-slate-500 dark:text-slate-400 mt-0.5">
             Evaluador de prospectos · diseñado para conseguir {metas.citasSemana} citas a la semana · {nombreScope}
           </p>
+          {asesorId && <p className="md:hidden text-[13px] text-slate-500 dark:text-slate-400 mt-0.5">Lista de {nombreScope}</p>}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center gap-2 md:w-auto">
           {esAdmin() && (
-            <select className="input w-auto" value={fAsesor} onChange={(e) => setFAsesor(e.target.value)}>
+            <select className="input min-w-0 flex-1 h-11 md:h-auto md:w-auto md:flex-none" value={fAsesor} onChange={(e) => setFAsesor(e.target.value)}>
               <option value="">Mi lista</option>
               {asesores?.map((a) => <option key={a.id} value={a.id}>{a.nombre} {a.apellidoP}</option>)}
             </select>
           )}
-          <button onClick={() => { setProspectoEdit(null); setModalOpen(true); }} className="btn-primary">+ Agregar prospecto</button>
+          <button onClick={() => { setProspectoEdit(null); setModalOpen(true); }} className={`btn-primary h-11 shrink-0 md:h-auto ${esAdmin() ? '' : 'flex-1 md:flex-none'}`}>+ Agregar prospecto</button>
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* Celular: navegación de semana solo con flechas; tocar la fecha regresa a esta semana */}
+      <div className="flex items-center justify-between gap-2 md:hidden">
+        <button onClick={() => setOffset((o) => o - 1)} aria-label="Semana anterior" className="btn-secondary h-11 w-11 shrink-0 !p-0 text-base">←</button>
+        <button onClick={() => setOffset(0)} disabled={offset === 0} className="min-w-0 flex-1 h-11 text-center">
+          <span className="block truncate text-sm font-semibold text-slate-800 dark:text-slate-100">{labelSemana(semana)}</span>
+          {offset !== 0 && <span className="block text-xs font-medium text-brand-600 dark:text-brand-400">Volver a esta semana</span>}
+        </button>
+        <button onClick={() => setOffset((o) => o + 1)} aria-label="Semana siguiente" className="btn-secondary h-11 w-11 shrink-0 !p-0 text-base">→</button>
+      </div>
+
+      <div className="hidden md:flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-1.5">
           <button onClick={() => setOffset((o) => o - 1)} className="btn-secondary px-3">← Semana anterior</button>
           <button onClick={() => setOffset(0)} className={`btn-secondary px-3 ${offset === 0 ? '!bg-slate-100 dark:!bg-slate-700' : ''}`}>Esta semana</button>
@@ -250,7 +381,28 @@ export default function Clinica() {
         <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">{labelSemana(semana)}</p>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Celular: una sola franja compacta con las dos metas de la semana */}
+      <div className="card md:hidden px-4 py-3">
+        <div className="grid grid-cols-2 divide-x divide-black/[0.06] dark:divide-white/[0.08]">
+          <div className="pr-3">
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Citas obtenidas</p>
+            <p className={`text-[22px] font-semibold leading-tight tabular-nums ${citasObtenidas >= metas.citasSemana ? 'text-emerald-600 dark:text-emerald-400' : 'text-brand-600 dark:text-brand-400'}`}>
+              {citasObtenidas}<span className="text-sm font-normal text-slate-400"> / {metas.citasSemana}</span>
+            </p>
+          </div>
+          <div className="pl-3">
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Sesiones</p>
+            <p className={`text-[22px] font-semibold leading-tight tabular-nums ${sesiones.length >= metas.sesionesSemana ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+              {sesiones.length}<span className="text-sm font-normal text-slate-400"> / {metas.sesionesSemana}</span>
+            </p>
+          </div>
+        </div>
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          {prospectos.length} en lista · {contactados} contactado{contactados === 1 ? '' : 's'}
+        </p>
+      </div>
+
+      <div className="hidden md:grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className={`kpi ${citasObtenidas >= metas.citasSemana ? 'kpi-green' : 'kpi-accent'}`}>
           <p className="kpi-label">Citas obtenidas</p>
           <p className="kpi-val">{citasObtenidas} <span className="text-sm font-normal text-slate-400">/ {metas.citasSemana}</span></p>
@@ -281,13 +433,41 @@ export default function Clinica() {
             <div className="py-6 text-center text-slate-400 dark:text-slate-500">Cargando…</div>
           ) : !prospectos.length ? (
             <div className="space-y-3">
-              <EmptyState message="Sin prospectos esta semana. Los prospectos del CRM entran aquí solos en cuanto llevan días sin que les llames." />
-              <div className="flex flex-wrap gap-2">
+              <p className="md:hidden text-[13px] text-slate-500 dark:text-slate-400">
+                Sin prospectos esta semana. Entran solos cuando llevan días sin que les llames.
+              </p>
+              <div className="hidden md:block">
+                <EmptyState message="Sin prospectos esta semana. Los prospectos del CRM entran aquí solos en cuanto llevan días sin que les llames." />
+              </div>
+              <div className="hidden md:flex flex-wrap gap-2">
                 <button onClick={() => { setProspectoEdit(null); setModalOpen(true); }} className="btn-secondary text-xs">+ Agregar prospecto</button>
               </div>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+            <ul className="md:hidden divide-y divide-black/[0.06] dark:divide-white/[0.08]">
+              {prospectos.map((p) => (
+                <ProspectoTarjeta
+                  key={p.id}
+                  p={p}
+                  onResultado={(r) => cambiarResultado(p, r)}
+                  onVerExpediente={() => navigate(`/clientes/${p.cliente.id}`)}
+                  menu={(
+                    <MenuAcciones
+                      label={`Acciones de ${p.nombre}`}
+                      items={[
+                        { label: 'Editar', onClick: () => { setProspectoEdit(p); setModalOpen(true); } },
+                        !p.clienteId && { label: 'Convertir en cliente', onClick: () => convertir(p) },
+                        { label: 'Pasar a la próxima semana', onClick: () => pasarASemanaSiguiente(p) },
+                        'sep',
+                        { label: 'Eliminar', onClick: () => setToDelete(p), danger: true },
+                      ]}
+                    />
+                  )}
+                />
+              ))}
+            </ul>
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-[10px] uppercase text-slate-400 dark:text-slate-500 text-left">
@@ -357,26 +537,29 @@ export default function Clinica() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </Card>
 
         <Card title="Sesiones de clínica" subtitle={`Registra cada clínica realizada (meta: ${metas.sesionesSemana}/semana).`}>
-          <form onSubmit={registrarSesion} className="space-y-2 rounded-lg border border-slate-100 dark:border-slate-700 p-3">
-            <div className="grid grid-cols-3 gap-2">
+          <form onSubmit={registrarSesion} className="space-y-3 md:space-y-2 md:rounded-lg md:border md:border-slate-100 md:dark:border-slate-700 md:p-3">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-2">
+              <div className="col-span-2 md:col-span-1">
               <Field label="Fecha">
-                <input type="date" className="input !py-1.5 text-xs" value={sesionForm.fecha} onChange={(e) => setSesionForm((f) => ({ ...f, fecha: e.target.value }))} />
+                <input type="date" className="input h-11 text-base md:h-auto md:!py-1.5 md:text-xs" value={sesionForm.fecha} onChange={(e) => setSesionForm((f) => ({ ...f, fecha: e.target.value }))} />
               </Field>
+              </div>
               <Field label="Llamadas">
-                <input type="number" min="0" className="input !py-1.5 text-xs" value={sesionForm.llamadas} onChange={(e) => setSesionForm((f) => ({ ...f, llamadas: e.target.value }))} />
+                <input type="number" min="0" className="input h-11 text-base md:h-auto md:!py-1.5 md:text-xs" value={sesionForm.llamadas} onChange={(e) => setSesionForm((f) => ({ ...f, llamadas: e.target.value }))} />
               </Field>
               <Field label="Citas">
-                <input type="number" min="0" className="input !py-1.5 text-xs" value={sesionForm.citasObtenidas} onChange={(e) => setSesionForm((f) => ({ ...f, citasObtenidas: e.target.value }))} />
+                <input type="number" min="0" className="input h-11 text-base md:h-auto md:!py-1.5 md:text-xs" value={sesionForm.citasObtenidas} onChange={(e) => setSesionForm((f) => ({ ...f, citasObtenidas: e.target.value }))} />
               </Field>
             </div>
             <Field label="Notas">
-              <input className="input !py-1.5 text-xs" value={sesionForm.notas} onChange={(e) => setSesionForm((f) => ({ ...f, notas: e.target.value }))} placeholder="Opcional" />
+              <input className="input h-11 text-base md:h-auto md:!py-1.5 md:text-xs" value={sesionForm.notas} onChange={(e) => setSesionForm((f) => ({ ...f, notas: e.target.value }))} placeholder="Opcional" />
             </Field>
-            <button type="submit" className="btn-primary w-full text-xs">Registrar sesión</button>
+            <button type="submit" className="btn-primary w-full h-11 md:h-auto md:text-xs">Registrar sesión</button>
           </form>
 
           <div className="mt-3 space-y-2">
@@ -407,7 +590,24 @@ export default function Clinica() {
           {!resumen?.filas?.length ? (
             <EmptyState message="Sin asesores activos." />
           ) : (
-            <div className="overflow-x-auto">
+            <>
+            <ul className="md:hidden divide-y divide-black/[0.06] dark:divide-white/[0.08]">
+              {resumen.filas.map((f) => (
+                <li key={f.asesor.id}>
+                  <button type="button" onClick={() => setFAsesor(f.asesor.id)} className="flex min-h-[52px] w-full items-center justify-between gap-3 py-2 text-left">
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium text-slate-800 dark:text-slate-100">{f.asesor.nombre} {f.asesor.apellidoP}</span>
+                      <span className="block text-xs text-slate-500 dark:text-slate-400">{f.prospectos} en lista · {f.contactados} contactado{f.contactados === 1 ? '' : 's'}</span>
+                    </span>
+                    <span className="shrink-0 text-right text-xs tabular-nums text-slate-500 dark:text-slate-400">
+                      <span className={`block text-sm font-semibold ${f.citasObtenidas >= resumen.metas.citasSemana ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-800 dark:text-slate-100'}`}>{f.citasObtenidas} / {resumen.metas.citasSemana} citas</span>
+                      <span className={f.sesiones >= resumen.metas.sesionesSemana ? 'text-emerald-600 dark:text-emerald-400' : ''}>{f.sesiones} / {resumen.metas.sesionesSemana} sesiones</span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-[10px] uppercase text-slate-400 dark:text-slate-500 text-left">
@@ -440,6 +640,7 @@ export default function Clinica() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </Card>
       )}

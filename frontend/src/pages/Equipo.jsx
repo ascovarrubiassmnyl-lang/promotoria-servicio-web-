@@ -52,11 +52,11 @@ export default function Equipo() {
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Selecciona un asesor para ver el detalle de su cartera</p>
         </div>
         {user?.rol === 'ADMIN' && (
-          <button className="btn-primary" onClick={() => navigate(`/equipo/${user.id}`)}>Mis pólizas</button>
+          <button className="btn-primary min-h-[44px] md:min-h-0" onClick={() => navigate(`/equipo/${user.id}`)}>Mis pólizas</button>
         )}
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 md:gap-4 max-md:[&_.kpi]:p-3 max-md:[&_.kpi-val]:text-[19px] max-md:[&_.kpi-label]:text-xs">
         <div className="kpi kpi-accent">
           <p className="kpi-label">Asesores activos</p>
           <p className="kpi-val">{resumen ? resumen.filter((x) => x.asesor.rol !== 'ADMIN').length : '—'}</p>
@@ -79,9 +79,9 @@ export default function Equipo() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-3">
-        <input className="input w-auto min-w-[220px]" placeholder="Buscar asesor…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select className="input w-auto" value={filtro} onChange={(e) => setFiltro(e.target.value)}>
+      <div className="flex flex-wrap gap-2 md:gap-3">
+        <input className="input w-auto min-w-[160px] md:min-w-[220px] max-md:flex-1 max-md:min-h-[44px]" placeholder="Buscar asesor…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <select className="input w-auto max-md:min-h-[44px]" value={filtro} onChange={(e) => setFiltro(e.target.value)}>
           <option value="">Todos los asesores</option>
           <option value="pendientes">Con pendientes</option>
         </select>
@@ -89,7 +89,43 @@ export default function Equipo() {
 
       <div className="card overflow-hidden">
         {isLoading ? <EmptyState message="Cargando…" /> : filas.length === 0 ? <EmptyState message="Sin asesores" /> : (
-          <div className="overflow-x-auto">
+          <>
+          {/* Celular: una tarjeta por asesor. Ganada y pipeline van en
+              columnas separadas, nunca sumadas. */}
+          <ul className="md:hidden divide-y divide-slate-100 dark:divide-slate-700/60">
+            {filas.map((x) => (
+              <li key={x.asesor.id}>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/equipo/${x.asesor.id}`)}
+                  className="w-full px-4 py-3 text-left active:bg-slate-50 dark:active:bg-slate-700/40"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="avatar">{iniciales(x.asesor)}</div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[15px] font-semibold text-slate-800 dark:text-slate-100 truncate">{nombreCompleto(x.asesor)}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                        {x.asesor.rol === 'ADMIN' ? (x.asesor.id === user?.id ? 'Promotora · tu cartera propia' : 'Promotora · cartera propia') : 'Asesor'}
+                        {' · '}{x.polizas} póliza{x.polizas === 1 ? '' : 's'} · cierre {x.cierrePct}%
+                      </p>
+                    </div>
+                    <svg className="w-4 h-4 shrink-0 text-slate-300 dark:text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M9 6l6 6-6 6" /></svg>
+                  </div>
+                  <div className="mt-2.5 grid grid-cols-2 gap-3 pl-12">
+                    <div className="min-w-0">
+                      <p className="text-xs text-slate-500 dark:text-slate-400">Comisión ganada</p>
+                      <p className="money-earned text-[15px] truncate">{mxn(x.comisionGanada)}</p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs text-slate-500 dark:text-slate-400">En pipeline</p>
+                      <p className="money-pending text-[15px] truncate">{mxn(x.comisionPipeline)}</p>
+                    </div>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
@@ -136,6 +172,7 @@ export default function Equipo() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
     </div>
@@ -168,10 +205,10 @@ export function EquipoAsesor() {
         <span> / </span>
         <span>{nombre}</span>
       </p>
-      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-700">
+      <div className="flex gap-1 border-b border-slate-200 dark:border-slate-700 max-md:overflow-x-auto max-md:overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {tabs.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === t.id ? 'border-brand-600 text-brand-600 dark:text-brand-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
+            className={`shrink-0 whitespace-nowrap min-h-[44px] md:min-h-0 px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === t.id ? 'border-brand-600 text-brand-600 dark:text-brand-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
             {t.label}
           </button>
         ))}
